@@ -42,5 +42,6 @@ data class DocumentEditorUiState(
     val idCardFrontBitmap: Bitmap? = null,
     val idCardBackBitmap: Bitmap? = null,
     val extractedSignature: Bitmap? = null,
-    val exportUri: String? = null
+    val exportUri: String? = null,
+    val canvasRevision: Long = 0L
 )

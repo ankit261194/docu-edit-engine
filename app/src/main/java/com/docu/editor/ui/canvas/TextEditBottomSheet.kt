@@ -301,6 +301,16 @@ fun TextEditBottomSheet(
                                 selectedLabelColor = Color.White
                             )
                         )
+
+                        FilterChip(
+                            selected = selectedFontType == FontClassification.DEVANAGARI,
+                            onClick = { selectedFontType = FontClassification.DEVANAGARI },
+                            label = { Text("Hindi (मंगळ)", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF2563EB),
+                                selectedLabelColor = Color.White
+                            )
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))

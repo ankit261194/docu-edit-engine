@@ -12,7 +12,8 @@ enum class FontClassification(val displayName: String) {
     SANS_SERIF("Arial / Standard"),
     CALIBRI("Calibri / Office"),
     SERIF("Times New Roman / Formal"),
-    MONOSPACE("Courier / Receipt")
+    MONOSPACE("Courier / Receipt"),
+    DEVANAGARI("Mangal / Hindi")
 }
 
 class FontMatcher(private val context: Context) {
@@ -72,12 +73,21 @@ class FontMatcher(private val context: Context) {
                     val assetName = if (isBold) "fonts/courbd.ttf" else "fonts/cour.ttf"
                     Typeface.createFromAsset(context.assets, assetName)
                 }
+                FontClassification.DEVANAGARI -> {
+                    val assetName = if (isBold) "fonts/mangalb.ttf" else "fonts/mangal.ttf"
+                    try {
+                        Typeface.createFromAsset(context.assets, assetName)
+                    } catch (_: Exception) {
+                        val nirmalaAsset = if (isBold) "fonts/nirmalab.ttf" else "fonts/nirmala.ttf"
+                        Typeface.createFromAsset(context.assets, nirmalaAsset)
+                    }
+                }
             }
         } catch (_: Exception) {
             // Graceful fallback to Android system fonts if asset is missing
             val sysFamily = when (classification) {
                 FontClassification.SERIF -> Typeface.SERIF
-                FontClassification.SANS_SERIF, FontClassification.CALIBRI -> Typeface.SANS_SERIF
+                FontClassification.SANS_SERIF, FontClassification.CALIBRI, FontClassification.DEVANAGARI -> Typeface.SANS_SERIF
                 FontClassification.MONOSPACE -> Typeface.MONOSPACE
             }
             Typeface.create(sysFamily, if (isBold) Typeface.BOLD else Typeface.NORMAL)
@@ -93,6 +103,11 @@ class FontMatcher(private val context: Context) {
             metrics: TypographyMetrics,
             bounds: Rect? = null
         ): FontClassification {
+            // 0. Devanagari Hindi Script Detection (Unicode \u0900..\u097F)
+            if (text.any { it in '\u0900'..'\u097F' }) {
+                return FontClassification.DEVANAGARI
+            }
+
             val avgCharWidth = if (bounds != null && bounds.width() > 0) {
                 bounds.width().toFloat() / max(1, text.length)
             } else {

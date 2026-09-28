@@ -64,7 +64,14 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val masterOutput = cleanedBackground.copy(Bitmap.Config.ARGB_8888, true)
         val masterCanvas = Canvas(masterOutput)
 
-        val startX = params.targetBounds.left.toFloat()
+        val isAmount = isNumericOrCurrency(params.newText) || isNumericOrCurrency(params.originalText)
+        val renderedWidth = paint.measureText(params.newText)
+        val startX = if (isAmount && renderedWidth < params.targetBounds.width()) {
+            // Right-align invoice amounts, totals, and numbers so table decimal columns align perfectly
+            params.targetBounds.right.toFloat() - renderedWidth
+        } else {
+            params.targetBounds.left.toFloat()
+        }
         val pivotX = params.targetBounds.exactCenterX()
         val pivotY = params.targetBounds.exactCenterY()
 
@@ -103,6 +110,13 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             luma in 81..145 -> Color.rgb(40, 42, 48)
             else -> sampledRgb
         }
+    }
+
+    private fun isNumericOrCurrency(text: String): Boolean {
+        val clean = text.trim()
+        if (clean.isEmpty()) return false
+        val numericOrSymbols = clean.count { it.isDigit() || it in "₹$€£.,%/-+:#" }
+        return numericOrSymbols >= (clean.length * 0.70f) && clean.any { it.isDigit() }
     }
 
     private fun drawRotatedText(

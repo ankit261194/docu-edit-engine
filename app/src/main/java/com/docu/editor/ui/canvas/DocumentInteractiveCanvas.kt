@@ -42,6 +42,7 @@ fun DocumentInteractiveCanvas(
     detectedItems: List<DetectedTextItem>,
     selectedItem: DetectedTextItem?,
     activeMode: EditorToolMode = EditorToolMode.TEXT_EDIT,
+    canvasRevision: Long = 0L,
     onTextItemTapped: (DetectedTextItem) -> Unit,
     onWhiteoutTouch: (bitmapX: Float, bitmapY: Float) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
@@ -61,7 +62,7 @@ fun DocumentInteractiveCanvas(
             .background(Color(0xFFE2E8F0)) // High-contrast neutral document canvas
             .onSizeChanged { containerSize = it }
             .transformable(state = transformState)
-            .pointerInput(bitmap, detectedItems, containerSize, scale, offset, activeMode) {
+            .pointerInput(bitmap, detectedItems, containerSize, scale, offset, activeMode, canvasRevision) {
                 if (activeMode == EditorToolMode.WHITEOUT) {
                     // Whiteout mode: drag or tap to erase unwanted ink/dots with pure paper white
                     detectDragGestures(
@@ -134,6 +135,7 @@ fun DocumentInteractiveCanvas(
             }
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
+            val _rev = canvasRevision
             if (size.width == 0f || size.height == 0f) return@Canvas
 
             val fitScale = min(size.width / bitmap.width, size.height / bitmap.height)

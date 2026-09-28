@@ -10,7 +10,7 @@ import com.docu.editor.core.ocr.util.TypographyEstimator
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -18,11 +18,12 @@ import java.util.UUID
 
 class OcrAnalyzer {
 
-    private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    // DevanagariTextRecognizerOptions recognizes BOTH Latin (English) and Devanagari (Hindi) natively!
+    private val recognizer = TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
 
     suspend fun detectTextBlocks(
         bitmap: Bitmap,
-        hierarchyLevel: TextHierarchyLevel = TextHierarchyLevel.LINE
+        hierarchyLevel: TextHierarchyLevel = TextHierarchyLevel.ELEMENT
     ): List<DetectedTextItem> = withContext(Dispatchers.Default) {
         val image = InputImage.fromBitmap(bitmap, 0)
         val visionText: Text = recognizer.process(image).await()
@@ -69,6 +70,9 @@ class OcrAnalyzer {
                     for (line in block.lines) {
                         for (element in line.elements) {
                             val bounds = element.boundingBox ?: continue
+                            // Ignore single punctuation or empty whitespace tokens
+                            if (element.text.trim().isEmpty()) continue
+
                             val item = processRegion(
                                 bitmap = bitmap,
                                 rawText = element.text,

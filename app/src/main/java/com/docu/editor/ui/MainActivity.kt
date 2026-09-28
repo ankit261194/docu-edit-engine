@@ -310,6 +310,7 @@ class MainActivity : ComponentActivity() {
                                 detectedItems = uiState.detectedItems,
                                 selectedItem = uiState.selectedItem,
                                 activeMode = uiState.activeToolMode,
+                                canvasRevision = uiState.canvasRevision,
                                 onTextItemTapped = { viewModel.selectTextItem(it) },
                                 onWhiteoutTouch = { x, y -> viewModel.applyWhiteoutCircle(x, y) }
                             )
