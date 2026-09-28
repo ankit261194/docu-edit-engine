@@ -22,6 +22,15 @@ android {
         }
     }
 
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = true
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -83,6 +92,7 @@ dependencies {
 
     // Computer Vision & ML
     implementation(libs.mlkit.text.recognition)
+    implementation(libs.mlkit.text.recognition.devanagari)
     implementation(libs.opencv.android)
     implementation(libs.pdfbox.android)
     implementation(libs.coil.compose)
