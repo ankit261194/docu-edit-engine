@@ -25,7 +25,11 @@ import com.docu.editor.core.font.FontMatcher
 import com.docu.editor.core.ocr.OcrAnalyzer
 import com.docu.editor.core.ocr.model.DetectedTextItem
 import com.docu.editor.core.ocr.model.TextHierarchyLevel
+import android.graphics.Point
+import com.docu.editor.core.ocr.model.FontWeightEstimate
+import com.docu.editor.core.ocr.model.TypographyMetrics
 import com.docu.editor.core.pdf.PdfCompressionEngine
+import com.docu.editor.core.pdf.PdfExportEngine
 import com.docu.editor.core.pdf.PdfPageLoader
 import com.docu.editor.core.pdf.PdfToolbox
 import com.docu.editor.core.rendering.ArtifactBlendingEngine
@@ -306,15 +310,28 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 // Update bounding box width to match new text length
                 val charW = (targetItem.boundingBox.height() * 0.52f) * sizeMultiplier
                 val newWidth = (newText.length * charW).toInt().coerceAtLeast(24)
-                val newBox = Rect(
-                    targetItem.boundingBox.left,
-                    targetItem.boundingBox.top,
-                    targetItem.boundingBox.left + newWidth,
-                    targetItem.boundingBox.bottom
-                )
 
-                val updatedItems = _uiState.value.detectedItems.map {
-                    if (it.id == targetItem.id) it.copy(text = newText, boundingBox = newBox) else it
+                val isNumericFigure = newText.trim().matches(Regex("""^[$€£₹]?\s*[\d,.-]+%?$""")) ||
+                                      targetItem.text.trim().matches(Regex("""^[$€£₹]?\s*[\d,.-]+%?$"""))
+
+                val newBox = if (isNumericFigure) {
+                    val newLeft = (targetItem.boundingBox.right - newWidth).coerceAtLeast(0)
+                    Rect(newLeft, targetItem.boundingBox.top, targetItem.boundingBox.right, targetItem.boundingBox.bottom)
+                } else {
+                    Rect(
+                        targetItem.boundingBox.left,
+                        targetItem.boundingBox.top,
+                        targetItem.boundingBox.left + newWidth,
+                        targetItem.boundingBox.bottom
+                    )
+                }
+
+                val updatedItems = if (_uiState.value.isNewTextInsertion) {
+                    _uiState.value.detectedItems + targetItem.copy(text = newText, boundingBox = newBox)
+                } else {
+                    _uiState.value.detectedItems.map {
+                        if (it.id == targetItem.id) it.copy(text = newText, boundingBox = newBox) else it
+                    }
                 }
 
                 _uiState.update {
@@ -322,6 +339,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         currentBitmap = updatedBitmap,
                         detectedItems = updatedItems,
                         selectedItem = null,
+                        isNewTextInsertion = false,
                         isApplyingEdit = false,
                         processingMessage = null,
                         successMessage = if (useCloudAi) "Gemini Pro: Replaced seamlessly" else "Replaced text seamlessly",
@@ -615,27 +633,51 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     // --- Export Document ---
 
-    fun exportCurrentDocument(format: String = "JPG") {
+    fun showExportDialog(show: Boolean) {
+        _uiState.update { it.copy(showExportDialog = show) }
+    }
+
+    fun exportCurrentDocument(format: String = "PDF", fitToA4: Boolean = true) {
         val current = _uiState.value.currentBitmap ?: return
         viewModelScope.launch {
-            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Saving $format to Downloads...") }
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = true,
+                    processingMessage = if (format.equals("PDF", true)) "Generating authentic PDF document..." else "Saving $format to Downloads..."
+                )
+            }
             try {
                 val file = withContext(Dispatchers.IO) {
                     val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                     val time = System.currentTimeMillis()
-                    val fileName = "DocuEdit_Export_$time.${format.lowercase()}"
-                    val outFile = File(downloadsDir, fileName)
 
-                    FileOutputStream(outFile).use { out ->
-                        current.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                    when (format.uppercase()) {
+                        "PDF" -> {
+                            val outFile = File(downloadsDir, "DocuEdit_Export_$time.pdf")
+                            PdfExportEngine.exportBitmapToPdf(current, outFile, fitToA4)
+                        }
+                        "PNG" -> {
+                            val outFile = File(downloadsDir, "DocuEdit_Export_$time.png")
+                            FileOutputStream(outFile).use { out ->
+                                current.compress(Bitmap.CompressFormat.PNG, 100, out)
+                            }
+                            outFile
+                        }
+                        else -> {
+                            val outFile = File(downloadsDir, "DocuEdit_Export_$time.jpg")
+                            FileOutputStream(outFile).use { out ->
+                                current.compress(Bitmap.CompressFormat.JPEG, 94, out)
+                            }
+                            outFile
+                        }
                     }
-                    outFile
                 }
 
                 _uiState.update {
                     it.copy(
                         isApplyingEdit = false,
                         processingMessage = null,
+                        showExportDialog = false,
                         exportUri = file.absolutePath,
                         successMessage = "Saved to Downloads: ${file.name}"
                     )
@@ -643,6 +685,158 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             } catch (e: Exception) {
                 _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "Export failed: ${e.localizedMessage}") }
             }
+        }
+    }
+
+    // --- Document Rotation & Geometry ---
+
+    fun rotateDocumentClockwise() {
+        val current = _uiState.value.currentBitmap ?: return
+        val oldW = current.width
+        val oldH = current.height
+
+        pushUndoStep(UndoStep.FullBitmap(current))
+
+        val matrix = android.graphics.Matrix().apply { postRotate(90f) }
+        val rotated = Bitmap.createBitmap(current, 0, 0, oldW, oldH, matrix, true)
+
+        val rotatedItems = _uiState.value.detectedItems.map { item ->
+            val b = item.boundingBox
+            val newLeft = (oldH - b.bottom).coerceAtLeast(0)
+            val newTop = b.left.coerceAtLeast(0)
+            val newRight = (oldH - b.top).coerceAtMost(oldH)
+            val newBottom = b.right.coerceAtMost(oldW)
+            item.copy(boundingBox = Rect(newLeft, newTop, newRight, newBottom))
+        }
+
+        _uiState.update {
+            it.copy(
+                originalBitmap = rotated,
+                currentBitmap = rotated,
+                detectedItems = rotatedItems,
+                selectedItem = null,
+                canUndo = true,
+                canRedo = false,
+                canvasRevision = it.canvasRevision + 1,
+                successMessage = "Rotated 90° Clockwise"
+            )
+        }
+    }
+
+    // --- Add New Text on Blank Space ---
+
+    fun insertNewTextItem(bitmapX: Float, bitmapY: Float) {
+        val current = _uiState.value.currentBitmap ?: return
+        val defaultWidth = 140
+        val defaultHeight = 44
+        val left = bitmapX.toInt().coerceIn(0, (current.width - defaultWidth).coerceAtLeast(1))
+        val top = bitmapY.toInt().coerceIn(0, (current.height - defaultHeight).coerceAtLeast(1))
+        val box = Rect(left, top, left + defaultWidth, top + defaultHeight)
+
+        val newItem = DetectedTextItem(
+            id = "new_text_${System.currentTimeMillis()}",
+            text = "New Text",
+            boundingBox = box,
+            cornerPoints = listOf(
+                Point(box.left, box.top),
+                Point(box.right, box.top),
+                Point(box.right, box.bottom),
+                Point(box.left, box.bottom)
+            ),
+            rotationAngle = 0f,
+            inkColor = androidx.compose.ui.graphics.Color(0xFF0F172A),
+            inkColorRgb = Color.rgb(15, 23, 42),
+            typography = TypographyMetrics(
+                estimatedFontWeight = FontWeightEstimate.REGULAR,
+                strokeWidthRatio = 0.08f,
+                glyphDensity = 0.5f,
+                letterSpacingEm = 0.02f,
+                estimatedFontSizePx = 28f
+            ),
+            confidence = 1.0f,
+            level = TextHierarchyLevel.ELEMENT
+        )
+
+        _uiState.update {
+            it.copy(
+                selectedItem = newItem,
+                isNewTextInsertion = true,
+                activeToolMode = EditorToolMode.TEXT_EDIT
+            )
+        }
+    }
+
+    // --- Signature & Stamp Interactive Placement ---
+
+    fun startPlacingOverlay(bitmap: Bitmap) {
+        val current = _uiState.value.currentBitmap ?: return
+        val startX = (current.width * 0.35f)
+        val startY = (current.height * 0.45f)
+        _uiState.update {
+            it.copy(
+                activeOverlayBitmap = bitmap,
+                overlayPositionX = startX,
+                overlayPositionY = startY,
+                overlayScale = 1.0f,
+                successMessage = "Drag to position. Tap Checkmark to Stamp permanently."
+            )
+        }
+    }
+
+    fun updateOverlayPosition(deltaX: Float, deltaY: Float) {
+        val current = _uiState.value.currentBitmap ?: return
+        val newX = (_uiState.value.overlayPositionX + deltaX).coerceIn(0f, current.width.toFloat())
+        val newY = (_uiState.value.overlayPositionY + deltaY).coerceIn(0f, current.height.toFloat())
+        _uiState.update {
+            it.copy(overlayPositionX = newX, overlayPositionY = newY)
+        }
+    }
+
+    fun updateOverlayScale(scaleMultiplier: Float) {
+        val newScale = (_uiState.value.overlayScale * scaleMultiplier).coerceIn(0.25f, 4.0f)
+        _uiState.update {
+            it.copy(overlayScale = newScale)
+        }
+    }
+
+    fun commitOverlayToDocument() {
+        val current = _uiState.value.currentBitmap ?: return
+        val overlay = _uiState.value.activeOverlayBitmap ?: return
+
+        pushUndoStep(UndoStep.FullBitmap(current))
+
+        val resultBitmap = current.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(resultBitmap)
+
+        val posX = _uiState.value.overlayPositionX
+        val posY = _uiState.value.overlayPositionY
+        val scale = _uiState.value.overlayScale
+
+        val dstW = (overlay.width * scale).toInt()
+        val dstH = (overlay.height * scale).toInt()
+        val dstRect = Rect(posX.toInt(), posY.toInt(), posX.toInt() + dstW, posY.toInt() + dstH)
+
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+        canvas.drawBitmap(overlay, null, dstRect, paint)
+
+        _uiState.update {
+            it.copy(
+                currentBitmap = resultBitmap,
+                activeOverlayBitmap = null,
+                canUndo = true,
+                canRedo = false,
+                canvasRevision = it.canvasRevision + 1,
+                successMessage = "Signature stamped permanently!"
+            )
+        }
+    }
+
+    fun cancelOverlay() {
+        _uiState.update {
+            it.copy(
+                activeOverlayBitmap = null,
+                processingMessage = null
+            )
         }
     }
 

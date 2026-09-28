@@ -66,6 +66,7 @@ import com.docu.editor.domain.model.EditorToolMode
 import com.docu.editor.ui.canvas.DocumentBottomBar
 import com.docu.editor.ui.canvas.DocumentInteractiveCanvas
 import com.docu.editor.ui.canvas.TextEditBottomSheet
+import com.docu.editor.ui.dialogs.ExportDialog
 import com.docu.editor.ui.dialogs.IdCardDialog
 import com.docu.editor.ui.dialogs.PdfToolboxDialog
 import com.docu.editor.ui.dialogs.SignatureDialog
@@ -267,7 +268,7 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                     IconButton(
-                                        onClick = { viewModel.exportCurrentDocument("JPG") }
+                                        onClick = { viewModel.showExportDialog(true) }
                                     ) {
                                         Icon(
                                             Icons.Default.Share,
@@ -296,6 +297,9 @@ class MainActivity : ComponentActivity() {
                                 onFilterSelected = { filter ->
                                     viewModel.applyFilter(filter)
                                 },
+                                onRotateClicked = {
+                                    viewModel.rotateDocumentClockwise()
+                                },
                                 onAutoCropClicked = {
                                     viewModel.applyAutoPerspectiveCrop()
                                 },
@@ -303,7 +307,7 @@ class MainActivity : ComponentActivity() {
                                     viewModel.showPdfToolboxDialog(true)
                                 },
                                 onExportClicked = {
-                                    viewModel.exportCurrentDocument("JPG")
+                                    viewModel.showExportDialog(true)
                                 }
                             )
                         }
@@ -324,7 +328,16 @@ class MainActivity : ComponentActivity() {
                                 activeMode = uiState.activeToolMode,
                                 canvasRevision = uiState.canvasRevision,
                                 onTextItemTapped = { viewModel.selectTextItem(it) },
-                                onWhiteoutTouch = { x, y -> viewModel.applyWhiteoutCircle(x, y) }
+                                onWhiteoutTouch = { x, y -> viewModel.applyWhiteoutCircle(x, y) },
+                                onInsertTextTouch = { x, y -> viewModel.insertNewTextItem(x, y) },
+                                activeOverlayBitmap = uiState.activeOverlayBitmap,
+                                overlayPositionX = uiState.overlayPositionX,
+                                overlayPositionY = uiState.overlayPositionY,
+                                overlayScale = uiState.overlayScale,
+                                onOverlayDragged = { dx, dy -> viewModel.updateOverlayPosition(dx, dy) },
+                                onOverlayScaleChanged = { sm -> viewModel.updateOverlayScale(sm) },
+                                onCommitOverlay = { viewModel.commitOverlayToDocument() },
+                                onCancelOverlay = { viewModel.cancelOverlay() }
                             )
                         } else {
                             // Premium CamScanner Home Dashboard
@@ -444,7 +457,20 @@ class MainActivity : ComponentActivity() {
                                 onExtractStampClicked = { isRed ->
                                     currentSignSourceBitmap?.let { viewModel.extractStampFromBitmap(it, isRed) }
                                 },
+                                onApplyToDocument = { bmp ->
+                                    viewModel.startPlacingOverlay(bmp)
+                                },
                                 onDismiss = { viewModel.showSignatureDialog(false) }
+                            )
+                        }
+
+                        // Export Format Dialog (Real PDF / JPG / PNG)
+                        if (uiState.showExportDialog) {
+                            ExportDialog(
+                                onExportConfirmed = { format, fitToA4 ->
+                                    viewModel.exportCurrentDocument(format, fitToA4)
+                                },
+                                onDismiss = { viewModel.showExportDialog(false) }
                             )
                         }
 

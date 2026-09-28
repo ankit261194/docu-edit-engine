@@ -1,16 +1,32 @@
 package com.docu.editor.ui.canvas
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,6 +45,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,6 +62,15 @@ fun DocumentInteractiveCanvas(
     canvasRevision: Long = 0L,
     onTextItemTapped: (DetectedTextItem) -> Unit,
     onWhiteoutTouch: (bitmapX: Float, bitmapY: Float) -> Unit = { _, _ -> },
+    onInsertTextTouch: (bitmapX: Float, bitmapY: Float) -> Unit = { _, _ -> },
+    activeOverlayBitmap: Bitmap? = null,
+    overlayPositionX: Float = 100f,
+    overlayPositionY: Float = 100f,
+    overlayScale: Float = 1.0f,
+    onOverlayDragged: (deltaX: Float, deltaY: Float) -> Unit = { _, _ -> },
+    onOverlayScaleChanged: (scaleMultiplier: Float) -> Unit = {},
+    onCommitOverlay: () -> Unit = {},
+    onCancelOverlay: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
@@ -52,8 +78,10 @@ fun DocumentInteractiveCanvas(
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
 
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
-        scale = (scale * zoomChange).coerceIn(0.5f, 6.0f)
-        offset += panChange
+        if (activeOverlayBitmap == null) {
+            scale = (scale * zoomChange).coerceIn(0.5f, 6.0f)
+            offset += panChange
+        }
     }
 
     Box(
@@ -62,8 +90,33 @@ fun DocumentInteractiveCanvas(
             .background(Color(0xFFE2E8F0)) // High-contrast neutral document canvas
             .onSizeChanged { containerSize = it }
             .transformable(state = transformState)
-            .pointerInput(bitmap, detectedItems, containerSize, scale, offset, activeMode, canvasRevision) {
-                if (activeMode == EditorToolMode.WHITEOUT) {
+            .pointerInput(
+                bitmap,
+                detectedItems,
+                containerSize,
+                scale,
+                offset,
+                activeMode,
+                canvasRevision,
+                activeOverlayBitmap,
+                overlayPositionX,
+                overlayPositionY,
+                overlayScale
+            ) {
+                if (activeOverlayBitmap != null) {
+                    // Signature / Stamp Placement Mode: Drag anywhere on canvas to move overlay
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        val fitScale = min(
+                            containerSize.width.toFloat() / bitmap.width,
+                            containerSize.height.toFloat() / bitmap.height
+                        )
+                        val effectiveScale = fitScale * scale
+                        if (effectiveScale > 0) {
+                            onOverlayDragged(dragAmount.x / effectiveScale, dragAmount.y / effectiveScale)
+                        }
+                    }
+                } else if (activeMode == EditorToolMode.WHITEOUT) {
                     // Whiteout mode: drag or tap to erase unwanted ink/dots with pure paper white
                     detectDragGestures(
                         onDragStart = { startOffset ->
@@ -102,6 +155,26 @@ fun DocumentInteractiveCanvas(
                             }
                         }
                     )
+                } else if (activeMode == EditorToolMode.ADD_TEXT) {
+                    // Add Text mode: tap on blank space to place new text
+                    detectTapGestures { tapScreenOffset ->
+                        if (containerSize.width == 0 || containerSize.height == 0) return@detectTapGestures
+                        val fitScale = min(
+                            containerSize.width.toFloat() / bitmap.width,
+                            containerSize.height.toFloat() / bitmap.height
+                        )
+                        val effectiveScale = fitScale * scale
+                        val drawWidth = bitmap.width * effectiveScale
+                        val drawHeight = bitmap.height * effectiveScale
+                        val baseLeft = (containerSize.width - drawWidth) / 2f + offset.x
+                        val baseTop = (containerSize.height - drawHeight) / 2f + offset.y
+
+                        val bitmapX = (tapScreenOffset.x - baseLeft) / effectiveScale
+                        val bitmapY = (tapScreenOffset.y - baseTop) / effectiveScale
+                        if (bitmapX in 0f..bitmap.width.toFloat() && bitmapY in 0f..bitmap.height.toFloat()) {
+                            onInsertTextTouch(bitmapX, bitmapY)
+                        }
+                    }
                 } else {
                     // Normal text editing mode: tap to select text item
                     detectTapGestures { tapScreenOffset ->
@@ -150,12 +223,12 @@ fun DocumentInteractiveCanvas(
             // 1. Draw clean document bitmap
             drawImage(
                 image = bitmap.asImageBitmap(),
-                dstOffset = androidx.compose.ui.unit.IntOffset(baseLeft.toInt(), baseTop.toInt()),
+                dstOffset = IntOffset(baseLeft.toInt(), baseTop.toInt()),
                 dstSize = IntSize(drawWidth.toInt(), drawHeight.toInt())
             )
 
-            // 2. Draw bounding indicators ONLY in TEXT_EDIT mode (hidden in Whiteout mode so user sees pure document)
-            if (activeMode == EditorToolMode.TEXT_EDIT) {
+            // 2. Draw bounding indicators ONLY in TEXT_EDIT mode
+            if (activeMode == EditorToolMode.TEXT_EDIT && activeOverlayBitmap == null) {
                 for (item in detectedItems) {
                     val isSelected = item.id == selectedItem?.id
                     val box = item.boundingBox
@@ -166,7 +239,6 @@ fun DocumentInteractiveCanvas(
                     val boxHeight = box.height() * effectiveScale
 
                     if (isSelected) {
-                        // Selected: vibrant glowing highlight
                         drawRect(
                             color = Color(0xFF00E5FF).copy(alpha = 0.22f),
                             topLeft = Offset(boxLeft, boxTop),
@@ -179,7 +251,6 @@ fun DocumentInteractiveCanvas(
                             style = Stroke(width = 3.dp.toPx())
                         )
                     } else {
-                        // Non-selected: clearly visible blue dotted boundary
                         drawRect(
                             color = Color(0xFF2563EB).copy(alpha = 0.40f),
                             topLeft = Offset(boxLeft, boxTop),
@@ -188,6 +259,47 @@ fun DocumentInteractiveCanvas(
                         )
                     }
                 }
+            }
+
+            // 3. Draw Signature / Stamp Overlay if active
+            if (activeOverlayBitmap != null) {
+                val overlayDrawW = (activeOverlayBitmap.width * overlayScale * effectiveScale).toInt()
+                val overlayDrawH = (activeOverlayBitmap.height * overlayScale * effectiveScale).toInt()
+                val overlayScreenX = baseLeft + (overlayPositionX * effectiveScale)
+                val overlayScreenY = baseTop + (overlayPositionY * effectiveScale)
+
+                drawImage(
+                    image = activeOverlayBitmap.asImageBitmap(),
+                    dstOffset = IntOffset(overlayScreenX.toInt(), overlayScreenY.toInt()),
+                    dstSize = IntSize(overlayDrawW, overlayDrawH)
+                )
+
+                // Neon Stamp Boundary indicator
+                drawRect(
+                    color = Color(0xFF10B981),
+                    topLeft = Offset(overlayScreenX, overlayScreenY),
+                    size = Size(overlayDrawW.toFloat(), overlayDrawH.toFloat()),
+                    style = Stroke(width = 2.dp.toPx())
+                )
+            }
+        }
+
+        // Add Text Mode Banner
+        if (activeMode == EditorToolMode.ADD_TEXT) {
+            Surface(
+                color = Color(0xFF2563EB).copy(alpha = 0.95f),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp)
+            ) {
+                Text(
+                    text = "✍️ Insert Text Mode: Tap any blank line or space to type",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
             }
         }
 
@@ -207,6 +319,73 @@ fun DocumentInteractiveCanvas(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
+            }
+        }
+
+        // Active Overlay Control Dock (Stamp / Signature placement)
+        if (activeOverlayBitmap != null) {
+            Surface(
+                color = Color.White,
+                shape = RoundedCornerShape(18.dp),
+                shadowElevation = 14.dp,
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 20.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Size Stepper: Decrease
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFFF1F5F9),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        IconButton(onClick = { onOverlayScaleChanged(0.85f) }) {
+                            Icon(Icons.Default.Remove, contentDescription = "Smaller", tint = Color(0xFF0F172A), modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    Text("Scale: ${(overlayScale * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
+
+                    // Size Stepper: Increase
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFFF1F5F9),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        IconButton(onClick = { onOverlayScaleChanged(1.15f) }) {
+                            Icon(Icons.Default.Add, contentDescription = "Larger", tint = Color(0xFF0F172A), modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Cancel Button
+                    Surface(
+                        shape = CircleShape,
+                        color = Color(0xFFFEE2E2),
+                        modifier = Modifier.size(36.dp)
+                    ) {
+                        IconButton(onClick = onCancelOverlay) {
+                            Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color(0xFFEF4444), modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    // Stamp Button
+                    Button(
+                        onClick = onCommitOverlay,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Stamp Here", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
             }
         }
     }

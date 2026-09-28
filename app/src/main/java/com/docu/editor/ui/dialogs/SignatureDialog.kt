@@ -55,6 +55,7 @@ fun SignatureDialog(
     onPickSourceImage: () -> Unit,
     onExtractSignatureClicked: (inkColor: Int) -> Unit,
     onExtractStampClicked: (isRed: Boolean) -> Unit,
+    onApplyToDocument: (Bitmap) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Signature, 1: Stamp
@@ -250,6 +251,35 @@ fun SignatureDialog(
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp
                     )
+                }
+
+                if (extractedBitmap != null) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = {
+                            onApplyToDocument(extractedBitmap)
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Verified,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Stamp On Active Document",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
                 }
             }
         }

@@ -5,6 +5,7 @@ import com.docu.editor.core.ocr.model.DetectedTextItem
 
 enum class EditorToolMode {
     TEXT_EDIT,
+    ADD_TEXT,
     WHITEOUT,
     FILTERS,
     CROP_DESKEW,
@@ -25,6 +26,7 @@ data class DocumentEditorUiState(
     val currentBitmap: Bitmap? = null,
     val detectedItems: List<DetectedTextItem> = emptyList(),
     val selectedItem: DetectedTextItem? = null,
+    val isNewTextInsertion: Boolean = false,
     val isScanning: Boolean = false,
     val isApplyingEdit: Boolean = false,
     val processingMessage: String? = null,
@@ -42,6 +44,10 @@ data class DocumentEditorUiState(
     val idCardFrontBitmap: Bitmap? = null,
     val idCardBackBitmap: Bitmap? = null,
     val extractedSignature: Bitmap? = null,
+    val activeOverlayBitmap: Bitmap? = null,
+    val overlayPositionX: Float = 100f,
+    val overlayPositionY: Float = 100f,
+    val overlayScale: Float = 1.0f,
     val exportUri: String? = null,
     val canvasRevision: Long = 0L
 )

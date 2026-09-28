@@ -404,10 +404,31 @@ class LiveCameraScannerActivity : ComponentActivity() {
         )
     }
 
+    private fun decodeSampledBitmapFromFile(filePath: String, maxDim: Int = 2880): Bitmap? {
+        val options = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeFile(filePath, options)
+        val origW = options.outWidth
+        val origH = options.outHeight
+        if (origW <= 0 || origH <= 0) return null
+
+        var sampleSize = 1
+        while ((origW / sampleSize) > maxDim || (origH / sampleSize) > maxDim) {
+            sampleSize *= 2
+        }
+
+        val decodeOptions = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        return BitmapFactory.decodeFile(filePath, decodeOptions)
+    }
+
     private fun processCapturedPhotoAndReturn(photoFile: File, corners: DocumentCorners?) {
         CoroutineScope(Dispatchers.Default).launch {
             try {
-                val fullBitmap = BitmapFactory.decodeFile(photoFile.absolutePath)
+                val fullBitmap = decodeSampledBitmapFromFile(photoFile.absolutePath)
                 if (fullBitmap != null) {
                     val finalBitmap = if (corners != null && analysisFrameW > 0 && analysisFrameH > 0) {
                         // Scale detected corners from analysis resolution to full photo resolution
@@ -422,7 +443,11 @@ class LiveCameraScannerActivity : ComponentActivity() {
                         )
 
                         // 4-point perspective warp and deskew
-                        PerspectiveTransformer.warpPerspective(fullBitmap, scaledCorners)
+                        val warped = PerspectiveTransformer.warpPerspective(fullBitmap, scaledCorners)
+                        if (warped != fullBitmap) {
+                            fullBitmap.recycle()
+                        }
+                        warped
                     } else {
                         fullBitmap
                     }
@@ -431,6 +456,9 @@ class LiveCameraScannerActivity : ComponentActivity() {
                     val outFile = File(cacheDir, "scanned_doc_${System.currentTimeMillis()}.jpg")
                     FileOutputStream(outFile).use { fos ->
                         finalBitmap.compress(Bitmap.CompressFormat.JPEG, 94, fos)
+                    }
+                    if (finalBitmap != fullBitmap) {
+                        finalBitmap.recycle()
                     }
                     photoFile.delete()
 
@@ -472,8 +500,14 @@ class LiveCameraScannerActivity : ComponentActivity() {
 
     private fun vibrate() {
         try {
-            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-            vibrator?.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vibratorManager?.defaultVibrator?.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+                vibrator?.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
+            }
         } catch (_: Exception) {}
     }
 

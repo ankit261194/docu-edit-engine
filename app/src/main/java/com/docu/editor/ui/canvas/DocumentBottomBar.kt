@@ -49,6 +49,7 @@ fun DocumentBottomBar(
     showFiltersRow: Boolean,
     onModeSelected: (EditorToolMode) -> Unit,
     onFilterSelected: (DocumentFilterMode) -> Unit,
+    onRotateClicked: () -> Unit,
     onAutoCropClicked: () -> Unit,
     onCompressClicked: () -> Unit,
     onExportClicked: () -> Unit
@@ -109,12 +110,13 @@ fun DocumentBottomBar(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Primary Bottom Action Dock
+            // Primary Bottom Action Dock (Scrollable on smaller screens)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
                     .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.SpaceAround,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 ToolDockButton(
@@ -125,10 +127,24 @@ fun DocumentBottomBar(
                 )
 
                 ToolDockButton(
+                    icon = Icons.Default.Check,
+                    label = "Add Text",
+                    isSelected = activeMode == EditorToolMode.ADD_TEXT,
+                    onClick = { onModeSelected(EditorToolMode.ADD_TEXT) }
+                )
+
+                ToolDockButton(
                     icon = Icons.Default.Clear,
                     label = "Whiteout",
                     isSelected = activeMode == EditorToolMode.WHITEOUT,
                     onClick = { onModeSelected(EditorToolMode.WHITEOUT) }
+                )
+
+                ToolDockButton(
+                    icon = Icons.Default.Crop,
+                    label = "Rotate 90°",
+                    isSelected = false,
+                    onClick = onRotateClicked
                 )
 
                 ToolDockButton(
