@@ -20,9 +20,9 @@ object AutoFitFontCondenser {
     ): AdjustedTypography {
         val targetWidth = max(10, targetBounds.width()).toFloat()
         val targetHeight = max(8, targetBounds.height()).toFloat()
-        val charCount = max(1, text.length)
 
-        var fontSize = targetHeight * 0.82f
+        // Match original font size based on typographic line height
+        var fontSize = targetHeight * 0.72f
         var trackingEm = 0f
         var scaleX = 1.0f
 
@@ -30,46 +30,49 @@ object AutoFitFontCondenser {
         paint.letterSpacing = 0f
         paint.textScaleX = 1.0f
 
-        var measuredWidth = paint.measureText(text)
+        val measuredWidth = paint.measureText(text)
 
         if (measuredWidth > targetWidth) {
-            val deficitRatio = targetWidth / measuredWidth
+            // Text is LONGER than original: condense naturally
+            val ratio = targetWidth / measuredWidth
 
             when {
-                deficitRatio >= 0.85f && charCount > 1 -> {
-                    val excessPx = measuredWidth - targetWidth
-                    trackingEm = (-(excessPx / (charCount - 1)) / fontSize).coerceIn(-0.08f, 0f)
-                    paint.letterSpacing = trackingEm
+                ratio >= 0.85f -> {
+                    // Mild condensation: slight horizontal squeeze
+                    scaleX = ratio.coerceIn(0.85f, 1.0f)
+                    trackingEm = -0.02f
                 }
-
-                deficitRatio in 0.65f..0.85f -> {
-                    trackingEm = -0.06f
-                    paint.letterSpacing = trackingEm
-                    val widthWithKerning = paint.measureText(text)
-                    scaleX = (targetWidth / widthWithKerning).coerceIn(0.72f, 1.0f)
+                ratio in 0.65f..0.85f -> {
+                    // Moderate condensation: squeeze width + slight font reduction
+                    scaleX = 0.85f
+                    trackingEm = -0.03f
                     paint.textScaleX = scaleX
+                    paint.letterSpacing = trackingEm
+                    val newMeasured = paint.measureText(text)
+                    fontSize *= (targetWidth / newMeasured).coerceIn(0.75f, 1.0f)
                 }
-
                 else -> {
-                    trackingEm = -0.07f
-                    scaleX = 0.72f
-                    paint.letterSpacing = trackingEm
+                    // Significantly longer text: scale font size down proportionally
+                    scaleX = 0.82f
+                    trackingEm = -0.03f
                     paint.textScaleX = scaleX
-
-                    val widthCondensed = paint.measureText(text)
-                    val fontScale = (targetWidth / widthCondensed).coerceAtLeast(0.40f)
-                    fontSize *= fontScale
-                    paint.textSize = fontSize
+                    paint.letterSpacing = trackingEm
+                    val newMeasured = paint.measureText(text)
+                    fontSize *= (targetWidth / newMeasured).coerceAtLeast(0.50f)
                 }
             }
         } else {
-            val deficit = targetWidth - measuredWidth
-            if (charCount > 1 && deficit > 4f) {
-                trackingEm = ((deficit / (charCount - 1)) / fontSize).coerceIn(0f, 0.20f)
-                paint.letterSpacing = trackingEm
-            }
+            // Text is SHORTER than original:
+            // CRITICAL: NEVER stretch letter-spacing accordion-style! Keep natural typography!
+            trackingEm = 0f
+            scaleX = 1.0f
         }
 
+        paint.textSize = fontSize
+        paint.letterSpacing = trackingEm
+        paint.textScaleX = scaleX
+
+        // Accurate baseline alignment centering glyphs vertically in bounding box
         val fontMetrics = paint.fontMetrics
         val centerY = targetBounds.centerY().toFloat()
         val baselineY = centerY - (fontMetrics.ascent + fontMetrics.descent) / 2f

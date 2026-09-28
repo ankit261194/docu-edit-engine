@@ -2,6 +2,7 @@ package com.docu.editor.core.rendering
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import com.docu.editor.core.font.FontClassification
@@ -38,8 +39,10 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             preferredClassification = params.overrideClassification
         )
 
+        val solidInk = ensureSolidInkColor(params.inkColorRgb)
+
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
-            color = params.inkColorRgb
+            color = solidInk
             typeface = matchedFont.typeface
             style = Paint.Style.FILL
         }
@@ -50,35 +53,46 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             paint = paint
         )
 
-        paint.textSize = fitResult.fontSize
-        paint.letterSpacing = fitResult.letterSpacingEm
-        paint.textScaleX = fitResult.scaleX
-
-        val startX = params.targetBounds.left.toFloat()
-
-        val isolatedLayer = Bitmap.createBitmap(
-            cleanedBackground.width,
-            cleanedBackground.height,
-            Bitmap.Config.ARGB_8888
-        )
-        val isolatedCanvas = Canvas(isolatedLayer)
-
         val masterOutput = cleanedBackground.copy(Bitmap.Config.ARGB_8888, true)
         val masterCanvas = Canvas(masterOutput)
 
+        val startX = params.targetBounds.left.toFloat()
         val pivotX = params.targetBounds.exactCenterX()
         val pivotY = params.targetBounds.exactCenterY()
 
-        drawRotatedText(isolatedCanvas, params.newText, startX, fitResult.baselineY, params.rotationAngle, pivotX, pivotY, paint)
-        drawRotatedText(masterCanvas, params.newText, startX, fitResult.baselineY, params.rotationAngle, pivotX, pivotY, paint)
+        drawRotatedText(
+            canvas = masterCanvas,
+            text = params.newText,
+            x = startX,
+            y = fitResult.baselineY,
+            angle = params.rotationAngle,
+            pivotX = pivotX,
+            pivotY = pivotY,
+            paint = paint
+        )
 
         return TextRenderResult(
             outputBitmap = masterOutput,
-            isolatedTextLayer = isolatedLayer,
+            isolatedTextLayer = masterOutput,
             fittedFontSize = fitResult.fontSize,
             appliedLetterSpacing = fitResult.letterSpacingEm,
             appliedScaleX = fitResult.scaleX
         )
+    }
+
+    private fun ensureSolidInkColor(sampledRgb: Int): Int {
+        val r = Color.red(sampledRgb)
+        val g = Color.green(sampledRgb)
+        val b = Color.blue(sampledRgb)
+        val luma = (0.299f * r + 0.587f * g + 0.114f * b).toInt()
+
+        return if (luma < 95) {
+            // Document ink: make it rich and crisp so it doesn't look washed out
+            val factor = 0.70f
+            Color.rgb((r * factor).toInt(), (g * factor).toInt(), (b * factor).toInt())
+        } else {
+            sampledRgb
+        }
     }
 
     private fun drawRotatedText(
@@ -91,7 +105,7 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         pivotY: Float,
         paint: Paint
     ) {
-        if (abs(angle) > 0.05f) {
+        if (abs(angle) > 0.5f) {
             canvas.save()
             canvas.rotate(angle, pivotX, pivotY)
             canvas.drawText(text, x, y, paint)

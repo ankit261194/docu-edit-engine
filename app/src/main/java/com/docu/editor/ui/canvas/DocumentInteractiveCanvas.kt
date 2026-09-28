@@ -46,7 +46,7 @@ fun DocumentInteractiveCanvas(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF1E1E1E))
+            .background(Color(0xFF0F172A))
             .onSizeChanged { containerSize = it }
             .transformable(state = transformState)
             .pointerInput(bitmap, detectedItems, containerSize, scale, offset) {
@@ -93,12 +93,14 @@ fun DocumentInteractiveCanvas(
             val baseLeft = (size.width - drawWidth) / 2f + offset.x
             val baseTop = (size.height - drawHeight) / 2f + offset.y
 
+            // Draw clean document bitmap
             drawImage(
                 image = bitmap.asImageBitmap(),
                 dstOffset = androidx.compose.ui.unit.IntOffset(baseLeft.toInt(), baseTop.toInt()),
                 dstSize = IntSize(drawWidth.toInt(), drawHeight.toInt())
             )
 
+            // Draw bounding indicators
             for (item in detectedItems) {
                 val isSelected = item.id == selectedItem?.id
                 val box = item.boundingBox
@@ -108,19 +110,29 @@ fun DocumentInteractiveCanvas(
                 val boxWidth = box.width() * effectiveScale
                 val boxHeight = box.height() * effectiveScale
 
-                drawRect(
-                    color = if (isSelected) Color(0xFF00E676).copy(alpha = 0.35f)
-                            else Color(0xFF2979FF).copy(alpha = 0.15f),
-                    topLeft = Offset(boxLeft, boxTop),
-                    size = Size(boxWidth, boxHeight)
-                )
-
-                drawRect(
-                    color = if (isSelected) Color(0xFF00E676) else Color(0xFF2979FF).copy(alpha = 0.6f),
-                    topLeft = Offset(boxLeft, boxTop),
-                    size = Size(boxWidth, boxHeight),
-                    style = Stroke(width = if (isSelected) 3.5f else 1.5f)
-                )
+                if (isSelected) {
+                    // Selected: vibrant glowing highlight with soft fill
+                    drawRect(
+                        color = Color(0xFF00E5FF).copy(alpha = 0.22f),
+                        topLeft = Offset(boxLeft, boxTop),
+                        size = Size(boxWidth, boxHeight)
+                    )
+                    drawRect(
+                        color = Color(0xFF00E5FF),
+                        topLeft = Offset(boxLeft, boxTop),
+                        size = Size(boxWidth, boxHeight),
+                        style = Stroke(width = 3.5f)
+                    )
+                } else {
+                    // Non-selected: ultra-subtle, non-intrusive dotted boundary (NO opaque fill!)
+                    // This allows the user to see their clean, photorealistic document without blue clutter
+                    drawRect(
+                        color = Color(0xFF38BDF8).copy(alpha = 0.25f),
+                        topLeft = Offset(boxLeft, boxTop),
+                        size = Size(boxWidth, boxHeight),
+                        style = Stroke(width = 1.2f)
+                    )
+                }
             }
         }
     }

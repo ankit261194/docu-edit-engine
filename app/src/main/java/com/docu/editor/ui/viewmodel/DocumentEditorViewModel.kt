@@ -4,6 +4,7 @@ import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -162,20 +163,22 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         )
                     )
 
-                    val finalBlendedBitmap = artifactBlendingEngine.blendText(
-                        cleanedBackground = cleanedBackground,
-                        isolatedTextLayer = renderResult.isolatedTextLayer,
-                        targetBounds = targetItem.boundingBox
-                    )
-
-                    renderResult.isolatedTextLayer.recycle()
                     cleanedBackground.recycle()
-
-                    finalBlendedBitmap
+                    renderResult.outputBitmap
                 }
 
+                // Update bounding box width to match new text length
+                val charW = targetItem.boundingBox.height() * 0.48f
+                val newWidth = (newText.length * charW).toInt().coerceAtLeast(24)
+                val newBox = Rect(
+                    targetItem.boundingBox.left,
+                    targetItem.boundingBox.top,
+                    targetItem.boundingBox.left + newWidth,
+                    targetItem.boundingBox.bottom
+                )
+
                 val updatedItems = _uiState.value.detectedItems.map {
-                    if (it.id == targetItem.id) it.copy(text = newText) else it
+                    if (it.id == targetItem.id) it.copy(text = newText, boundingBox = newBox) else it
                 }
 
                 _uiState.update {
