@@ -8,12 +8,32 @@ import com.docu.editor.core.ocr.model.TypographyMetrics
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.max
 
-enum class FontClassification(val displayName: String) {
-    SANS_SERIF("Arial / Standard"),
-    CALIBRI("Calibri / Office"),
-    SERIF("Times New Roman / Formal"),
-    MONOSPACE("Courier / Receipt"),
-    DEVANAGARI("Mangal / Hindi")
+enum class FontClassification(
+    val id: String,
+    val displayName: String,
+    val category: String = "Basic"
+) {
+    // Bundled Offline Assets
+    SANS_SERIF("arial", "Arial / Standard", "Basic"),
+    CALIBRI("calibri", "Calibri / Office", "Basic"),
+    SERIF("times", "Times New Roman / Formal", "Basic"),
+    MONOSPACE("cour", "Courier / Receipt", "Basic"),
+    DEVANAGARI("mangal", "Mangal / Hindi", "Hindi"),
+
+    // Cloud Hosted on shribalajikripadham.online (On-demand cached)
+    ROBOTO("roboto", "Roboto / Android", "Clean Sans"),
+    POPPINS("poppins", "Poppins / Modern", "Clean Sans"),
+    MONTSERRAT("montserrat", "Montserrat / Header", "Clean Sans"),
+    LATO("lato", "Lato / Clear", "Clean Sans"),
+    OSWALD("oswald", "Oswald / Condensed", "Clean Sans"),
+    MERRIWEATHER("merriweather", "Merriweather / Editorial", "Classic Serif"),
+    PLAYFAIR("playfair", "Playfair / Certificate", "Classic Serif"),
+    LORA("lora", "Lora / Elegant", "Classic Serif"),
+    KALAM("kalam", "Kalam / Hindi Pen", "Handwriting"),
+    CAVEAT("caveat", "Caveat / Casual Script", "Handwriting"),
+    DANCING_SCRIPT("dancingscript", "Dancing Script / Signature", "Handwriting"),
+    INCONSOLATA("inconsolata", "Inconsolata / Code", "Basic"),
+    HIND("hind", "Hind / Hindi Official", "Hindi")
 }
 
 class FontMatcher(private val context: Context) {
@@ -82,13 +102,32 @@ class FontMatcher(private val context: Context) {
                         Typeface.createFromAsset(context.assets, nirmalaAsset)
                     }
                 }
+                else -> {
+                    // Check local disk cache on phone first
+                    val cached = RemoteFontManager.getCachedTypeface(context, classification.id, isBold)
+                    if (cached != null) {
+                        cached
+                    } else {
+                        // Trigger background download so next time it is ready
+                        RemoteFontManager.fetchFontAsync(context, classification.id, isBold) { newTf ->
+                            typefaceCache[cacheKey] = newTf
+                        }
+                        // Immediate fallback while downloading: nearest bundled font
+                        when (classification.category) {
+                            "Classic Serif" -> getDocumentTypeface(FontClassification.SERIF, isBold)
+                            "Hindi" -> getDocumentTypeface(FontClassification.DEVANAGARI, isBold)
+                            "Basic" -> getDocumentTypeface(FontClassification.MONOSPACE, isBold)
+                            else -> getDocumentTypeface(FontClassification.SANS_SERIF, isBold)
+                        }
+                    }
+                }
             }
         } catch (_: Exception) {
             // Graceful fallback to Android system fonts if asset is missing
             val sysFamily = when (classification) {
-                FontClassification.SERIF -> Typeface.SERIF
-                FontClassification.SANS_SERIF, FontClassification.CALIBRI, FontClassification.DEVANAGARI -> Typeface.SANS_SERIF
-                FontClassification.MONOSPACE -> Typeface.MONOSPACE
+                FontClassification.SERIF, FontClassification.MERRIWEATHER, FontClassification.PLAYFAIR, FontClassification.LORA -> Typeface.SERIF
+                FontClassification.MONOSPACE, FontClassification.INCONSOLATA -> Typeface.MONOSPACE
+                else -> Typeface.SANS_SERIF
             }
             Typeface.create(sysFamily, if (isBold) Typeface.BOLD else Typeface.NORMAL)
         }

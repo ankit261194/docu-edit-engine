@@ -4,6 +4,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -233,10 +235,10 @@ fun TextEditBottomSheet(
                                 color = Color(selectedColorRgb),
                                 fontSize = (14 * sizeMultiplier).sp,
                                 fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
-                                fontFamily = when (selectedFontType) {
-                                    FontClassification.SERIF -> FontFamily.Serif
-                                    FontClassification.MONOSPACE -> FontFamily.Monospace
-                                    else -> FontFamily.SansSerif
+                                fontFamily = when (selectedFontType.category) {
+                                    "Classic Serif" -> FontFamily.Serif
+                                    "Handwriting", "Signature" -> FontFamily.Cursive
+                                    else -> if (selectedFontType == FontClassification.MONOSPACE || selectedFontType == FontClassification.INCONSOLATA) FontFamily.Monospace else if (selectedFontType == FontClassification.SERIF) FontFamily.Serif else FontFamily.SansSerif
                                 }
                             )
                         }
@@ -254,63 +256,38 @@ fun TextEditBottomSheet(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    // Row 1: Font Family Selector (Arial, Calibri, Times, Courier)
-                    Text("Font Family:", color = Color(0xFF475569), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(6.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Font Family:", color = Color(0xFF475569), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "${selectedFontType.category} • ${selectedFontType.displayName}",
+                            color = Color(0xFF2563EB),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        FilterChip(
-                            selected = selectedFontType == FontClassification.SANS_SERIF,
-                            onClick = { selectedFontType = FontClassification.SANS_SERIF },
-                            label = { Text("Arial", fontSize = 11.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFF2563EB),
-                                selectedLabelColor = Color.White
+                        FontClassification.entries.forEach { font ->
+                            FilterChip(
+                                selected = selectedFontType == font,
+                                onClick = { selectedFontType = font },
+                                label = { Text(font.displayName.substringBefore(" /"), fontSize = 11.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF2563EB),
+                                    selectedLabelColor = Color.White
+                                )
                             )
-                        )
-
-                        FilterChip(
-                            selected = selectedFontType == FontClassification.CALIBRI,
-                            onClick = { selectedFontType = FontClassification.CALIBRI },
-                            label = { Text("Calibri", fontSize = 11.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFF2563EB),
-                                selectedLabelColor = Color.White
-                            )
-                        )
-
-                        FilterChip(
-                            selected = selectedFontType == FontClassification.SERIF,
-                            onClick = { selectedFontType = FontClassification.SERIF },
-                            label = { Text("Times", fontSize = 11.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFF2563EB),
-                                selectedLabelColor = Color.White
-                            )
-                        )
-
-                        FilterChip(
-                            selected = selectedFontType == FontClassification.MONOSPACE,
-                            onClick = { selectedFontType = FontClassification.MONOSPACE },
-                            label = { Text("Courier", fontSize = 11.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFF2563EB),
-                                selectedLabelColor = Color.White
-                            )
-                        )
-
-                        FilterChip(
-                            selected = selectedFontType == FontClassification.DEVANAGARI,
-                            onClick = { selectedFontType = FontClassification.DEVANAGARI },
-                            label = { Text("Hindi (मंगळ)", fontSize = 11.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFF2563EB),
-                                selectedLabelColor = Color.White
-                            )
-                        )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
