@@ -1,5 +1,6 @@
 package com.docu.editor.ui.home
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -29,13 +30,11 @@ import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -61,7 +60,7 @@ fun HomeScreenDashboard(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F172A)) // Sleek dark slate
+            .background(Color(0xFFF8FAFC)) // Crisp, clean modern light canvas
     ) {
         // Top Header
         Row(
@@ -74,11 +73,11 @@ fun HomeScreenDashboard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(44.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(
                             Brush.linearGradient(
-                                listOf(Color(0xFF06B6D4), Color(0xFF3B82F6))
+                                listOf(Color(0xFF2563EB), Color(0xFF1D4ED8))
                             )
                         ),
                     contentAlignment = Alignment.Center
@@ -95,18 +94,18 @@ fun HomeScreenDashboard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "DocuEdit",
-                            color = Color.White,
+                            color = Color(0xFF0F172A),
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = Color(0xFF10B981).copy(alpha = 0.2f)
+                            color = Color(0xFFD1FAE5)
                         ) {
                             Text(
                                 text = "PRO",
-                                color = Color(0xFF34D399),
+                                color = Color(0xFF047857),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -115,8 +114,9 @@ fun HomeScreenDashboard(
                     }
                     Text(
                         text = "AI Document Studio & Scanner",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 12.sp
+                        color = Color(0xFF64748B),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
@@ -134,46 +134,50 @@ fun HomeScreenDashboard(
             item(span = { GridItemSpan(2) }) {
                 Card(
                     shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(
-                            Brush.horizontalGradient(
-                                listOf(Color(0xFF1E293B), Color(0xFF0F172A))
-                            )
-                        )
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
                         modifier = Modifier.padding(20.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.Speed,
-                                contentDescription = null,
-                                tint = Color(0xFF38BDF8),
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "LIGHTNING ENGINE • 99% REALISM",
-                                color = Color(0xFF38BDF8),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp
-                            )
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFEFF6FF)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Speed,
+                                    contentDescription = null,
+                                    tint = Color(0xFF2563EB),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "LIGHTNING ENGINE • 99% REALISM",
+                                    color = Color(0xFF2563EB),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.5.sp
+                                )
+                            }
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Spacer(modifier = Modifier.height(12.dp))
                         Text(
                             text = "Replace text in any scan or PDF flawlessly.",
-                            color = Color.White,
+                            color = Color(0xFF0F172A),
                             fontSize = 17.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Bold
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "Matching original fonts, paper texture & lighting with CamScanner Magic Filters.",
-                            color = Color(0xFF94A3B8),
+                            color = Color(0xFF475569),
                             fontSize = 13.sp,
                             lineHeight = 18.sp
                         )
@@ -188,12 +192,13 @@ fun HomeScreenDashboard(
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.White)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "Try Demo Document (1-Tap Test)",
                                 fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
                             )
                         }
                     }
@@ -248,7 +253,9 @@ fun HomeScreenDashboard(
             item(span = { GridItemSpan(2) }) {
                 Card(
                     shape = RoundedCornerShape(18.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable { onPdfToolsClicked() }
@@ -261,13 +268,13 @@ fun HomeScreenDashboard(
                             modifier = Modifier
                                 .size(48.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFFF59E0B).copy(alpha = 0.15f)),
+                                .background(Color(0xFFFEF3C7)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 Icons.Default.PictureAsPdf,
                                 contentDescription = null,
-                                tint = Color(0xFFFBBF24),
+                                tint = Color(0xFFD97706),
                                 modifier = Modifier.size(26.dp)
                             )
                         }
@@ -275,13 +282,13 @@ fun HomeScreenDashboard(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "PDF Toolbox & Compressor",
-                                color = Color.White,
+                                color = Color(0xFF0F172A),
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
                                 text = "Compress (150/200/300 DPI) • Merge • Split • Password Lock",
-                                color = Color(0xFF94A3B8),
+                                color = Color(0xFF64748B),
                                 fontSize = 12.sp
                             )
                         }
@@ -294,7 +301,7 @@ fun HomeScreenDashboard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 10.dp),
+                        .padding(top = 10.dp, bottom = 16.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -308,7 +315,8 @@ fun HomeScreenDashboard(
                     Text(
                         text = "100% Offline Processing • Documents Never Leave Your Phone",
                         color = Color(0xFF64748B),
-                        fontSize = 11.sp
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
@@ -326,7 +334,9 @@ private fun StudioActionCard(
 ) {
     Card(
         shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier
             .fillMaxWidth()
             .height(130.dp)
@@ -356,14 +366,14 @@ private fun StudioActionCard(
             Column {
                 Text(
                     text = title,
-                    color = Color.White,
+                    color = Color(0xFF0F172A),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = subtitle,
-                    color = Color(0xFF94A3B8),
+                    color = Color(0xFF64748B),
                     fontSize = 11.sp,
                     maxLines = 1
                 )

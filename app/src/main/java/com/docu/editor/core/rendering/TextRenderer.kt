@@ -53,7 +53,7 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
             color = solidInk
             typeface = activeTypeface
-            isFakeBoldText = params.isBold
+            isFakeBoldText = false // Never double-bold; activeTypeface already has clean typographic bolding
             style = Paint.Style.FILL
         }
 
@@ -97,11 +97,14 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val b = Color.blue(sampledRgb)
         val luma = (0.299f * r + 0.587f * g + 0.114f * b).toInt()
 
-        return if (luma < 125) {
-            // Standard document ink: make it solid black (#000000) so it matches dark printed text
-            Color.rgb(0, 0, 0)
-        } else {
-            sampledRgb
+        return when {
+            // Already authentic dark document ink (luminance 20 to 80): keep it authentic!
+            luma in 20..80 -> sampledRgb
+            // Artificial 0,0,0 pitch black: soften to natural laser printer dark charcoal #222428
+            luma < 20 -> Color.rgb(34, 36, 40)
+            // Faded/washed out (81 to 145): enhance naturally to solid document ink #282828
+            luma in 81..145 -> Color.rgb(40, 42, 48)
+            else -> sampledRgb
         }
     }
 

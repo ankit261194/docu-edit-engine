@@ -54,15 +54,16 @@ fun DocumentBottomBar(
     onExportClicked: () -> Unit
 ) {
     Surface(
-        color = Color(0xFF1E293B),
+        color = Color.White,
         shadowElevation = 16.dp,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 12.dp)
+                .padding(vertical = 10.dp)
         ) {
             // Optional Filter selection row
             AnimatedVisibility(visible = showFiltersRow) {
@@ -81,9 +82,9 @@ fun DocumentBottomBar(
                             label = {
                                 Text(
                                     filter.displayName,
-                                    color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                    color = if (isSelected) Color.White else Color(0xFF1E293B),
                                     fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
                                 )
                             },
                             leadingIcon = if (isSelected) {
@@ -98,7 +99,7 @@ fun DocumentBottomBar(
                             } else null,
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = Color(0xFF2563EB),
-                                containerColor = Color(0xFF0F172A)
+                                containerColor = Color(0xFFF1F5F9)
                             ),
                             shape = RoundedCornerShape(10.dp)
                         )
@@ -176,28 +177,28 @@ private fun ToolDockButton(
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
             .clickable { onClick() }
-            .padding(horizontal = 8.dp, vertical = 6.dp)
+            .padding(horizontal = 8.dp, vertical = 4.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(40.dp)
+                .size(42.dp)
                 .clip(CircleShape)
-                .background(if (isSelected) Color(0xFF2563EB) else Color(0xFF0F172A)),
+                .background(if (isSelected) Color(0xFF2563EB) else Color(0xFFF1F5F9)),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = if (isSelected) Color.White else Color(0xFF94A3B8),
-                modifier = Modifier.size(20.dp)
+                tint = if (isSelected) Color.White else Color(0xFF334155),
+                modifier = Modifier.size(22.dp)
             )
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = label,
-            color = if (isSelected) Color(0xFF38BDF8) else Color(0xFF94A3B8),
+            color = if (isSelected) Color(0xFF2563EB) else Color(0xFF1E293B),
             fontSize = 11.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
         )
     }
 }

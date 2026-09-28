@@ -1,6 +1,7 @@
 package com.docu.editor.ui.dialogs
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,7 +16,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
@@ -36,7 +36,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -70,7 +69,9 @@ fun SignatureDialog(
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -89,29 +90,31 @@ fun SignatureDialog(
                         Icon(
                             if (selectedTab == 0) Icons.Default.Draw else Icons.Default.Verified,
                             contentDescription = null,
-                            tint = Color(0xFFEC4899),
+                            tint = Color(0xFFDB2777),
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = if (selectedTab == 0) "Signature Extractor" else "Stamp Extractor",
-                            color = Color.White,
+                            color = Color(0xFF0F172A),
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8))
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF64748B))
                     }
                 }
 
+                Spacer(modifier = Modifier.height(10.dp))
+
                 TabRow(
                     selectedTabIndex = selectedTab,
-                    containerColor = Color(0xFF0F172A),
+                    containerColor = Color(0xFFF1F5F9),
                     indicator = { tabPositions ->
                         TabRowDefaults.SecondaryIndicator(
                             modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                            color = Color(0xFFEC4899)
+                            color = Color(0xFFDB2777)
                         )
                     },
                     modifier = Modifier
@@ -121,12 +124,26 @@ fun SignatureDialog(
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
-                        text = { Text("Signature (Paper Removal)", fontSize = 12.sp, color = if (selectedTab == 0) Color.White else Color(0xFF94A3B8)) }
+                        text = {
+                            Text(
+                                "Signature (Paper Removal)",
+                                fontSize = 12.sp,
+                                fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium,
+                                color = if (selectedTab == 0) Color(0xFF0F172A) else Color(0xFF64748B)
+                            )
+                        }
                     )
                     Tab(
                         selected = selectedTab == 1,
                         onClick = { selectedTab = 1 },
-                        text = { Text("Stamp / Seal", fontSize = 12.sp, color = if (selectedTab == 1) Color.White else Color(0xFF94A3B8)) }
+                        text = {
+                            Text(
+                                "Stamp / Seal",
+                                fontSize = 12.sp,
+                                fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
+                                color = if (selectedTab == 1) Color(0xFF0F172A) else Color(0xFF64748B)
+                            )
+                        }
                     )
                 }
 
@@ -138,8 +155,8 @@ fun SignatureDialog(
                         .fillMaxWidth()
                         .height(130.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color(0xFF0F172A))
-                        .border(1.dp, Color(0xFF334155), RoundedCornerShape(12.dp))
+                        .background(Color(0xFFF8FAFC))
+                        .border(1.dp, Color(0xFFCBD5E1), RoundedCornerShape(12.dp))
                         .clickable { onPickSourceImage() },
                     contentAlignment = Alignment.Center
                 ) {
@@ -147,7 +164,9 @@ fun SignatureDialog(
                         Image(
                             bitmap = extractedBitmap.asImageBitmap(),
                             contentDescription = "Extracted Asset",
-                            modifier = Modifier.fillMaxWidth().padding(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(8.dp),
                             contentScale = ContentScale.Fit
                         )
                     } else {
@@ -161,8 +180,9 @@ fun SignatureDialog(
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
                                 text = "Pick photo containing sign or stamp",
-                                color = Color(0xFF94A3B8),
-                                fontSize = 13.sp
+                                color = Color(0xFF64748B),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
@@ -173,7 +193,7 @@ fun SignatureDialog(
                 if (selectedTab == 0) {
                     Text(
                         text = "Choose Ink Color Enhancement:",
-                        color = Color(0xFFCBD5E1),
+                        color = Color(0xFF1E293B),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.align(Alignment.Start)
@@ -189,17 +209,21 @@ fun SignatureDialog(
                                 modifier = Modifier
                                     .weight(1f)
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) Color(0xFF2563EB) else Color(0xFF0F172A))
-                                    .border(1.dp, if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155), RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) Color(0xFFEFF6FF) else Color(0xFFF1F5F9))
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) Color(0xFF2563EB) else Color(0xFFCBD5E1),
+                                        RoundedCornerShape(8.dp)
+                                    )
                                     .clickable { selectedColorIndex = index }
                                     .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = pair.first,
-                                    color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                    color = if (isSelected) Color(0xFF2563EB) else Color(0xFF475569),
                                     fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                                 )
                             }
                         }
@@ -217,7 +241,7 @@ fun SignatureDialog(
                         }
                     },
                     shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEC4899)),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDB2777)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(

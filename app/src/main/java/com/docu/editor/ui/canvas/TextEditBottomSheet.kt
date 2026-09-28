@@ -27,12 +27,13 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -49,9 +50,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.docu.editor.core.font.FontClassification
 import com.docu.editor.core.ocr.model.DetectedTextItem
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -69,23 +72,24 @@ fun TextEditBottomSheet(
     ) -> Unit
 ) {
     var editedText by remember(item.id) { mutableStateOf(item.text) }
-    var isBold by remember(item.id) { mutableStateOf(true) } // Default Bold for crisp document printing
+    var isBold by remember(item.id) { mutableStateOf(true) }
     var sizeMultiplier by remember(item.id) { mutableFloatStateOf(1.0f) }
-    var selectedColorRgb by remember(item.id) { mutableIntStateOf(0xFF000000.toInt()) } // Solid Black default
+    var selectedColorRgb by remember(item.id) { mutableIntStateOf(item.inkColorRgb) } // Default to document original ink
+    var selectedFontType by remember(item.id) { mutableStateOf(FontClassification.SANS_SERIF) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        containerColor = Color(0xFF1E293B)
+        containerColor = Color.White // High-contrast clean white background
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 12.dp)
+                .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
-            // Header
+            // Header: Crisp High-Contrast Dark Text
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -93,44 +97,160 @@ fun TextEditBottomSheet(
             ) {
                 Column {
                     Text(
-                        text = "Document Typography Studio",
-                        color = Color.White,
-                        fontSize = 18.sp,
+                        text = "Edit Document Text",
+                        color = Color(0xFF0F172A),
+                        fontSize = 19.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Original: \"${item.text.take(30)}\"",
-                        color = Color(0xFF94A3B8),
+                        text = "Customize font, size & ink to match your PDF",
+                        color = Color(0xFF64748B),
                         fontSize = 12.sp
                     )
                 }
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8))
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF0F172A))
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Text Input Field
+            // Text Input Field (High-contrast borders)
             OutlinedTextField(
                 value = editedText,
                 onValueChange = { editedText = it },
-                label = { Text("Replacement Text", color = Color(0xFF38BDF8)) },
+                label = { Text("Replacement Text", color = Color(0xFF2563EB), fontWeight = FontWeight.SemiBold) },
                 singleLine = false,
                 maxLines = 3,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color(0xFF0F172A),
+                    unfocusedTextColor = Color(0xFF0F172A),
+                    focusedBorderColor = Color(0xFF2563EB),
+                    unfocusedBorderColor = Color(0xFFCBD5E1),
+                    focusedContainerColor = Color(0xFFF8FAFC),
+                    unfocusedContainerColor = Color(0xFFF8FAFC)
+                ),
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Live Comparison Preview Box (Side-by-side verification before applying!)
+            Surface(
+                color = Color(0xFFF1F5F9),
+                shape = RoundedCornerShape(12.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "LIVE VISUAL COMPARISON:",
+                        color = Color(0xFF64748B),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Original Document:",
+                                color = Color(0xFF94A3B8),
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                text = item.text,
+                                color = Color(0xFF1E293B),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(32.dp)
+                                .background(Color(0xFFCBD5E1))
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "New Preview:",
+                                color = Color(0xFF2563EB),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = editedText.ifEmpty { "Sample" },
+                                color = Color(selectedColorRgb),
+                                fontSize = (14 * sizeMultiplier).sp,
+                                fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
+                                fontFamily = when (selectedFontType) {
+                                    FontClassification.SERIF -> FontFamily.Serif
+                                    FontClassification.MONOSPACE -> FontFamily.Monospace
+                                    else -> FontFamily.SansSerif
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
 
             // Typography Controls Card
             Surface(
-                color = Color(0xFF0F172A),
-                shape = RoundedCornerShape(16.dp),
+                color = Color(0xFFF8FAFC),
+                shape = RoundedCornerShape(14.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    // Row 1: Bold Button + Color Palette
+                Column(modifier = Modifier.padding(12.dp)) {
+                    // Row 1: Font Classification (Sans, Serif, Mono)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Font:", color = Color(0xFF475569), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+
+                        FilterChip(
+                            selected = selectedFontType == FontClassification.SANS_SERIF,
+                            onClick = { selectedFontType = FontClassification.SANS_SERIF },
+                            label = { Text("Sans (Invoice)", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF2563EB),
+                                selectedLabelColor = Color.White
+                            )
+                        )
+
+                        FilterChip(
+                            selected = selectedFontType == FontClassification.SERIF,
+                            onClick = { selectedFontType = FontClassification.SERIF },
+                            label = { Text("Serif (Legal)", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF2563EB),
+                                selectedLabelColor = Color.White
+                            )
+                        )
+
+                        FilterChip(
+                            selected = selectedFontType == FontClassification.MONOSPACE,
+                            onClick = { selectedFontType = FontClassification.MONOSPACE },
+                            label = { Text("Mono", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF2563EB),
+                                selectedLabelColor = Color.White
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Row 2: Bold Toggle + Color Palette
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -138,74 +258,76 @@ fun TextEditBottomSheet(
                     ) {
                         // Bold Toggle Button
                         Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isBold) Color(0xFF2563EB) else Color(0xFF1E293B),
-                            modifier = Modifier
-                                .clickable { isBold = !isBold }
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isBold) Color(0xFF2563EB) else Color(0xFFE2E8F0),
+                            modifier = Modifier.clickable { isBold = !isBold }
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                             ) {
                                 Icon(
                                     Icons.Default.FormatBold,
                                     contentDescription = "Bold",
-                                    tint = if (isBold) Color.White else Color(0xFF94A3B8),
-                                    modifier = Modifier.size(18.dp)
+                                    tint = if (isBold) Color.White else Color(0xFF475569),
+                                    modifier = Modifier.size(16.dp)
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = if (isBold) "BOLD (Active)" else "Normal",
-                                    color = if (isBold) Color.White else Color(0xFF94A3B8),
+                                    text = if (isBold) "BOLD (On)" else "Normal",
+                                    color = if (isBold) Color.White else Color(0xFF475569),
                                     fontSize = 12.sp,
                                     fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal
                                 )
                             }
                         }
 
-                        // Ink Color Choices
+                        // Ink Color Palette
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("Ink:", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                            Text("Ink:", color = Color(0xFF475569), fontSize = 12.sp, fontWeight = FontWeight.Bold)
 
-                            // Pure Black
-                            ColorChip(
-                                color = Color.Black,
-                                isSelected = selectedColorRgb == 0xFF000000.toInt(),
-                                onClick = { selectedColorRgb = 0xFF000000.toInt() }
-                            )
-
-                            // Document Navy
-                            ColorChip(
-                                color = Color(0xFF0D47A1),
-                                isSelected = selectedColorRgb == 0xFF0D47A1.toInt(),
-                                onClick = { selectedColorRgb = 0xFF0D47A1.toInt() }
-                            )
-
-                            // Original Sampled
-                            ColorChip(
+                            // Document Original Ink
+                            ColorChipLight(
                                 color = item.inkColor,
+                                label = "Orig",
                                 isSelected = selectedColorRgb == item.inkColorRgb,
                                 onClick = { selectedColorRgb = item.inkColorRgb }
+                            )
+
+                            // Natural Laser Charcoal
+                            ColorChipLight(
+                                color = Color(0xFF222428),
+                                label = "Dark",
+                                isSelected = selectedColorRgb == 0xFF222428.toInt(),
+                                onClick = { selectedColorRgb = 0xFF222428.toInt() }
+                            )
+
+                            // Document Navy Blue
+                            ColorChipLight(
+                                color = Color(0xFF0D47A1),
+                                label = "Blue",
+                                isSelected = selectedColorRgb == 0xFF0D47A1.toInt(),
+                                onClick = { selectedColorRgb = 0xFF0D47A1.toInt() }
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    // Row 2: Font Size Slider & Stepper
+                    // Row 3: Font Size Stepper & Slider
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Font Size: ${(sizeMultiplier * 100).toInt()}%",
-                            color = Color(0xFFE2E8F0),
+                            text = "Size Scale: ${(sizeMultiplier * 100).toInt()}%",
+                            color = Color(0xFF0F172A),
                             fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Bold
                         )
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -213,13 +335,13 @@ fun TextEditBottomSheet(
                                 onClick = { sizeMultiplier = (sizeMultiplier - 0.05f).coerceAtLeast(0.60f) },
                                 modifier = Modifier.size(32.dp)
                             ) {
-                                Icon(Icons.Default.Remove, contentDescription = "Decrease", tint = Color.White)
+                                Icon(Icons.Default.Remove, contentDescription = "Decrease", tint = Color(0xFF0F172A))
                             }
                             IconButton(
-                                onClick = { sizeMultiplier = (sizeMultiplier + 0.05f).coerceAtMost(2.0f) },
+                                onClick = { sizeMultiplier = (sizeMultiplier + 0.05f).coerceAtMost(1.80f) },
                                 modifier = Modifier.size(32.dp)
                             ) {
-                                Icon(Icons.Default.Add, contentDescription = "Increase", tint = Color.White)
+                                Icon(Icons.Default.Add, contentDescription = "Increase", tint = Color(0xFF0F172A))
                             }
                         }
                     }
@@ -229,17 +351,17 @@ fun TextEditBottomSheet(
                         onValueChange = { sizeMultiplier = it },
                         valueRange = 0.60f..1.80f,
                         colors = SliderDefaults.colors(
-                            thumbColor = Color(0xFF38BDF8),
+                            thumbColor = Color(0xFF2563EB),
                             activeTrackColor = Color(0xFF2563EB),
-                            inactiveTrackColor = Color(0xFF334155)
+                            inactiveTrackColor = Color(0xFFCBD5E1)
                         )
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            // Action Buttons (Local Offline & Gemini Pro Cloud)
+            // Action Buttons
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -250,12 +372,12 @@ fun TextEditBottomSheet(
                         onApplyEdit(editedText, isBold, sizeMultiplier, selectedColorRgb, false)
                     },
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
                 ) {
                     Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Instant Apply", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    Text("Instant Apply", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
 
                 // Gemini Pro Cloud AI Apply
@@ -264,34 +386,35 @@ fun TextEditBottomSheet(
                         onApplyEdit(editedText, isBold, sizeMultiplier, selectedColorRgb, true)
                     },
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED))
                 ) {
                     Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFD700), modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Gemini Pro AI", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text("Gemini Pro AI", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
         }
     }
 }
 
 @Composable
-private fun ColorChip(
+private fun ColorChipLight(
     color: Color,
+    label: String,
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
     Box(
         modifier = Modifier
-            .size(26.dp)
+            .size(28.dp)
             .clip(CircleShape)
             .background(color)
             .border(
                 width = if (isSelected) 2.5.dp else 1.dp,
-                color = if (isSelected) Color(0xFF38BDF8) else Color(0xFF64748B),
+                color = if (isSelected) Color(0xFF2563EB) else Color(0xFF94A3B8),
                 shape = CircleShape
             )
             .clickable { onClick() },
@@ -301,7 +424,7 @@ private fun ColorChip(
             Icon(
                 Icons.Default.Check,
                 contentDescription = null,
-                tint = if (color == Color.Black || color == Color(0xFF0D47A1)) Color.White else Color.Black,
+                tint = Color.White,
                 modifier = Modifier.size(14.dp)
             )
         }

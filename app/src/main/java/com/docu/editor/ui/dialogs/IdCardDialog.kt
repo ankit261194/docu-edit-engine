@@ -1,6 +1,7 @@
 package com.docu.editor.ui.dialogs
 
 import android.graphics.Bitmap
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -52,7 +53,9 @@ fun IdCardDialog(
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -71,25 +74,25 @@ fun IdCardDialog(
                         Icon(
                             Icons.Default.Badge,
                             contentDescription = null,
-                            tint = Color(0xFF10B981),
+                            tint = Color(0xFF059669),
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "ID Card Duplex Scanner",
-                            color = Color.White,
+                            color = Color(0xFF0F172A),
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8))
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF64748B))
                     }
                 }
 
                 Text(
                     text = "Scan Front & Back sides. We'll automatically crop and align both onto a standard A4 sheet ready for printing.",
-                    color = Color(0xFF94A3B8),
+                    color = Color(0xFF64748B),
                     fontSize = 12.sp,
                     lineHeight = 16.sp,
                     modifier = Modifier.padding(vertical = 8.dp)
@@ -121,14 +124,14 @@ fun IdCardDialog(
                     enabled = canStitch,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF10B981),
-                        disabledContainerColor = Color(0xFF334155)
+                        containerColor = Color(0xFF059669),
+                        disabledContainerColor = Color(0xFFE2E8F0)
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
                         text = if (canStitch) "Stitch to A4 Document" else "Capture Both Sides First",
-                        color = Color.White,
+                        color = if (canStitch) Color.White else Color(0xFF94A3B8),
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp
                     )
@@ -145,15 +148,15 @@ private fun IdCardSlot(
     onClick: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text(text = label, color = Color(0xFFCBD5E1), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(text = label, color = Color(0xFF1E293B), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         Spacer(modifier = Modifier.height(6.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(110.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color(0xFF0F172A))
-                .border(1.dp, if (bitmap != null) Color(0xFF10B981) else Color(0xFF334155), RoundedCornerShape(12.dp))
+                .background(Color(0xFFF8FAFC))
+                .border(1.dp, if (bitmap != null) Color(0xFF059669) else Color(0xFFCBD5E1), RoundedCornerShape(12.dp))
                 .clickable { onClick() },
             contentAlignment = Alignment.Center
         ) {
@@ -172,7 +175,7 @@ private fun IdCardSlot(
                     Icon(
                         Icons.Default.CheckCircle,
                         contentDescription = "Uploaded",
-                        tint = Color(0xFF10B981),
+                        tint = Color(0xFF059669),
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -187,8 +190,9 @@ private fun IdCardSlot(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Tap to pick photo / scan",
-                        color = Color(0xFF94A3B8),
-                        fontSize = 13.sp
+                        color = Color(0xFF64748B),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }

@@ -1,5 +1,6 @@
 package com.docu.editor.ui.dialogs
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -61,7 +62,9 @@ fun PdfToolboxDialog(
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -79,19 +82,19 @@ fun PdfToolboxDialog(
                         Icon(
                             Icons.Default.PictureAsPdf,
                             contentDescription = null,
-                            tint = Color(0xFFFBBF24),
+                            tint = Color(0xFFD97706),
                             modifier = Modifier.size(24.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "PDF Toolbox & Security",
-                            color = Color.White,
+                            color = Color(0xFF0F172A),
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF94A3B8))
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF64748B))
                     }
                 }
 
@@ -99,13 +102,18 @@ fun PdfToolboxDialog(
 
                 // Section 1: Compression
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Compress, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Default.Compress,
+                        contentDescription = null,
+                        tint = Color(0xFF0284C7),
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "1-Tap Multi-Tier Compression",
-                        color = Color.White,
+                        color = Color(0xFF0F172A),
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Bold
                     )
                 }
 
@@ -118,21 +126,25 @@ fun PdfToolboxDialog(
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSelected) Color(0xFF2563EB).copy(alpha = 0.2f) else Color(0xFF0F172A))
-                            .border(1.dp, if (isSelected) Color(0xFF38BDF8) else Color(0xFF334155), RoundedCornerShape(10.dp))
+                            .background(if (isSelected) Color(0xFFEFF6FF) else Color(0xFFF8FAFC))
+                            .border(
+                                1.dp,
+                                if (isSelected) Color(0xFF2563EB) else Color(0xFFE2E8F0),
+                                RoundedCornerShape(10.dp)
+                            )
                             .clickable { selectedDpi = dpi }
                             .padding(12.dp)
                     ) {
                         Column {
                             Text(
                                 text = title,
-                                color = if (isSelected) Color.White else Color(0xFFCBD5E1),
+                                color = if (isSelected) Color(0xFF2563EB) else Color(0xFF1E293B),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
                                 text = desc,
-                                color = Color(0xFF94A3B8),
+                                color = Color(0xFF64748B),
                                 fontSize = 11.sp
                             )
                         }
@@ -154,13 +166,18 @@ fun PdfToolboxDialog(
 
                 // Section 2: Password Protect
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFFF43F5E), modifier = Modifier.size(18.dp))
+                    Icon(
+                        Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = Color(0xFFE11D48),
+                        modifier = Modifier.size(18.dp)
+                    )
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "128-bit AES Password Lock",
-                        color = Color.White,
+                        color = Color(0xFF0F172A),
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.Bold
                     )
                 }
 
@@ -169,14 +186,14 @@ fun PdfToolboxDialog(
                 OutlinedTextField(
                     value = passwordText,
                     onValueChange = { passwordText = it },
-                    placeholder = { Text("Enter Document Password", color = Color(0xFF64748B), fontSize = 12.sp) },
+                    placeholder = { Text("Enter Document Password", color = Color(0xFF94A3B8), fontSize = 12.sp) },
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedBorderColor = Color(0xFFF43F5E),
-                        unfocusedBorderColor = Color(0xFF334155),
-                        focusedContainerColor = Color(0xFF0F172A),
-                        unfocusedContainerColor = Color(0xFF0F172A)
+                        focusedTextColor = Color(0xFF0F172A),
+                        unfocusedTextColor = Color(0xFF0F172A),
+                        focusedBorderColor = Color(0xFFE11D48),
+                        unfocusedBorderColor = Color(0xFFCBD5E1),
+                        focusedContainerColor = Color(0xFFF8FAFC),
+                        unfocusedContainerColor = Color(0xFFF8FAFC)
                     ),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -188,10 +205,17 @@ fun PdfToolboxDialog(
                     onClick = { if (passwordText.isNotBlank()) onPasswordProtectSelected(passwordText) },
                     enabled = passwordText.isNotBlank(),
                     shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE11D48)),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFE11D48),
+                        disabledContainerColor = Color(0xFFE2E8F0)
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Encrypt Document with AES", fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(
+                        "Encrypt Document with AES",
+                        fontWeight = FontWeight.Bold,
+                        color = if (passwordText.isNotBlank()) Color.White else Color(0xFF94A3B8)
+                    )
                 }
             }
         }

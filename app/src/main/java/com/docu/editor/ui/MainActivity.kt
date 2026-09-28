@@ -212,12 +212,12 @@ class MainActivity : ComponentActivity() {
                                             "DocuEdit Studio",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 17.sp,
-                                            color = Color.White
+                                            color = Color(0xFF0F172A)
                                         )
                                         Text(
                                             "${uiState.detectedItems.size} editable text blocks detected",
                                             fontSize = 11.sp,
-                                            color = Color(0xFF94A3B8)
+                                            color = Color(0xFF64748B)
                                         )
                                     }
                                 },
@@ -226,12 +226,12 @@ class MainActivity : ComponentActivity() {
                                         Icon(
                                             Icons.AutoMirrored.Filled.ArrowBack,
                                             contentDescription = "Back to Home",
-                                            tint = Color.White
+                                            tint = Color(0xFF0F172A)
                                         )
                                     }
                                 },
                                 colors = TopAppBarDefaults.topAppBarColors(
-                                    containerColor = Color(0xFF0F172A)
+                                    containerColor = Color.White
                                 ),
                                 actions = {
                                     IconButton(
@@ -241,7 +241,7 @@ class MainActivity : ComponentActivity() {
                                         Icon(
                                             Icons.AutoMirrored.Filled.Undo,
                                             contentDescription = "Undo",
-                                            tint = if (uiState.canUndo) Color.White else Color(0xFF475569)
+                                            tint = if (uiState.canUndo) Color(0xFF0F172A) else Color(0xFFCBD5E1)
                                         )
                                     }
                                     IconButton(
@@ -251,7 +251,7 @@ class MainActivity : ComponentActivity() {
                                         Icon(
                                             Icons.AutoMirrored.Filled.Redo,
                                             contentDescription = "Redo",
-                                            tint = if (uiState.canRedo) Color.White else Color(0xFF475569)
+                                            tint = if (uiState.canRedo) Color(0xFF0F172A) else Color(0xFFCBD5E1)
                                         )
                                     }
                                     IconButton(
@@ -260,7 +260,7 @@ class MainActivity : ComponentActivity() {
                                         Icon(
                                             Icons.Default.Share,
                                             contentDescription = "Save & Share",
-                                            tint = Color(0xFF38BDF8)
+                                            tint = Color(0xFF2563EB)
                                         )
                                     }
                                 }

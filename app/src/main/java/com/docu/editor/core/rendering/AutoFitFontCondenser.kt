@@ -22,9 +22,8 @@ object AutoFitFontCondenser {
         val targetWidth = max(10, targetBounds.width()).toFloat()
         val targetHeight = max(8, targetBounds.height()).toFloat()
 
-        // Capital letters cap-height is ~72% of EM size.
-        // targetHeight is bounding box of capital letters, so EM size = targetHeight / 0.72f.
-        var fontSize = (targetHeight / 0.72f) * sizeMultiplier
+        // Calibrated document typographic height (matches standard printed invoice cap-height)
+        var fontSize = targetHeight * 0.85f * sizeMultiplier
         var trackingEm = 0f
         var scaleX = 1.0f
 

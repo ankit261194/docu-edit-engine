@@ -58,7 +58,7 @@ fun DocumentInteractiveCanvas(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF0F172A))
+            .background(Color(0xFFE2E8F0)) // High-contrast neutral document canvas
             .onSizeChanged { containerSize = it }
             .transformable(state = transformState)
             .pointerInput(bitmap, detectedItems, containerSize, scale, offset, activeMode) {
@@ -171,18 +171,18 @@ fun DocumentInteractiveCanvas(
                             size = Size(boxWidth, boxHeight)
                         )
                         drawRect(
-                            color = Color(0xFF00E5FF),
+                            color = Color(0xFF2563EB),
                             topLeft = Offset(boxLeft, boxTop),
                             size = Size(boxWidth, boxHeight),
-                            style = Stroke(width = 3.5f)
+                            style = Stroke(width = 3.dp.toPx())
                         )
                     } else {
-                        // Non-selected: ultra-subtle, non-intrusive dotted boundary (NO opaque fill!)
+                        // Non-selected: clearly visible blue dotted boundary
                         drawRect(
-                            color = Color(0xFF38BDF8).copy(alpha = 0.25f),
+                            color = Color(0xFF2563EB).copy(alpha = 0.40f),
                             topLeft = Offset(boxLeft, boxTop),
                             size = Size(boxWidth, boxHeight),
-                            style = Stroke(width = 1.2f)
+                            style = Stroke(width = 1.5.dp.toPx())
                         )
                     }
                 }
