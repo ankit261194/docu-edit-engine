@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <cache-path name="cached_documents" path="." />
+    <external-cache-path name="external_cached_documents" path="." />
+    <files-path name="saved_documents" path="documents/" />
+    <files-path name="export_documents" path="exports/" />
+    <external-path name="public_downloads" path="Download/" />
+    <external-files-path name="external_download_files" path="Download/" />
+</paths>
