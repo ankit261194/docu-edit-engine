@@ -41,6 +41,8 @@ import com.docu.editor.core.scanner.DocumentEdgeDetector
 import com.docu.editor.core.scanner.DocumentFilters
 import com.docu.editor.core.scanner.IdCardStitcher
 import com.docu.editor.core.scanner.PerspectiveTransformer
+import com.docu.editor.core.watermark.WatermarkEngine
+import com.docu.editor.core.dewarp.BookCurveDewarper
 import com.docu.editor.core.signature.SignatureExtractor
 import com.docu.editor.core.signature.StampExtractor
 import com.docu.editor.domain.model.DocumentEditorUiState
@@ -405,9 +407,28 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         }
                     }
 
+                    // #5 Word Overlap / Reflow Spacing Protection:
+                    // Check if an adjacent word exists to the right on the same line
+                    val nextAdjacentItem = _uiState.value.detectedItems.filter {
+                        it.id != targetItem.id &&
+                        it.boundingBox.left >= targetItem.boundingBox.right - 4 &&
+                        kotlin.math.abs(it.boundingBox.centerY() - targetItem.boundingBox.centerY()) < targetItem.boundingBox.height() * 0.65f
+                    }.minByOrNull { it.boundingBox.left }
+
+                    val effectiveTargetBounds = if (nextAdjacentItem != null) {
+                        val maxAllowedRight = nextAdjacentItem.boundingBox.left - 6
+                        if (maxAllowedRight > targetItem.boundingBox.left + 15) {
+                            Rect(targetItem.boundingBox.left, targetItem.boundingBox.top, maxAllowedRight, targetItem.boundingBox.bottom)
+                        } else {
+                            targetItem.boundingBox
+                        }
+                    } else {
+                        targetItem.boundingBox
+                    }
+
                     val cleanedBackground = backgroundInpainter.inpaint(
                         sourceBitmap = currentBitmap,
-                        targetBounds = targetItem.boundingBox
+                        targetBounds = effectiveTargetBounds
                     )
 
                     val renderResult = textRenderer.render(
@@ -415,7 +436,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         params = TextRenderer.TextRenderParams(
                             newText = newText,
                             originalText = targetItem.text,
-                            targetBounds = targetItem.boundingBox,
+                            targetBounds = effectiveTargetBounds,
                             inkColorRgb = effectiveInkColor,
                             rotationAngle = targetItem.rotationAngle,
                             typographyMetrics = targetItem.typography,
@@ -430,9 +451,26 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     renderResult.outputBitmap
                 }
 
-                // Update bounding box width to match new text length
+                // Update bounding box width to match new text length with reflow protection
                 val charW = (targetItem.boundingBox.height() * 0.52f) * sizeMultiplier
                 val newWidth = (newText.length * charW).toInt().coerceAtLeast(24)
+
+                val nextAdjacentItem = _uiState.value.detectedItems.filter {
+                    it.id != targetItem.id &&
+                    it.boundingBox.left >= targetItem.boundingBox.right - 4 &&
+                    kotlin.math.abs(it.boundingBox.centerY() - targetItem.boundingBox.centerY()) < targetItem.boundingBox.height() * 0.65f
+                }.minByOrNull { it.boundingBox.left }
+
+                val finalRight = if (nextAdjacentItem != null) {
+                    val maxAllowed = nextAdjacentItem.boundingBox.left - 6
+                    if (maxAllowed > targetItem.boundingBox.left + 15) {
+                        minOf(targetItem.boundingBox.left + newWidth, maxAllowed)
+                    } else {
+                        targetItem.boundingBox.left + newWidth
+                    }
+                } else {
+                    targetItem.boundingBox.left + newWidth
+                }
 
                 val isNumericFigure = newText.trim().matches(Regex("""^[$€£₹]?\s*[\d,.-]+%?$""")) ||
                                       targetItem.text.trim().matches(Regex("""^[$€£₹]?\s*[\d,.-]+%?$"""))
@@ -444,7 +482,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     Rect(
                         targetItem.boundingBox.left,
                         targetItem.boundingBox.top,
-                        targetItem.boundingBox.left + newWidth,
+                        finalRight,
                         targetItem.boundingBox.bottom
                     )
                 }
@@ -804,7 +842,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     when (format.uppercase()) {
                         "PDF" -> {
                             val outFile = File(downloadsDir, "DocuEdit_Export_$time.pdf")
-                            PdfExportEngine.exportBitmapToPdf(current, outFile, fitToA4)
+                            PdfExportEngine.exportBitmapToPdf(current, outFile, fitToA4, _uiState.value.detectedItems)
                         }
                         "PNG" -> {
                             val outFile = File(downloadsDir, "DocuEdit_Export_$time.png")
@@ -913,6 +951,185 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 isNewTextInsertion = true,
                 activeToolMode = EditorToolMode.TEXT_EDIT
             )
+        }
+    }
+
+    // --- #18 Multi-Word / Paragraph Lasso Selection ---
+
+    fun setLassoSelection(items: List<DetectedTextItem>) {
+        _uiState.update { it.copy(selectedItems = items) }
+    }
+
+    fun clearLassoSelection() {
+        _uiState.update { it.copy(selectedItems = emptyList()) }
+    }
+
+    fun mergeAndEditLassoSelection() {
+        val selected = _uiState.value.selectedItems
+        if (selected.isEmpty()) return
+
+        val sorted = selected.sortedWith(
+            compareBy<DetectedTextItem> { (it.boundingBox.top / 24) * 1000 }
+                .thenBy { it.boundingBox.left }
+        )
+
+        val mergedText = sorted.joinToString(" ") { it.text }
+        var minL = Int.MAX_VALUE
+        var minT = Int.MAX_VALUE
+        var maxR = Int.MIN_VALUE
+        var maxB = Int.MIN_VALUE
+
+        for (item in sorted) {
+            minL = minOf(minL, item.boundingBox.left)
+            minT = minOf(minT, item.boundingBox.top)
+            maxR = maxOf(maxR, item.boundingBox.right)
+            maxB = maxOf(maxB, item.boundingBox.bottom)
+        }
+
+        val unionBox = Rect(minL, minT, maxR, maxB)
+        val primary = sorted.first()
+        val compoundItem = primary.copy(
+            id = "compound_${System.currentTimeMillis()}",
+            text = mergedText,
+            boundingBox = unionBox
+        )
+
+        _uiState.update {
+            it.copy(
+                selectedItem = compoundItem,
+                selectedItems = emptyList(),
+                activeToolMode = EditorToolMode.TEXT_EDIT
+            )
+        }
+    }
+
+    fun whiteoutLassoSelection() {
+        val selected = _uiState.value.selectedItems
+        val current = _uiState.value.currentBitmap ?: return
+        if (selected.isEmpty()) return
+
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Erasing ${selected.size} text blocks...") }
+            try {
+                val updatedBitmap = withContext(Dispatchers.Default) {
+                    var bmp = current.copy(Bitmap.Config.ARGB_8888, true)
+                    for (item in selected) {
+                        val cleaned = backgroundInpainter.inpaint(bmp, item.boundingBox)
+                        bmp.recycle()
+                        bmp = cleaned
+                    }
+                    bmp
+                }
+
+                val selectedIds = selected.map { it.id }.toSet()
+                val remainingItems = _uiState.value.detectedItems.filterNot { selectedIds.contains(it.id) }
+
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = updatedBitmap,
+                        detectedItems = remainingItems,
+                        selectedItems = emptyList(),
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        successMessage = "Erased ${selected.size} text blocks",
+                        canUndo = true,
+                        canRedo = false,
+                        canvasRevision = it.canvasRevision + 1
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Whiteout failed: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    // --- #10 Security Watermark Engine ---
+
+    fun showWatermarkDialog(show: Boolean) {
+        _uiState.update { it.copy(showWatermarkDialog = show) }
+    }
+
+    fun applyWatermark(config: WatermarkEngine.WatermarkConfig) {
+        val current = _uiState.value.currentBitmap ?: return
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Applying security watermark...") }
+            try {
+                val watermarked = withContext(Dispatchers.Default) {
+                    WatermarkEngine.applyWatermark(current, config)
+                }
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = watermarked,
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        successMessage = "Security watermark applied",
+                        canUndo = true,
+                        canRedo = false,
+                        canvasRevision = it.canvasRevision + 1
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Watermark failed: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    // --- #13 Book Curve Flattening AI ---
+
+    fun showBookDewarpDialog(show: Boolean) {
+        _uiState.update { it.copy(showBookDewarpDialog = show) }
+    }
+
+    fun applyBookDewarp(spine: BookCurveDewarper.SpinePosition, intensity: Float) {
+        val current = _uiState.value.currentBitmap ?: return
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "AI flattening curved book gutter...") }
+            try {
+                val flattened = withContext(Dispatchers.Default) {
+                    BookCurveDewarper.flattenBookCurvature(current, spine, intensity)
+                }
+                val reOcrItems = withContext(Dispatchers.Default) {
+                    ocrAnalyzer.detectTextBlocks(flattened, TextHierarchyLevel.ELEMENT)
+                }
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = flattened,
+                        detectedItems = reOcrItems,
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        successMessage = "Book curve flattened & deskewed",
+                        canUndo = true,
+                        canRedo = false,
+                        canvasRevision = it.canvasRevision + 1
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Book dewarp failed: ${e.message}"
+                    )
+                }
+            }
         }
     }
 

@@ -18,13 +18,20 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Crop
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -59,7 +66,13 @@ fun DocumentBottomBar(
     onRotateClicked: () -> Unit,
     onAutoCropClicked: () -> Unit,
     onCompressClicked: () -> Unit,
-    onExportClicked: () -> Unit
+    onExportClicked: () -> Unit,
+    selectedLassoCount: Int = 0,
+    onMergeEditLasso: () -> Unit = {},
+    onWhiteoutLasso: () -> Unit = {},
+    onClearLasso: () -> Unit = {},
+    onWatermarkClicked: () -> Unit = {},
+    onBookDewarpClicked: () -> Unit = {}
 ) {
     var brightness by remember { mutableFloatStateOf(0f) }
     var contrast by remember { mutableFloatStateOf(1f) }
@@ -167,6 +180,62 @@ fun DocumentBottomBar(
                 }
             }
 
+            // Lasso Multi-Select Floating Action Strip
+            AnimatedVisibility(visible = activeMode == EditorToolMode.LASSO_SELECT && selectedLassoCount > 0) {
+                Surface(
+                    color = Color(0xFFEFF6FF),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "$selectedLassoCount blocks selected",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1D4ED8)
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = onMergeEditLasso,
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text("Merge & Edit", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = onWhiteoutLasso,
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text("Erase All", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = onClearLasso,
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF94A3B8)),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text("Clear", fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(4.dp))
 
             // Primary Bottom Action Dock (Scrollable on smaller screens)
@@ -186,6 +255,13 @@ fun DocumentBottomBar(
                 )
 
                 ToolDockButton(
+                    icon = Icons.Default.SelectAll,
+                    label = "Lasso Select",
+                    isSelected = activeMode == EditorToolMode.LASSO_SELECT,
+                    onClick = { onModeSelected(EditorToolMode.LASSO_SELECT) }
+                )
+
+                ToolDockButton(
                     icon = Icons.Default.Check,
                     label = "Add Text",
                     isSelected = activeMode == EditorToolMode.ADD_TEXT,
@@ -197,6 +273,20 @@ fun DocumentBottomBar(
                     label = "Whiteout",
                     isSelected = activeMode == EditorToolMode.WHITEOUT,
                     onClick = { onModeSelected(EditorToolMode.WHITEOUT) }
+                )
+
+                ToolDockButton(
+                    icon = Icons.Default.Security,
+                    label = "Watermark",
+                    isSelected = false,
+                    onClick = onWatermarkClicked
+                )
+
+                ToolDockButton(
+                    icon = Icons.Default.MenuBook,
+                    label = "Book Dewarp",
+                    isSelected = false,
+                    onClick = onBookDewarpClicked
                 )
 
                 ToolDockButton(

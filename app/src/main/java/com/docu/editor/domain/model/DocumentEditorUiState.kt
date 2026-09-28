@@ -5,10 +5,13 @@ import com.docu.editor.core.ocr.model.DetectedTextItem
 
 enum class EditorToolMode {
     TEXT_EDIT,
+    LASSO_SELECT,
     ADD_TEXT,
     WHITEOUT,
     FILTERS,
     CROP_DESKEW,
+    BOOK_DEWARP,
+    WATERMARK,
     SIGNATURE,
     PDF_TOOLS
 }
@@ -26,6 +29,7 @@ data class DocumentEditorUiState(
     val currentBitmap: Bitmap? = null,
     val detectedItems: List<DetectedTextItem> = emptyList(),
     val selectedItem: DetectedTextItem? = null,
+    val selectedItems: List<DetectedTextItem> = emptyList(),
     val isNewTextInsertion: Boolean = false,
     val isScanning: Boolean = false,
     val isApplyingEdit: Boolean = false,
@@ -41,6 +45,8 @@ data class DocumentEditorUiState(
     val showSignatureDialog: Boolean = false,
     val showPdfToolboxDialog: Boolean = false,
     val showExportDialog: Boolean = false,
+    val showWatermarkDialog: Boolean = false,
+    val showBookDewarpDialog: Boolean = false,
     val idCardFrontBitmap: Bitmap? = null,
     val idCardBackBitmap: Bitmap? = null,
     val extractedSignature: Bitmap? = null,

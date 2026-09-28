@@ -70,6 +70,8 @@ import com.docu.editor.ui.dialogs.ExportDialog
 import com.docu.editor.ui.dialogs.IdCardDialog
 import com.docu.editor.ui.dialogs.PdfToolboxDialog
 import com.docu.editor.ui.dialogs.SignatureDialog
+import com.docu.editor.ui.dialogs.WatermarkDialog
+import com.docu.editor.ui.dialogs.BookDewarpDialog
 import com.docu.editor.ui.home.HomeScreenDashboard
 import com.docu.editor.ui.theme.DocuEditTheme
 import com.docu.editor.ui.update.UpdateDialog
@@ -317,7 +319,13 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onExportClicked = {
                                     viewModel.showExportDialog(true)
-                                }
+                                },
+                                selectedLassoCount = uiState.selectedItems.size,
+                                onMergeEditLasso = { viewModel.mergeAndEditLassoSelection() },
+                                onWhiteoutLasso = { viewModel.whiteoutLassoSelection() },
+                                onClearLasso = { viewModel.clearLassoSelection() },
+                                onWatermarkClicked = { viewModel.showWatermarkDialog(true) },
+                                onBookDewarpClicked = { viewModel.showBookDewarpDialog(true) }
                             )
                         }
                     }
@@ -334,9 +342,11 @@ class MainActivity : ComponentActivity() {
                                 bitmap = bitmap,
                                 detectedItems = uiState.detectedItems,
                                 selectedItem = uiState.selectedItem,
+                                selectedItems = uiState.selectedItems,
                                 activeMode = uiState.activeToolMode,
                                 canvasRevision = uiState.canvasRevision,
                                 onTextItemTapped = { viewModel.selectTextItem(it) },
+                                onLassoSelectionChanged = { viewModel.setLassoSelection(it) },
                                 onWhiteoutTouch = { x, y -> viewModel.applyWhiteoutCircle(x, y) },
                                 onInsertTextTouch = { x, y -> viewModel.insertNewTextItem(x, y) },
                                 activeOverlayBitmap = uiState.activeOverlayBitmap,
@@ -502,6 +512,28 @@ class MainActivity : ComponentActivity() {
                                     viewModel.showPdfToolboxDialog(false)
                                 },
                                 onDismiss = { viewModel.showPdfToolboxDialog(false) }
+                            )
+                        }
+
+                        // Anti-Counterfeiting Security Watermark Dialog
+                        if (uiState.showWatermarkDialog) {
+                            WatermarkDialog(
+                                onApplyWatermark = { config ->
+                                    viewModel.showWatermarkDialog(false)
+                                    viewModel.applyWatermark(config)
+                                },
+                                onDismiss = { viewModel.showWatermarkDialog(false) }
+                            )
+                        }
+
+                        // AI Book Curve Dewarping Dialog
+                        if (uiState.showBookDewarpDialog) {
+                            BookDewarpDialog(
+                                onApplyDewarp = { spine, intensity ->
+                                    viewModel.showBookDewarpDialog(false)
+                                    viewModel.applyBookDewarp(spine, intensity)
+                                },
+                                onDismiss = { viewModel.showBookDewarpDialog(false) }
                             )
                         }
 

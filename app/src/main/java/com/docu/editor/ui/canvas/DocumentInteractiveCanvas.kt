@@ -58,9 +58,11 @@ fun DocumentInteractiveCanvas(
     bitmap: Bitmap,
     detectedItems: List<DetectedTextItem>,
     selectedItem: DetectedTextItem?,
+    selectedItems: List<DetectedTextItem> = emptyList(),
     activeMode: EditorToolMode = EditorToolMode.TEXT_EDIT,
     canvasRevision: Long = 0L,
     onTextItemTapped: (DetectedTextItem) -> Unit,
+    onLassoSelectionChanged: (List<DetectedTextItem>) -> Unit = {},
     onWhiteoutTouch: (bitmapX: Float, bitmapY: Float) -> Unit = { _, _ -> },
     onInsertTextTouch: (bitmapX: Float, bitmapY: Float) -> Unit = { _, _ -> },
     activeOverlayBitmap: Bitmap? = null,
@@ -82,6 +84,8 @@ fun DocumentInteractiveCanvas(
     var offset by remember { mutableStateOf(Offset.Zero) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var isHoldingCompare by remember { mutableStateOf(false) }
+    var lassoBoxStart by remember { mutableStateOf<Offset?>(null) }
+    var lassoBoxCurrent by remember { mutableStateOf<Offset?>(null) }
 
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
         if (activeOverlayBitmap == null) {
@@ -99,6 +103,7 @@ fun DocumentInteractiveCanvas(
             .pointerInput(
                 bitmap,
                 detectedItems,
+                selectedItems,
                 containerSize,
                 scale,
                 offset,
@@ -181,6 +186,50 @@ fun DocumentInteractiveCanvas(
                             onInsertTextTouch(bitmapX, bitmapY)
                         }
                     }
+                } else if (activeMode == EditorToolMode.LASSO_SELECT) {
+                    // Multi-Word / Paragraph Lasso Box Selection
+                    detectDragGestures(
+                        onDragStart = { start ->
+                            lassoBoxStart = start
+                            lassoBoxCurrent = start
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            lassoBoxCurrent = change.position
+                        },
+                        onDragEnd = {
+                            val start = lassoBoxStart
+                            val end = lassoBoxCurrent
+                            if (start != null && end != null) {
+                                val fitScale = min(
+                                    containerSize.width.toFloat() / bitmap.width,
+                                    containerSize.height.toFloat() / bitmap.height
+                                )
+                                val effectiveScale = fitScale * scale
+                                val drawWidth = bitmap.width * effectiveScale
+                                val drawHeight = bitmap.height * effectiveScale
+                                val baseLeft = (containerSize.width - drawWidth) / 2f + offset.x
+                                val baseTop = (containerSize.height - drawHeight) / 2f + offset.y
+
+                                val minX = (minOf(start.x, end.x) - baseLeft) / effectiveScale
+                                val maxX = (maxOf(start.x, end.x) - baseLeft) / effectiveScale
+                                val minY = (minOf(start.y, end.y) - baseTop) / effectiveScale
+                                val maxY = (maxOf(start.y, end.y) - baseTop) / effectiveScale
+
+                                val selected = detectedItems.filter { item ->
+                                    val b = item.boundingBox
+                                    b.left < maxX && b.right > minX && b.top < maxY && b.bottom > minY
+                                }
+                                onLassoSelectionChanged(selected)
+                            }
+                            lassoBoxStart = null
+                            lassoBoxCurrent = null
+                        },
+                        onDragCancel = {
+                            lassoBoxStart = null
+                            lassoBoxCurrent = null
+                        }
+                    )
                 } else {
                     // Normal text editing mode: tap to select text item
                     detectTapGestures { tapScreenOffset ->
@@ -213,11 +262,15 @@ fun DocumentInteractiveCanvas(
                 }
             }
     ) {
+        val displayBitmap = if (isHoldingCompare && originalBitmap != null) originalBitmap else bitmap
+        val cachedImageBitmap = remember(displayBitmap, canvasRevision) {
+            displayBitmap.asImageBitmap()
+        }
+
         Canvas(modifier = Modifier.fillMaxSize()) {
             val _rev = canvasRevision
             if (size.width == 0f || size.height == 0f) return@Canvas
 
-            val displayBitmap = if (isHoldingCompare && originalBitmap != null) originalBitmap else bitmap
             val fitScale = min(size.width / displayBitmap.width, size.height / displayBitmap.height)
             val effectiveScale = fitScale * scale
 
@@ -227,17 +280,20 @@ fun DocumentInteractiveCanvas(
             val baseLeft = (size.width - drawWidth) / 2f + offset.x
             val baseTop = (size.height - drawHeight) / 2f + offset.y
 
-            // 1. Draw clean document bitmap
+            // 1. Draw clean document bitmap (Cached for 60fps silky smooth pan/zoom)
             drawImage(
-                image = displayBitmap.asImageBitmap(),
+                image = cachedImageBitmap,
                 dstOffset = IntOffset(baseLeft.toInt(), baseTop.toInt()),
-                dstSize = IntSize(drawWidth.toInt(), drawHeight.toInt())
+                dstSize = IntSize(drawWidth.toInt(), drawHeight.toInt()),
+                filterQuality = androidx.compose.ui.graphics.FilterQuality.Low
             )
 
-            // 2. Draw bounding indicators ONLY in TEXT_EDIT mode
-            if (activeMode == EditorToolMode.TEXT_EDIT && activeOverlayBitmap == null) {
+            // 2. Draw bounding indicators in TEXT_EDIT and LASSO_SELECT modes
+            if ((activeMode == EditorToolMode.TEXT_EDIT || activeMode == EditorToolMode.LASSO_SELECT) && activeOverlayBitmap == null) {
+                val selectedIds = selectedItems.map { it.id }.toSet()
                 for (item in detectedItems) {
-                    val isSelected = item.id == selectedItem?.id
+                    val isSingleSelected = item.id == selectedItem?.id
+                    val isLassoSelected = selectedIds.contains(item.id)
                     val box = item.boundingBox
 
                     val boxLeft = baseLeft + (box.left * effectiveScale)
@@ -245,7 +301,7 @@ fun DocumentInteractiveCanvas(
                     val boxWidth = box.width() * effectiveScale
                     val boxHeight = box.height() * effectiveScale
 
-                    if (isSelected) {
+                    if (isSingleSelected) {
                         drawRect(
                             color = Color(0xFF00E5FF).copy(alpha = 0.22f),
                             topLeft = Offset(boxLeft, boxTop),
@@ -257,15 +313,48 @@ fun DocumentInteractiveCanvas(
                             size = Size(boxWidth, boxHeight),
                             style = Stroke(width = 3.dp.toPx())
                         )
+                    } else if (isLassoSelected) {
+                        drawRect(
+                            color = Color(0xFFF59E0B).copy(alpha = 0.35f),
+                            topLeft = Offset(boxLeft, boxTop),
+                            size = Size(boxWidth, boxHeight)
+                        )
+                        drawRect(
+                            color = Color(0xFFD97706),
+                            topLeft = Offset(boxLeft, boxTop),
+                            size = Size(boxWidth, boxHeight),
+                            style = Stroke(width = 2.5.dp.toPx())
+                        )
                     } else {
                         drawRect(
-                            color = Color(0xFF2563EB).copy(alpha = 0.40f),
+                            color = Color(0xFF2563EB).copy(alpha = 0.35f),
                             topLeft = Offset(boxLeft, boxTop),
                             size = Size(boxWidth, boxHeight),
                             style = Stroke(width = 1.5.dp.toPx())
                         )
                     }
                 }
+            }
+
+            // 2.1 Draw active dragging lasso rectangle
+            val lStart = lassoBoxStart
+            val lCurr = lassoBoxCurrent
+            if (lStart != null && lCurr != null) {
+                val left = minOf(lStart.x, lCurr.x)
+                val top = minOf(lStart.y, lCurr.y)
+                val w = kotlin.math.abs(lCurr.x - lStart.x)
+                val h = kotlin.math.abs(lCurr.y - lStart.y)
+                drawRect(
+                    color = Color(0xFF3B82F6).copy(alpha = 0.22f),
+                    topLeft = Offset(left, top),
+                    size = Size(w, h)
+                )
+                drawRect(
+                    color = Color(0xFF2563EB),
+                    topLeft = Offset(left, top),
+                    size = Size(w, h),
+                    style = Stroke(width = 2.dp.toPx())
+                )
             }
 
             // 3. Draw Signature / Stamp Overlay if active

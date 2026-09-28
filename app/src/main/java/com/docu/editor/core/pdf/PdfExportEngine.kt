@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.pdf.PdfDocument
+import com.docu.editor.core.ocr.model.DetectedTextItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -26,7 +27,8 @@ object PdfExportEngine {
     suspend fun exportBitmapToPdf(
         bitmap: Bitmap,
         outputFile: File,
-        fitToA4: Boolean = true
+        fitToA4: Boolean = true,
+        detectedItems: List<DetectedTextItem> = emptyList()
     ): File = withContext(Dispatchers.IO) {
         val pdfDocument = PdfDocument()
 
@@ -67,6 +69,29 @@ object PdfExportEngine {
             val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
 
             canvas.drawBitmap(bitmap, srcRect, dstRect, paint)
+
+            // #4 Searchable PDF: Embed invisible OCR text layer matching exact visual coordinates
+            if (detectedItems.isNotEmpty()) {
+                val textPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
+                    color = android.graphics.Color.argb(1, 255, 255, 255) // Near-invisible yet indexed by all PDF viewers
+                    style = Paint.Style.FILL
+                }
+                for (item in detectedItems) {
+                    val box = item.boundingBox
+                    val text = item.text
+                    if (text.isBlank()) continue
+
+                    val boxLeft = left + (box.left * scale)
+                    val boxTop = top + (box.top * scale)
+                    val boxHeight = (box.height() * scale).coerceAtLeast(6f)
+                    textPaint.textSize = boxHeight * 0.85f
+
+                    val fontMetrics = textPaint.fontMetrics
+                    val baselineY = boxTop + (boxHeight / 2f) - (fontMetrics.ascent + fontMetrics.descent) / 2f
+                    canvas.drawText(text, boxLeft, baselineY, textPaint)
+                }
+            }
+
             pdfDocument.finishPage(page)
 
             FileOutputStream(outputFile).use { out ->
