@@ -64,6 +64,7 @@ fun DocumentInteractiveCanvas(
     onWhiteoutTouch: (bitmapX: Float, bitmapY: Float) -> Unit = { _, _ -> },
     onInsertTextTouch: (bitmapX: Float, bitmapY: Float) -> Unit = { _, _ -> },
     activeOverlayBitmap: Bitmap? = null,
+    originalBitmap: Bitmap? = null,
     overlayPositionX: Float = 100f,
     overlayPositionY: Float = 100f,
     overlayScale: Float = 1.0f,
@@ -76,6 +77,7 @@ fun DocumentInteractiveCanvas(
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    var isHoldingCompare by remember { mutableStateOf(false) }
 
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
         if (activeOverlayBitmap == null) {
@@ -211,18 +213,19 @@ fun DocumentInteractiveCanvas(
             val _rev = canvasRevision
             if (size.width == 0f || size.height == 0f) return@Canvas
 
-            val fitScale = min(size.width / bitmap.width, size.height / bitmap.height)
+            val displayBitmap = if (isHoldingCompare && originalBitmap != null) originalBitmap else bitmap
+            val fitScale = min(size.width / displayBitmap.width, size.height / displayBitmap.height)
             val effectiveScale = fitScale * scale
 
-            val drawWidth = bitmap.width * effectiveScale
-            val drawHeight = bitmap.height * effectiveScale
+            val drawWidth = displayBitmap.width * effectiveScale
+            val drawHeight = displayBitmap.height * effectiveScale
 
             val baseLeft = (size.width - drawWidth) / 2f + offset.x
             val baseTop = (size.height - drawHeight) / 2f + offset.y
 
             // 1. Draw clean document bitmap
             drawImage(
-                image = bitmap.asImageBitmap(),
+                image = displayBitmap.asImageBitmap(),
                 dstOffset = IntOffset(baseLeft.toInt(), baseTop.toInt()),
                 dstSize = IntSize(drawWidth.toInt(), drawHeight.toInt())
             )
@@ -319,6 +322,39 @@ fun DocumentInteractiveCanvas(
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                 )
+            }
+        }
+
+        // Hold to Compare Floating Pill (CamScanner Feature)
+        if (originalBitmap != null) {
+            Surface(
+                color = if (isHoldingCompare) Color(0xFFEF4444) else Color(0xFF0F172A).copy(alpha = 0.78f),
+                shape = RoundedCornerShape(20.dp),
+                shadowElevation = 6.dp,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 16.dp, end = 16.dp)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onPress = {
+                                isHoldingCompare = true
+                                tryAwaitRelease()
+                                isHoldingCompare = false
+                            }
+                        )
+                    }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = if (isHoldingCompare) "👁️ Showing Original" else "👁️ Hold to Compare",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
 

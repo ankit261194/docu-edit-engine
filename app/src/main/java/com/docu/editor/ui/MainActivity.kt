@@ -297,6 +297,9 @@ class MainActivity : ComponentActivity() {
                                 onFilterSelected = { filter ->
                                     viewModel.applyFilter(filter)
                                 },
+                                onBrightnessContrastChanged = { b, c ->
+                                    viewModel.applyBrightnessContrast(b, c)
+                                },
                                 onRotateClicked = {
                                     viewModel.rotateDocumentClockwise()
                                 },
@@ -331,6 +334,7 @@ class MainActivity : ComponentActivity() {
                                 onWhiteoutTouch = { x, y -> viewModel.applyWhiteoutCircle(x, y) },
                                 onInsertTextTouch = { x, y -> viewModel.insertNewTextItem(x, y) },
                                 activeOverlayBitmap = uiState.activeOverlayBitmap,
+                                originalBitmap = uiState.originalBitmap,
                                 overlayPositionX = uiState.overlayPositionX,
                                 overlayPositionY = uiState.overlayPositionY,
                                 overlayScale = uiState.overlayScale,
@@ -412,7 +416,7 @@ class MainActivity : ComponentActivity() {
                                 item = targetItem,
                                 sheetState = sheetState,
                                 onDismiss = { viewModel.selectTextItem(null) },
-                                onApplyEdit = { newText, fontClassification, isBold, sizeMultiplier, colorRgb, useCloudAi ->
+                                onApplyEdit = { newText, fontClassification, isBold, sizeMultiplier, colorRgb, alignment, useCloudAi ->
                                     viewModel.applyTextReplacement(
                                         targetItem = targetItem,
                                         newText = newText,
@@ -420,6 +424,7 @@ class MainActivity : ComponentActivity() {
                                         isBold = isBold,
                                         sizeMultiplier = sizeMultiplier,
                                         colorOverrideRgb = colorRgb,
+                                        alignment = alignment,
                                         useCloudAi = useCloudAi
                                     )
                                 }

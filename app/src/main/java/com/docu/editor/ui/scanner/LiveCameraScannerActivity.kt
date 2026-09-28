@@ -6,10 +6,8 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
-import android.graphics.Matrix
 import android.graphics.PointF
 import android.graphics.drawable.GradientDrawable
-import android.hardware.camera2.CameraCharacteristics
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -37,6 +35,9 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.docu.editor.core.scanner.DocumentEdgeDetector
 import com.docu.editor.core.scanner.PerspectiveTransformer
 import com.docu.editor.core.scanner.model.DocumentCorners
@@ -54,44 +55,48 @@ import kotlin.math.abs
 import kotlin.math.max
 
 /**
- * Enterprise Live Camera Document Scanner (CamScanner-Grade Real-Time Tracking).
+ * Enterprise Live Camera Document Scanner (CamScanner-Grade Real-Time Tracking + 8-Point Loupe Crop).
  * Features:
  * - 30 FPS OpenCV Edge Tracking directly on YUV sensor stream.
  * - Dynamic Neon-Cyan & Green Auto-Snapping Polygon Overlay.
- * - Hands-Free Instant Auto-Capture on Document Stabilization (~400ms).
- * - Automatic 4-Corner Deskew and Flattening.
+ * - Millimeter-accurate 8-Point Manual Crop Screen with 2.5x Magnifier Loupe.
+ * - Full-resolution 4-point perspective warp and deskew.
+ * - Zero-OOM downsampling on 50MP/108MP high-resolution camera sensors.
  */
 class LiveCameraScannerActivity : ComponentActivity() {
 
     private lateinit var previewView: PreviewView
     private lateinit var overlayView: ScannerOverlayView
+    private lateinit var cropLoupeOverlayView: CropLoupeOverlayView
     private lateinit var statusText: TextView
     private lateinit var autoSnapChip: TextView
     private lateinit var torchBtn: ImageView
+    private lateinit var bottomPanel: LinearLayout
+    private lateinit var cropReviewPanel: LinearLayout
 
-    private var camera: Camera? = null
     private var imageCapture: ImageCapture? = null
+    private var camera: Camera? = null
     private val cameraExecutor = Executors.newSingleThreadExecutor()
 
-    private var autoSnapEnabled: Boolean = true
-    private var isTorchOn: Boolean = false
-    private var isCapturing: Boolean = false
+    private var autoSnapEnabled = true
+    private var isTorchOn = false
+    private var isCapturing = false
 
     private var lastCorners: DocumentCorners? = null
     private var analysisFrameW: Int = 1
     private var analysisFrameH: Int = 1
     private var stableFrameCount: Int = 0
+    private var capturedBitmap: Bitmap? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        window.decorView.systemUiVisibility = (
-            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-            or View.SYSTEM_UI_FLAG_FULLSCREEN
-            or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-        )
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).let { controller ->
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
 
         val rootLayout = FrameLayout(this).apply {
             setBackgroundColor(Color.BLACK)
@@ -120,7 +125,17 @@ class LiveCameraScannerActivity : ComponentActivity() {
         }
         rootLayout.addView(overlayView)
 
-        // 3. Top Status Bar & Controls
+        // 3. 8-Point Loupe Crop Review Overlay (Hidden during live scanning)
+        cropLoupeOverlayView = CropLoupeOverlayView(this).apply {
+            visibility = View.GONE
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        rootLayout.addView(cropLoupeOverlayView)
+
+        // 4. Top Status Bar & Controls
         val topBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -174,8 +189,8 @@ class LiveCameraScannerActivity : ComponentActivity() {
         topBar.addView(torchBtn)
         rootLayout.addView(topBar)
 
-        // 4. Bottom Capture & Auto-Snap Panel
-        val bottomPanel = LinearLayout(this).apply {
+        // 5. Bottom Capture & Auto-Snap Panel
+        bottomPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             setPadding(0, 0, 0, 70)
@@ -233,10 +248,73 @@ class LiveCameraScannerActivity : ComponentActivity() {
         }
         shutterContainer.addView(shutterButton)
         bottomPanel.addView(shutterContainer)
-
         rootLayout.addView(bottomPanel)
-        setContentView(rootLayout)
 
+        // 6. Bottom Crop Review Action Dock (CamScanner-Style Retake, Full Page, Done)
+        cropReviewPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(30, 20, 30, 60)
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.BOTTOM
+            }
+        }
+
+        val retakeBtn = TextView(this).apply {
+            text = "🔄 Retake"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                setColor(Color.argb(200, 30, 41, 59))
+                cornerRadius = 24f
+            }
+            setPadding(36, 20, 36, 20)
+            setOnClickListener { restartCameraScan() }
+        }
+        cropReviewPanel.addView(retakeBtn)
+
+        val spacer1 = View(this).apply { layoutParams = LinearLayout.LayoutParams(30, 1) }
+        cropReviewPanel.addView(spacer1)
+
+        val fullPageBtn = TextView(this).apply {
+            text = "⛶ Full Page"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                setColor(Color.argb(200, 30, 41, 59))
+                cornerRadius = 24f
+            }
+            setPadding(36, 20, 36, 20)
+            setOnClickListener { cropLoupeOverlayView.resetToFullImage() }
+        }
+        cropReviewPanel.addView(fullPageBtn)
+
+        val spacer2 = View(this).apply { layoutParams = LinearLayout.LayoutParams(30, 1) }
+        cropReviewPanel.addView(spacer2)
+
+        val doneBtn = TextView(this).apply {
+            text = "✓ Next"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(0, 200, 83)) // Vibrant Green
+                cornerRadius = 24f
+            }
+            setPadding(44, 20, 44, 20)
+            setOnClickListener { applyManualCropAndFinish() }
+        }
+        cropReviewPanel.addView(doneBtn)
+
+        rootLayout.addView(cropReviewPanel)
+
+        setContentView(rootLayout)
         startCamera()
     }
 
@@ -253,13 +331,15 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MAXIMIZE_QUALITY)
                 .build()
 
+            @Suppress("DEPRECATION")
             val imageAnalysis = ImageAnalysis.Builder()
                 .setTargetResolution(Size(1280, 720))
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
                 .build()
 
             imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                analyzeFrame(imageProxy)
+                processFrameYuv(imageProxy)
             }
 
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
@@ -270,59 +350,79 @@ class LiveCameraScannerActivity : ComponentActivity() {
                     this,
                     cameraSelector,
                     preview,
-                    imageAnalysis,
-                    imageCapture
+                    imageCapture,
+                    imageAnalysis
                 )
             } catch (_: Exception) {}
         }, ContextCompat.getMainExecutor(this))
     }
 
     @OptIn(ExperimentalGetImage::class)
-    private fun analyzeFrame(imageProxy: ImageProxy) {
-        val image = imageProxy.image
-        if (image == null || isCapturing) {
+    private fun processFrameYuv(imageProxy: ImageProxy) {
+        if (isCapturing) {
+            imageProxy.close()
+            return
+        }
+
+        val mediaImage = imageProxy.image
+        if (mediaImage == null) {
             imageProxy.close()
             return
         }
 
         try {
-            val yBuffer = image.planes[0].buffer
-            val yBytes = ByteArray(yBuffer.remaining())
+            val yPlane = mediaImage.planes[0]
+            val yBuffer = yPlane.buffer
+            val rowStride = yPlane.rowStride
+            val frameW = imageProxy.width
+            val frameH = imageProxy.height
+            val rotationDegrees = imageProxy.imageInfo.rotationDegrees
+
+            val grayMat = Mat(frameH, frameW, CvType.CV_8UC1)
+            val byteCount = yBuffer.remaining()
+            val yBytes = ByteArray(byteCount)
             yBuffer.get(yBytes)
 
-            val yMat = Mat(image.height, image.width, CvType.CV_8UC1)
-            yMat.put(0, 0, yBytes)
+            if (rowStride == frameW) {
+                grayMat.put(0, 0, yBytes)
+            } else {
+                for (r in 0 until frameH) {
+                    grayMat.put(r, 0, yBytes, r * rowStride, frameW)
+                }
+            }
 
-            val rotation = imageProxy.imageInfo.rotationDegrees
-            val procMat = when (rotation) {
+            val rotatedMat = when (rotationDegrees) {
                 90 -> {
                     val r = Mat()
-                    Core.rotate(yMat, r, Core.ROTATE_90_CLOCKWISE)
-                    yMat.release()
-                    r
-                }
-                270 -> {
-                    val r = Mat()
-                    Core.rotate(yMat, r, Core.ROTATE_90_COUNTERCLOCKWISE)
-                    yMat.release()
+                    Core.rotate(grayMat, r, Core.ROTATE_90_CLOCKWISE)
+                    grayMat.release()
                     r
                 }
                 180 -> {
                     val r = Mat()
-                    Core.rotate(yMat, r, Core.ROTATE_180)
-                    yMat.release()
+                    Core.rotate(grayMat, r, Core.ROTATE_180)
+                    grayMat.release()
                     r
                 }
-                else -> yMat
+                270 -> {
+                    val r = Mat()
+                    Core.rotate(grayMat, r, Core.ROTATE_90_COUNTERCLOCKWISE)
+                    grayMat.release()
+                    r
+                }
+                else -> grayMat
             }
 
-            val w = procMat.cols()
-            val h = procMat.rows()
-            val corners = DocumentEdgeDetector.detectCornersFromGrayMat(procMat, w, h)
-            procMat.release()
+            val curW = rotatedMat.cols()
+            val curH = rotatedMat.rows()
+            analysisFrameW = curW
+            analysisFrameH = curH
+
+            val detectedCorners = DocumentEdgeDetector.detectCornersFromGrayMat(rotatedMat, curW, curH)
+            rotatedMat.release()
 
             runOnUiThread {
-                handleDetectedFrameCorners(corners, w, h)
+                handleFrameResult(detectedCorners, curW, curH)
             }
         } catch (_: Exception) {
         } finally {
@@ -330,54 +430,47 @@ class LiveCameraScannerActivity : ComponentActivity() {
         }
     }
 
-    private fun handleDetectedFrameCorners(corners: DocumentCorners?, w: Int, h: Int) {
-        if (isCapturing) return
-
-        analysisFrameW = w
-        analysisFrameH = h
+    private fun handleFrameResult(corners: DocumentCorners?, frameW: Int, frameH: Int) {
+        if (isCapturing || cropLoupeOverlayView.visibility == View.VISIBLE) return
 
         if (corners != null) {
-            val prev = lastCorners
-            val isStable = if (prev != null) {
-                val d1 = abs(corners.topLeft.x - prev.topLeft.x) + abs(corners.topLeft.y - prev.topLeft.y)
-                val d2 = abs(corners.topRight.x - prev.topRight.x) + abs(corners.topRight.y - prev.topRight.y)
-                val d3 = abs(corners.bottomRight.x - prev.bottomRight.x) + abs(corners.bottomRight.y - prev.bottomRight.y)
-                val d4 = abs(corners.bottomLeft.x - prev.bottomLeft.x) + abs(corners.bottomLeft.y - prev.bottomLeft.y)
-                val maxDelta = max(max(d1, d2), max(d3, d4))
-                maxDelta < 22f
-            } else {
-                false
-            }
-
-            if (isStable) {
+            if (isCornersStable(corners, lastCorners)) {
                 stableFrameCount++
             } else {
                 stableFrameCount = 0
             }
-
             lastCorners = corners
 
-            val steady = stableFrameCount >= 6
-            overlayView.updateCorners(corners, steady, w, h)
+            val isSteady = stableFrameCount >= 10
+            overlayView.updateCorners(corners, isSteady, frameW, frameH)
 
-            if (steady) {
-                statusText.text = "Steady! Auto-Capturing..."
-                statusText.setTextColor(Color.rgb(0, 230, 118))
+            if (isSteady) {
+                statusText.text = "Steady! Hold still..."
+                if (autoSnapEnabled && stableFrameCount >= 14 && !isCapturing) {
+                    captureHighResAndFinish(corners)
+                }
             } else {
-                statusText.text = "Document detected - hold still"
-                statusText.setTextColor(Color.WHITE)
-            }
-
-            // Auto-Snap trigger when document is steady for ~400ms
-            if (autoSnapEnabled && stableFrameCount >= 12 && !isCapturing) {
-                captureHighResAndFinish(corners)
+                statusText.text = "Document detected"
             }
         } else {
             stableFrameCount = 0
-            overlayView.updateCorners(null, false, w, h)
-            statusText.text = "Align document in camera frame..."
-            statusText.setTextColor(Color.WHITE)
+            lastCorners = null
+            overlayView.updateCorners(null, false, frameW, frameH)
+            statusText.text = "Point camera at document..."
         }
+    }
+
+    private fun isCornersStable(c1: DocumentCorners, c2: DocumentCorners?): Boolean {
+        if (c2 == null) return false
+        val threshold = 22f
+        return abs(c1.topLeft.x - c2.topLeft.x) < threshold &&
+                abs(c1.topLeft.y - c2.topLeft.y) < threshold &&
+                abs(c1.topRight.x - c2.topRight.x) < threshold &&
+                abs(c1.topRight.y - c2.topRight.y) < threshold &&
+                abs(c1.bottomRight.x - c2.bottomRight.x) < threshold &&
+                abs(c1.bottomRight.y - c2.bottomRight.y) < threshold &&
+                abs(c1.bottomLeft.x - c2.bottomLeft.x) < threshold &&
+                abs(c1.bottomLeft.y - c2.bottomLeft.y) < threshold
     }
 
     private fun captureHighResAndFinish(detectedCorners: DocumentCorners?) {
@@ -385,6 +478,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
         isCapturing = true
 
         vibrate()
+        statusText.text = "Capturing document..."
 
         val tempFile = File(cacheDir, "temp_capture_${System.currentTimeMillis()}.jpg")
         val outputOptions = ImageCapture.OutputFileOptions.Builder(tempFile).build()
@@ -398,7 +492,10 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 }
 
                 override fun onError(exception: ImageCaptureException) {
-                    isCapturing = false
+                    runOnUiThread {
+                        isCapturing = false
+                        statusText.text = "Capture error, try again"
+                    }
                 }
             }
         )
@@ -429,50 +526,103 @@ class LiveCameraScannerActivity : ComponentActivity() {
         CoroutineScope(Dispatchers.Default).launch {
             try {
                 val fullBitmap = decodeSampledBitmapFromFile(photoFile.absolutePath)
+                photoFile.delete()
                 if (fullBitmap != null) {
-                    val finalBitmap = if (corners != null && analysisFrameW > 0 && analysisFrameH > 0) {
-                        // Scale detected corners from analysis resolution to full photo resolution
+                    val initialCorners = if (corners != null && analysisFrameW > 0 && analysisFrameH > 0) {
                         val scaleX = fullBitmap.width.toFloat() / analysisFrameW
                         val scaleY = fullBitmap.height.toFloat() / analysisFrameH
-
-                        val scaledCorners = DocumentCorners(
+                        DocumentCorners(
                             topLeft = PointF(corners.topLeft.x * scaleX, corners.topLeft.y * scaleY),
                             topRight = PointF(corners.topRight.x * scaleX, corners.topRight.y * scaleY),
                             bottomRight = PointF(corners.bottomRight.x * scaleX, corners.bottomRight.y * scaleY),
                             bottomLeft = PointF(corners.bottomLeft.x * scaleX, corners.bottomLeft.y * scaleY)
                         )
-
-                        // 4-point perspective warp and deskew
-                        val warped = PerspectiveTransformer.warpPerspective(fullBitmap, scaledCorners)
-                        if (warped != fullBitmap) {
-                            fullBitmap.recycle()
-                        }
-                        warped
                     } else {
-                        fullBitmap
+                        val marginX = fullBitmap.width * 0.08f
+                        val marginY = fullBitmap.height * 0.08f
+                        DocumentCorners(
+                            topLeft = PointF(marginX, marginY),
+                            topRight = PointF(fullBitmap.width - marginX, marginY),
+                            bottomRight = PointF(fullBitmap.width - marginX, fullBitmap.height - marginY),
+                            bottomLeft = PointF(marginX, fullBitmap.height - marginY)
+                        )
                     }
-
-                    // Save processed document
-                    val outFile = File(cacheDir, "scanned_doc_${System.currentTimeMillis()}.jpg")
-                    FileOutputStream(outFile).use { fos ->
-                        finalBitmap.compress(Bitmap.CompressFormat.JPEG, 94, fos)
-                    }
-                    if (finalBitmap != fullBitmap) {
-                        finalBitmap.recycle()
-                    }
-                    photoFile.delete()
 
                     withContext(Dispatchers.Main) {
-                        val resultIntent = Intent().apply {
-                            putExtra(EXTRA_SCANNED_PATH, outFile.absolutePath)
-                        }
-                        setResult(Activity.RESULT_OK, resultIntent)
-                        finish()
+                        showCropLoupeReview(fullBitmap, initialCorners)
                     }
                 }
             } catch (_: Exception) {
                 withContext(Dispatchers.Main) {
                     isCapturing = false
+                }
+            }
+        }
+    }
+
+    private fun showCropLoupeReview(bitmap: Bitmap, corners: DocumentCorners) {
+        capturedBitmap = bitmap
+        cropLoupeOverlayView.sourceBitmap = bitmap
+        cropLoupeOverlayView.corners = corners
+
+        previewView.visibility = View.GONE
+        overlayView.visibility = View.GONE
+        bottomPanel.visibility = View.GONE
+
+        cropLoupeOverlayView.visibility = View.VISIBLE
+        cropReviewPanel.visibility = View.VISIBLE
+
+        statusText.text = "🔍 Drag corners with loupe magnifier"
+        vibrate()
+    }
+
+    private fun restartCameraScan() {
+        capturedBitmap?.recycle()
+        capturedBitmap = null
+
+        cropLoupeOverlayView.visibility = View.GONE
+        cropReviewPanel.visibility = View.GONE
+
+        previewView.visibility = View.VISIBLE
+        overlayView.visibility = View.VISIBLE
+        bottomPanel.visibility = View.VISIBLE
+
+        isCapturing = false
+        stableFrameCount = 0
+        lastCorners = null
+        statusText.text = "Point camera at document..."
+    }
+
+    private fun applyManualCropAndFinish() {
+        val bmp = capturedBitmap ?: return
+        val finalCorners = cropLoupeOverlayView.corners
+
+        statusText.text = "Processing perspective crop..."
+
+        CoroutineScope(Dispatchers.Default).launch {
+            try {
+                val warped = PerspectiveTransformer.warpPerspective(bmp, finalCorners)
+                val outFile = File(cacheDir, "scanned_doc_${System.currentTimeMillis()}.jpg")
+                FileOutputStream(outFile).use { fos ->
+                    warped.compress(Bitmap.CompressFormat.JPEG, 94, fos)
+                }
+
+                if (warped != bmp) {
+                    warped.recycle()
+                }
+                bmp.recycle()
+                capturedBitmap = null
+
+                withContext(Dispatchers.Main) {
+                    val resultIntent = Intent().apply {
+                        putExtra(EXTRA_SCANNED_PATH, outFile.absolutePath)
+                    }
+                    setResult(Activity.RESULT_OK, resultIntent)
+                    finish()
+                }
+            } catch (_: Exception) {
+                withContext(Dispatchers.Main) {
+                    restartCameraScan()
                 }
             }
         }
@@ -513,6 +663,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        capturedBitmap?.recycle()
         cameraExecutor.shutdown()
     }
 

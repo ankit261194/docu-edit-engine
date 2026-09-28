@@ -76,6 +76,7 @@ fun TextEditBottomSheet(
         isBold: Boolean,
         sizeMultiplier: Float,
         colorRgb: Int,
+        alignment: android.graphics.Paint.Align,
         useCloudAi: Boolean
     ) -> Unit
 ) {
@@ -94,6 +95,9 @@ fun TextEditBottomSheet(
     var isBold by remember(item.id) { mutableStateOf(autoDetectedBold) }
     var sizeMultiplier by remember(item.id) { mutableFloatStateOf(1.0f) }
     var selectedColorRgb by remember(item.id) { mutableIntStateOf(item.inkColorRgb) } // Default to document original ink
+    var selectedAlignment by remember(item.id) { mutableStateOf(android.graphics.Paint.Align.LEFT) }
+    var showCustomColorPicker by remember(item.id) { mutableStateOf(false) }
+    var customHue by remember(item.id) { mutableFloatStateOf(0f) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -292,7 +296,41 @@ fun TextEditBottomSheet(
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Row 2: Bold Toggle + Color Palette
+                    // Row 2: Alignment Selector
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Alignment:", color = Color(0xFF475569), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(
+                                Triple(android.graphics.Paint.Align.LEFT, "Left", "⫷"),
+                                Triple(android.graphics.Paint.Align.CENTER, "Center", "≡"),
+                                Triple(android.graphics.Paint.Align.RIGHT, "Right", "⫸")
+                            ).forEach { (align, name, symbol) ->
+                                val isSelected = selectedAlignment == align
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isSelected) Color(0xFF2563EB) else Color(0xFFE2E8F0),
+                                    modifier = Modifier.clickable { selectedAlignment = align }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(symbol, fontSize = 13.sp, color = if (isSelected) Color.White else Color(0xFF334155), fontWeight = FontWeight.Bold)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(name, fontSize = 11.sp, color = if (isSelected) Color.White else Color(0xFF334155), fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Row 3: Bold Toggle + Color Palette
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -324,10 +362,11 @@ fun TextEditBottomSheet(
                             }
                         }
 
-                        // Ink Color Palette
+                        // Ink Color Palette Scrollable
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
                         ) {
                             Text("Ink:", color = Color(0xFF475569), fontSize = 12.sp, fontWeight = FontWeight.Bold)
 
@@ -335,39 +374,118 @@ fun TextEditBottomSheet(
                             ColorChipLight(
                                 color = item.inkColor,
                                 label = "Orig",
-                                isSelected = selectedColorRgb == item.inkColorRgb,
-                                onClick = { selectedColorRgb = item.inkColorRgb }
+                                isSelected = selectedColorRgb == item.inkColorRgb && !showCustomColorPicker,
+                                onClick = { selectedColorRgb = item.inkColorRgb; showCustomColorPicker = false }
                             )
 
-                            // Natural Laser Charcoal
+                            // Charcoal / Laser Black
                             ColorChipLight(
                                 color = Color(0xFF222428),
                                 label = "Charcoal",
-                                isSelected = selectedColorRgb == android.graphics.Color.rgb(34, 36, 40),
-                                onClick = { selectedColorRgb = android.graphics.Color.rgb(34, 36, 40) }
+                                isSelected = selectedColorRgb == android.graphics.Color.rgb(34, 36, 40) && !showCustomColorPicker,
+                                onClick = { selectedColorRgb = android.graphics.Color.rgb(34, 36, 40); showCustomColorPicker = false }
                             )
 
-                            // Navy Blue (Pen/Stamp)
+                            // Navy Blue
                             ColorChipLight(
                                 color = Color(0xFF0F2B5C),
                                 label = "Navy",
-                                isSelected = selectedColorRgb == android.graphics.Color.rgb(15, 43, 92),
-                                onClick = { selectedColorRgb = android.graphics.Color.rgb(15, 43, 92) }
+                                isSelected = selectedColorRgb == android.graphics.Color.rgb(15, 43, 92) && !showCustomColorPicker,
+                                onClick = { selectedColorRgb = android.graphics.Color.rgb(15, 43, 92); showCustomColorPicker = false }
                             )
 
                             // Legal Blue
                             ColorChipLight(
                                 color = Color(0xFF1E3A8A),
                                 label = "Blue",
-                                isSelected = selectedColorRgb == android.graphics.Color.rgb(30, 58, 138),
-                                onClick = { selectedColorRgb = android.graphics.Color.rgb(30, 58, 138) }
+                                isSelected = selectedColorRgb == android.graphics.Color.rgb(30, 58, 138) && !showCustomColorPicker,
+                                onClick = { selectedColorRgb = android.graphics.Color.rgb(30, 58, 138); showCustomColorPicker = false }
+                            )
+
+                            // Red Official Stamp
+                            ColorChipLight(
+                                color = Color(0xFFDC2626),
+                                label = "Red",
+                                isSelected = selectedColorRgb == android.graphics.Color.rgb(220, 38, 38) && !showCustomColorPicker,
+                                onClick = { selectedColorRgb = android.graphics.Color.rgb(220, 38, 38); showCustomColorPicker = false }
+                            )
+
+                            // Green Stamp
+                            ColorChipLight(
+                                color = Color(0xFF16A34A),
+                                label = "Green",
+                                isSelected = selectedColorRgb == android.graphics.Color.rgb(22, 163, 74) && !showCustomColorPicker,
+                                onClick = { selectedColorRgb = android.graphics.Color.rgb(22, 163, 74); showCustomColorPicker = false }
+                            )
+
+                            // Purple Ink
+                            ColorChipLight(
+                                color = Color(0xFF7E22CE),
+                                label = "Purple",
+                                isSelected = selectedColorRgb == android.graphics.Color.rgb(126, 34, 206) && !showCustomColorPicker,
+                                onClick = { selectedColorRgb = android.graphics.Color.rgb(126, 34, 206); showCustomColorPicker = false }
+                            )
+
+                            // Brown Vintage
+                            ColorChipLight(
+                                color = Color(0xFF9A3412),
+                                label = "Brown",
+                                isSelected = selectedColorRgb == android.graphics.Color.rgb(154, 52, 18) && !showCustomColorPicker,
+                                onClick = { selectedColorRgb = android.graphics.Color.rgb(154, 52, 18); showCustomColorPicker = false }
+                            )
+
+                            // Custom Spectrum Chip
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (showCustomColorPicker) Color(0xFF2563EB) else Color(0xFFE2E8F0),
+                                modifier = Modifier.clickable { showCustomColorPicker = !showCustomColorPicker }
+                            ) {
+                                Text(
+                                    text = "🎨 Custom",
+                                    fontSize = 11.sp,
+                                    color = if (showCustomColorPicker) Color.White else Color(0xFF334155),
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    if (showCustomColorPicker) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Hue Spectrum:", fontSize = 11.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(selectedColorRgb))
+                                    .border(1.dp, Color.Gray, CircleShape)
                             )
                         }
+                        Slider(
+                            value = customHue,
+                            onValueChange = { hue ->
+                                customHue = hue
+                                val hsv = floatArrayOf(hue, 0.85f, 0.65f)
+                                selectedColorRgb = android.graphics.Color.HSVToColor(hsv)
+                            },
+                            valueRange = 0f..360f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(selectedColorRgb),
+                                activeTrackColor = Color(0xFF6366F1),
+                                inactiveTrackColor = Color(0xFFE2E8F0)
+                            )
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Row 3: Fine-Tune Font Size Stepper
+                    // Row 4: Fine-Tune Font Size Stepper
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -447,7 +565,7 @@ fun TextEditBottomSheet(
                 // Instant Local Apply (Default CamScanner Auto Mode)
                 Button(
                     onClick = {
-                        onApplyEdit(editedText, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, false)
+                        onApplyEdit(editedText, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, selectedAlignment, false)
                     },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
@@ -461,7 +579,7 @@ fun TextEditBottomSheet(
                 // Gemini Pro Cloud AI Apply
                 Button(
                     onClick = {
-                        onApplyEdit(editedText, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, true)
+                        onApplyEdit(editedText, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, selectedAlignment, true)
                     },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),

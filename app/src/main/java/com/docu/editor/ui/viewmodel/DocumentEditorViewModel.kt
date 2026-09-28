@@ -219,6 +219,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         isBold: Boolean? = null,
         sizeMultiplier: Float = 1.0f,
         colorOverrideRgb: Int? = null,
+        alignment: Paint.Align = Paint.Align.LEFT,
         useCloudAi: Boolean = false
     ) {
         val currentBitmap = _uiState.value.currentBitmap ?: return
@@ -299,7 +300,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             typographyMetrics = targetItem.typography,
                             overrideClassification = fontClassification,
                             isBold = effectiveBold,
-                            sizeMultiplier = sizeMultiplier
+                            sizeMultiplier = sizeMultiplier,
+                            alignment = alignment
                         )
                     )
 
@@ -453,6 +455,33 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     isApplyingEdit = false,
                     processingMessage = null,
                     successMessage = "Applied ${filter.displayName}",
+                    canUndo = true,
+                    canRedo = false,
+                    canvasRevision = it.canvasRevision + 1
+                )
+            }
+        }
+    }
+
+    fun applyBrightnessContrast(brightness: Float, contrast: Float) {
+        val base = _uiState.value.originalBitmap ?: return
+        val current = _uiState.value.currentBitmap ?: return
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Tuning brightness & contrast...") }
+            val adjusted = withContext(Dispatchers.Default) {
+                DocumentFilters.adjustBrightnessContrast(base, brightness, contrast)
+            }
+            val items = withContext(Dispatchers.Default) {
+                ocrAnalyzer.detectTextBlocks(adjusted, TextHierarchyLevel.ELEMENT)
+            }
+            _uiState.update {
+                it.copy(
+                    currentBitmap = adjusted,
+                    detectedItems = items,
+                    isApplyingEdit = false,
+                    processingMessage = null,
                     canUndo = true,
                     canRedo = false,
                     canvasRevision = it.canvasRevision + 1

@@ -21,7 +21,8 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val typographyMetrics: TypographyMetrics,
         val overrideClassification: FontClassification? = null,
         val isBold: Boolean? = null,
-        val sizeMultiplier: Float = 1.0f
+        val sizeMultiplier: Float = 1.0f,
+        val alignment: Paint.Align = Paint.Align.LEFT
     )
 
     data class TextRenderResult(
@@ -66,11 +67,16 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
 
         val isAmount = isNumericOrCurrency(params.newText) || isNumericOrCurrency(params.originalText)
         val renderedWidth = paint.measureText(params.newText)
-        val startX = if (isAmount && renderedWidth < params.targetBounds.width()) {
-            // Right-align invoice amounts, totals, and numbers so table decimal columns align perfectly
-            params.targetBounds.right.toFloat() - renderedWidth
-        } else {
-            params.targetBounds.left.toFloat()
+        val startX = when (params.alignment) {
+            Paint.Align.RIGHT -> (params.targetBounds.right.toFloat() - renderedWidth).coerceAtLeast(params.targetBounds.left.toFloat())
+            Paint.Align.CENTER -> params.targetBounds.left.toFloat() + (params.targetBounds.width() - renderedWidth) / 2f
+            else -> {
+                if (isAmount && renderedWidth < params.targetBounds.width()) {
+                    params.targetBounds.right.toFloat() - renderedWidth
+                } else {
+                    params.targetBounds.left.toFloat()
+                }
+            }
         }
         val pivotX = params.targetBounds.exactCenterX()
         val pivotY = params.targetBounds.exactCenterY()

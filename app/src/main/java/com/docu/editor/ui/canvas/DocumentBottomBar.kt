@@ -28,9 +28,15 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,11 +55,15 @@ fun DocumentBottomBar(
     showFiltersRow: Boolean,
     onModeSelected: (EditorToolMode) -> Unit,
     onFilterSelected: (DocumentFilterMode) -> Unit,
+    onBrightnessContrastChanged: (brightness: Float, contrast: Float) -> Unit = { _, _ -> },
     onRotateClicked: () -> Unit,
     onAutoCropClicked: () -> Unit,
     onCompressClicked: () -> Unit,
     onExportClicked: () -> Unit
 ) {
+    var brightness by remember { mutableFloatStateOf(0f) }
+    var contrast by remember { mutableFloatStateOf(1f) }
+
     Surface(
         color = Color.White,
         shadowElevation = 16.dp,
@@ -66,43 +76,92 @@ fun DocumentBottomBar(
                 .fillMaxWidth()
                 .padding(vertical = 10.dp)
         ) {
-            // Optional Filter selection row
+            // Optional Filter selection row + Fine-tune Sliders
             AnimatedVisibility(visible = showFiltersRow) {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp)
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
                 ) {
-                    DocumentFilterMode.values().forEach { filter ->
-                        val isSelected = filter == activeFilter
-                        FilterChip(
-                            selected = isSelected,
-                            onClick = { onFilterSelected(filter) },
-                            label = {
-                                Text(
-                                    filter.displayName,
-                                    color = if (isSelected) Color.White else Color(0xFF1E293B),
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
-                                )
-                            },
-                            leadingIcon = if (isSelected) {
-                                {
-                                    Icon(
-                                        Icons.Default.Check,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(14.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        DocumentFilterMode.values().forEach { filter ->
+                            val isSelected = filter == activeFilter
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    brightness = 0f
+                                    contrast = 1f
+                                    onFilterSelected(filter)
+                                },
+                                label = {
+                                    Text(
+                                        filter.displayName,
+                                        color = if (isSelected) Color.White else Color(0xFF1E293B),
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
                                     )
-                                }
-                            } else null,
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFF2563EB),
-                                containerColor = Color(0xFFF1F5F9)
-                            ),
-                            shape = RoundedCornerShape(10.dp)
+                                },
+                                leadingIcon = if (isSelected) {
+                                    {
+                                        Icon(
+                                            Icons.Default.Check,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                } else null,
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF2563EB),
+                                    containerColor = Color(0xFFF1F5F9)
+                                ),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("☀️ Brightness: ${brightness.toInt()}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
+                        Text("🌓 Contrast: ${String.format("%.1f", contrast)}x", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Slider(
+                            value = brightness,
+                            onValueChange = { brightness = it },
+                            onValueChangeFinished = { onBrightnessContrastChanged(brightness, contrast) },
+                            valueRange = -50f..50f,
+                            modifier = Modifier.weight(1f),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF2563EB),
+                                activeTrackColor = Color(0xFF2563EB)
+                            )
+                        )
+                        Slider(
+                            value = contrast,
+                            onValueChange = { contrast = it },
+                            onValueChangeFinished = { onBrightnessContrastChanged(brightness, contrast) },
+                            valueRange = 0.6f..1.8f,
+                            modifier = Modifier.weight(1f),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF2563EB),
+                                activeTrackColor = Color(0xFF2563EB)
+                            )
                         )
                     }
                 }
