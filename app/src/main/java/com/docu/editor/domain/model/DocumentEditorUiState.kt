@@ -5,6 +5,7 @@ import com.docu.editor.core.ocr.model.DetectedTextItem
 
 enum class EditorToolMode {
     TEXT_EDIT,
+    WHITEOUT,
     FILTERS,
     CROP_DESKEW,
     SIGNATURE,

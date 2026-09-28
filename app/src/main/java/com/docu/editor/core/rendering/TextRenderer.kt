@@ -18,7 +18,9 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val inkColorRgb: Int,
         val rotationAngle: Float = 0f,
         val typographyMetrics: TypographyMetrics,
-        val overrideClassification: FontClassification? = null
+        val overrideClassification: FontClassification? = null,
+        val isBold: Boolean = true,
+        val sizeMultiplier: Float = 1.0f
     )
 
     data class TextRenderResult(
@@ -39,18 +41,27 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             preferredClassification = params.overrideClassification
         )
 
+        val baseTypeface = matchedFont.typeface
+        val activeTypeface = if (params.isBold) {
+            android.graphics.Typeface.create(baseTypeface, android.graphics.Typeface.BOLD)
+        } else {
+            android.graphics.Typeface.create(baseTypeface, android.graphics.Typeface.NORMAL)
+        }
+
         val solidInk = ensureSolidInkColor(params.inkColorRgb)
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
             color = solidInk
-            typeface = matchedFont.typeface
+            typeface = activeTypeface
+            isFakeBoldText = params.isBold
             style = Paint.Style.FILL
         }
 
         val fitResult = AutoFitFontCondenser.condenseToFit(
             text = params.newText,
             targetBounds = params.targetBounds,
-            paint = paint
+            paint = paint,
+            sizeMultiplier = params.sizeMultiplier
         )
 
         val masterOutput = cleanedBackground.copy(Bitmap.Config.ARGB_8888, true)
@@ -86,10 +97,9 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val b = Color.blue(sampledRgb)
         val luma = (0.299f * r + 0.587f * g + 0.114f * b).toInt()
 
-        return if (luma < 95) {
-            // Document ink: make it rich and crisp so it doesn't look washed out
-            val factor = 0.70f
-            Color.rgb((r * factor).toInt(), (g * factor).toInt(), (b * factor).toInt())
+        return if (luma < 125) {
+            // Standard document ink: make it solid black (#000000) so it matches dark printed text
+            Color.rgb(0, 0, 0)
         } else {
             sampledRgb
         }

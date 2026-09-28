@@ -309,7 +309,9 @@ class MainActivity : ComponentActivity() {
                                 bitmap = bitmap,
                                 detectedItems = uiState.detectedItems,
                                 selectedItem = uiState.selectedItem,
-                                onTextItemTapped = { viewModel.selectTextItem(it) }
+                                activeMode = uiState.activeToolMode,
+                                onTextItemTapped = { viewModel.selectTextItem(it) },
+                                onWhiteoutTouch = { x, y -> viewModel.applyWhiteoutCircle(x, y) }
                             )
                         } else {
                             // Premium CamScanner Home Dashboard
@@ -386,8 +388,15 @@ class MainActivity : ComponentActivity() {
                                 item = targetItem,
                                 sheetState = sheetState,
                                 onDismiss = { viewModel.selectTextItem(null) },
-                                onApplyEdit = { newText ->
-                                    viewModel.applyTextReplacement(targetItem, newText)
+                                onApplyEdit = { newText, isBold, sizeMultiplier, colorRgb, useCloudAi ->
+                                    viewModel.applyTextReplacement(
+                                        targetItem = targetItem,
+                                        newText = newText,
+                                        isBold = isBold,
+                                        sizeMultiplier = sizeMultiplier,
+                                        colorOverrideRgb = colorRgb,
+                                        useCloudAi = useCloudAi
+                                    )
                                 }
                             )
                         }

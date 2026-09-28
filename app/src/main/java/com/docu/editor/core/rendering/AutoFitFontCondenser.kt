@@ -16,13 +16,15 @@ object AutoFitFontCondenser {
     fun condenseToFit(
         text: String,
         targetBounds: Rect,
-        paint: Paint
+        paint: Paint,
+        sizeMultiplier: Float = 1.0f
     ): AdjustedTypography {
         val targetWidth = max(10, targetBounds.width()).toFloat()
         val targetHeight = max(8, targetBounds.height()).toFloat()
 
-        // Match original font size based on typographic line height
-        var fontSize = targetHeight * 0.72f
+        // Capital letters cap-height is ~72% of EM size.
+        // targetHeight is bounding box of capital letters, so EM size = targetHeight / 0.72f.
+        var fontSize = (targetHeight / 0.72f) * sizeMultiplier
         var trackingEm = 0f
         var scaleX = 1.0f
 

@@ -103,63 +103,99 @@ class BackgroundInpainter {
         val width = source.width
         val height = source.height
 
-        val topSamples = mutableListOf<Int>()
-        val bottomSamples = mutableListOf<Int>()
+        val horizontalSamples = mutableListOf<Int>()
+        val verticalSamples = mutableListOf<Int>()
 
-        val sampleLeft = max(0, target.left - margin)
-        val sampleRight = min(width, target.right + margin)
+        // 1. Primary: Sample HORIZONTALLY along the exact text baseline (Left and Right margins)
+        // On documents/invoices, the paper to the left and right of the text is ALWAYS the true paper!
+        val leftX1 = max(0, target.left - 14)
+        val leftX2 = max(0, target.left - 2)
+        val rightX1 = min(width - 1, target.right + 2)
+        val rightX2 = min(width - 1, target.right + 14)
 
-        // Sample top border (just above the text)
-        val topY1 = max(0, target.top - margin)
-        val topY2 = max(0, target.top - 1)
-        for (y in topY1..topY2) {
-            for (x in sampleLeft until sampleRight step 3) {
-                topSamples.add(source.getPixel(x, y))
+        val midY1 = max(0, target.top + 2)
+        val midY2 = min(height - 1, target.bottom - 2)
+
+        for (y in midY1..midY2) {
+            for (x in leftX1..leftX2) {
+                horizontalSamples.add(source.getPixel(x, y))
+            }
+            for (x in rightX1..rightX2) {
+                horizontalSamples.add(source.getPixel(x, y))
             }
         }
 
-        // Sample bottom border (just below the text)
-        val botY1 = min(height - 1, target.bottom + 1)
-        val botY2 = min(height - 1, target.bottom + margin)
-        for (y in botY1..botY2) {
-            for (x in sampleLeft until sampleRight step 3) {
-                bottomSamples.add(source.getPixel(x, y))
-            }
+        // 2. Secondary: Sample TOP and BOTTOM ONLY 2-3px close (never 10px deep into table headers!)
+        val topY = max(0, target.top - 2)
+        val botY = min(height - 1, target.bottom + 2)
+        val stepX = max(1, target.width() / 15)
+
+        for (x in target.left until target.right step stepX) {
+            if (topY >= 0) verticalSamples.add(source.getPixel(x, topY))
+            if (botY < height) verticalSamples.add(source.getPixel(x, botY))
         }
 
-        // Calculate median/lightest background pixels (filtering out any dark ink pixels)
-        val cleanTop = filterPaperPixels(topSamples)
-        val cleanBottom = filterPaperPixels(bottomSamples)
+        val cleanHorizontal = filterPaperPixels(horizontalSamples)
+        val cleanVertical = filterPaperPixels(verticalSamples)
 
-        val topColor = cleanTop ?: cleanBottom ?: Color.rgb(250, 250, 250)
-        val bottomColor = cleanBottom ?: cleanTop ?: Color.rgb(250, 250, 250)
+        // If vertical sample is significantly darker than horizontal (like a gray table header above), DISCARD IT!
+        val horizontalLuma = cleanHorizontal?.let { getLuminance(it) } ?: 250
+        val verticalLuma = cleanVertical?.let { getLuminance(it) } ?: horizontalLuma
+
+        val baseColor = if (cleanHorizontal != null) {
+            if (cleanVertical != null && kotlin.math.abs(verticalLuma - horizontalLuma) < 18) {
+                // Both agree: blend them
+                blendColors(cleanHorizontal, cleanVertical, 0.7f)
+            } else {
+                // Vertical is contaminated by table header or border: use pure horizontal paper!
+                cleanHorizontal
+            }
+        } else {
+            cleanVertical ?: Color.WHITE
+        }
+
+        // If the paper is generally white/light (luma > 200), clamp to pure clean paper white so ZERO gray smudge appears!
+        val finalColor = if (getLuminance(baseColor) > 205) {
+            Color.rgb(255, 255, 255)
+        } else {
+            baseColor
+        }
 
         return PaperSampleResult(
-            topColor = topColor,
-            bottomColor = bottomColor,
-            hasNoise = true
+            topColor = finalColor,
+            bottomColor = finalColor,
+            hasNoise = getLuminance(finalColor) < 235 // Only inject noise if noticeably textured/dark paper
         )
+    }
+
+    private fun getLuminance(color: Int): Int {
+        val r = Color.red(color)
+        val g = Color.green(color)
+        val b = Color.blue(color)
+        return (0.299f * r + 0.587f * g + 0.114f * b).toInt()
+    }
+
+    private fun blendColors(c1: Int, c2: Int, ratio: Float): Int {
+        val inv = 1f - ratio
+        val r = (Color.red(c1) * ratio + Color.red(c2) * inv).toInt()
+        val g = (Color.green(c1) * ratio + Color.green(c2) * inv).toInt()
+        val b = (Color.blue(c1) * ratio + Color.blue(c2) * inv).toInt()
+        return Color.rgb(r, g, b)
     }
 
     private fun filterPaperPixels(samples: List<Int>): Int? {
         if (samples.isEmpty()) return null
 
-        // Sort by luminance
         val sorted = samples.map { c ->
-            val r = Color.red(c)
-            val g = Color.green(c)
-            val b = Color.blue(c)
-            val luma = (0.299f * r + 0.587f * g + 0.114f * b).toInt()
-            Pair(c, luma)
+            Pair(c, getLuminance(c))
         }.sortedBy { it.second }
 
-        // Take the upper 60% brightest pixels to discard any ink strokes or borders
-        val startIndex = (sorted.size * 0.40f).toInt().coerceIn(0, sorted.size - 1)
+        // Take the brightest 50% pixels to completely ignore ink strokes, lines, or shadows
+        val startIndex = (sorted.size * 0.50f).toInt().coerceIn(0, sorted.size - 1)
         val validSamples = sorted.subList(startIndex, sorted.size).map { it.first }
 
         if (validSamples.isEmpty()) return null
 
-        // Average the clean paper colors
         var sumR = 0L
         var sumG = 0L
         var sumB = 0L

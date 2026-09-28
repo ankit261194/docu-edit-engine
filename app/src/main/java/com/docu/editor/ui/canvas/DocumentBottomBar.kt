@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Edit
@@ -120,6 +121,13 @@ fun DocumentBottomBar(
                     label = "Edit Text",
                     isSelected = activeMode == EditorToolMode.TEXT_EDIT,
                     onClick = { onModeSelected(EditorToolMode.TEXT_EDIT) }
+                )
+
+                ToolDockButton(
+                    icon = Icons.Default.Clear,
+                    label = "Whiteout",
+                    isSelected = activeMode == EditorToolMode.WHITEOUT,
+                    onClick = { onModeSelected(EditorToolMode.WHITEOUT) }
                 )
 
                 ToolDockButton(

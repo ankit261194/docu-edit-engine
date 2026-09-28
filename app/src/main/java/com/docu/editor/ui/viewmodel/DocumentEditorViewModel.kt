@@ -3,14 +3,22 @@ package com.docu.editor.ui.viewmodel
 import android.app.Application
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.ImageDecoder
+import android.graphics.Paint
 import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import java.io.ByteArrayOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import org.json.JSONObject
 import com.docu.editor.core.cv.BackgroundInpainter
 import com.docu.editor.core.font.FontMatcher
 import com.docu.editor.core.ocr.OcrAnalyzer
@@ -132,20 +140,77 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(selectedItem = item) }
     }
 
-    fun applyTextReplacement(targetItem: DetectedTextItem, newText: String) {
+    fun applyWhiteoutCircle(bitmapX: Float, bitmapY: Float, radius: Float = 22f) {
+        val currentBitmap = _uiState.value.currentBitmap ?: return
+        pushUndoState(currentBitmap)
+
+        val updated = currentBitmap.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(updated)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(bitmapX, bitmapY, radius, paint)
+
+        _uiState.update {
+            it.copy(
+                currentBitmap = updated,
+                canUndo = true,
+                canRedo = false
+            )
+        }
+    }
+
+    fun applyTextReplacement(
+        targetItem: DetectedTextItem,
+        newText: String,
+        isBold: Boolean = true,
+        sizeMultiplier: Float = 1.0f,
+        colorOverrideRgb: Int? = null,
+        useCloudAi: Boolean = false
+    ) {
         val currentBitmap = _uiState.value.currentBitmap ?: return
 
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     isApplyingEdit = true,
-                    processingMessage = "Applying 99% photorealistic edit..."
+                    processingMessage = if (useCloudAi) "Gemini Pro: Analyzing document typography..." else "Applying seamless typography..."
                 )
             }
 
             try {
                 val updatedBitmap = withContext(Dispatchers.Default) {
                     pushUndoState(currentBitmap)
+
+                    var effectiveBold = isBold
+                    var effectiveInkColor = colorOverrideRgb ?: targetItem.inkColorRgb
+
+                    // If Gemini Pro Cloud AI is chosen, call shribalajikripadham.online/api/docu_ai.php
+                    if (useCloudAi) {
+                        try {
+                            val cloudResult = callCloudAiTypography(
+                                sourceBitmap = currentBitmap,
+                                targetBounds = targetItem.boundingBox,
+                                currentText = targetItem.text,
+                                newText = newText,
+                                isBold = isBold,
+                                sizeMultiplier = sizeMultiplier,
+                                colorHex = String.format("#%06X", (0xFFFFFF and effectiveInkColor))
+                            )
+                            if (cloudResult != null) {
+                                effectiveBold = cloudResult.optBoolean("is_bold", effectiveBold)
+                                val cloudInk = cloudResult.optString("ink_color_hex")
+                                if (!cloudInk.isNullOrEmpty()) {
+                                    try {
+                                        effectiveInkColor = Color.parseColor(cloudInk)
+                                    } catch (_: Exception) {}
+                                }
+                            }
+                        } catch (_: Exception) {
+                            // Non-blocking fallback to local engine
+                        }
+                    }
 
                     val cleanedBackground = backgroundInpainter.inpaint(
                         sourceBitmap = currentBitmap,
@@ -157,9 +222,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         params = TextRenderer.TextRenderParams(
                             newText = newText,
                             targetBounds = targetItem.boundingBox,
-                            inkColorRgb = targetItem.inkColorRgb,
+                            inkColorRgb = effectiveInkColor,
                             rotationAngle = targetItem.rotationAngle,
-                            typographyMetrics = targetItem.typography
+                            typographyMetrics = targetItem.typography,
+                            isBold = effectiveBold,
+                            sizeMultiplier = sizeMultiplier
                         )
                     )
 
@@ -168,7 +235,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 }
 
                 // Update bounding box width to match new text length
-                val charW = targetItem.boundingBox.height() * 0.48f
+                val charW = (targetItem.boundingBox.height() * 0.52f) * sizeMultiplier
                 val newWidth = (newText.length * charW).toInt().coerceAtLeast(24)
                 val newBox = Rect(
                     targetItem.boundingBox.left,
@@ -188,7 +255,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         selectedItem = null,
                         isApplyingEdit = false,
                         processingMessage = null,
-                        successMessage = "Replaced text seamlessly",
+                        successMessage = if (useCloudAi) "Gemini Pro: Replaced seamlessly" else "Replaced text seamlessly",
                         canUndo = true,
                         canRedo = false
                     )
@@ -198,11 +265,68 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     it.copy(
                         isApplyingEdit = false,
                         processingMessage = null,
-                        errorMessage = "Auto-Edit failed: ${e.localizedMessage}"
+                        errorMessage = "Edit failed: ${e.localizedMessage}"
                     )
                 }
             }
         }
+    }
+
+    private fun callCloudAiTypography(
+        sourceBitmap: Bitmap,
+        targetBounds: Rect,
+        currentText: String,
+        newText: String,
+        isBold: Boolean,
+        sizeMultiplier: Float,
+        colorHex: String
+    ): JSONObject? {
+        val pad = 40
+        val left = max(0, targetBounds.left - pad)
+        val top = max(0, targetBounds.top - pad)
+        val right = min(sourceBitmap.width, targetBounds.right + pad)
+        val bottom = min(sourceBitmap.height, targetBounds.bottom + pad)
+        val cropW = right - left
+        val cropH = bottom - top
+
+        if (cropW <= 0 || cropH <= 0) return null
+
+        val cropBmp = Bitmap.createBitmap(sourceBitmap, left, top, cropW, cropH)
+        val baos = ByteArrayOutputStream()
+        cropBmp.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+        cropBmp.recycle()
+        val base64Img = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
+
+        val payload = JSONObject().apply {
+            put("action", "analyze_text")
+            put("image", base64Img)
+            put("current_text", currentText)
+            put("replacement_text", newText)
+            put("is_bold", isBold)
+            put("size_multiplier", sizeMultiplier.toDouble())
+            put("color_hex", colorHex)
+        }
+
+        val url = URL("https://shribalajikripadham.online/api/docu_ai.php")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.connectTimeout = 8000
+        conn.readTimeout = 12000
+        conn.doOutput = true
+
+        conn.outputStream.use { os ->
+            os.write(payload.toString().toByteArray(Charsets.UTF_8))
+        }
+
+        if (conn.responseCode == 200) {
+            val responseText = conn.inputStream.bufferedReader().use { it.readText() }
+            val json = JSONObject(responseText)
+            if (json.optBoolean("success")) {
+                return json.optJSONObject("typography")
+            }
+        }
+        return null
     }
 
     // --- CamScanner Filters Engine ---
