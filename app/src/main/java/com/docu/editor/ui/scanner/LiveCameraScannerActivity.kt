@@ -82,6 +82,11 @@ class LiveCameraScannerActivity : ComponentActivity() {
     private var isTorchOn = false
     private var isCapturing = false
 
+    private var isBatchMode = false
+    private val batchCapturedPaths = ArrayList<String>()
+    private lateinit var batchModeChip: TextView
+    private lateinit var finishBatchChip: TextView
+
     private var lastCorners: DocumentCorners? = null
     private var analysisFrameW: Int = 1
     private var analysisFrameH: Int = 1
@@ -202,8 +207,13 @@ class LiveCameraScannerActivity : ComponentActivity() {
             }
         }
 
+        val modeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+        }
+
         autoSnapChip = TextView(this).apply {
-            text = "⚡ AUTO-SNAP: ACTIVE"
+            text = "⚡ AUTO-SNAP: ON"
             setTextColor(Color.rgb(0, 230, 118))
             textSize = 12f
             background = GradientDrawable().apply {
@@ -211,13 +221,34 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 setStroke(2, Color.rgb(0, 230, 118))
                 cornerRadius = 24f
             }
-            setPadding(32, 10, 32, 10)
+            setPadding(28, 10, 28, 10)
             setOnClickListener { toggleAutoSnap() }
         }
-        bottomPanel.addView(autoSnapChip)
+        modeRow.addView(autoSnapChip)
+
+        val modeSpacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(24, 1)
+        }
+        modeRow.addView(modeSpacer)
+
+        batchModeChip = TextView(this).apply {
+            text = "📄 SINGLE"
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            background = GradientDrawable().apply {
+                setColor(Color.argb(190, 15, 23, 42))
+                setStroke(2, Color.argb(120, 255, 255, 255))
+                cornerRadius = 24f
+            }
+            setPadding(28, 10, 28, 10)
+            setOnClickListener { toggleBatchMode() }
+        }
+        modeRow.addView(batchModeChip)
+
+        bottomPanel.addView(modeRow)
 
         val shutterContainer = FrameLayout(this).apply {
-            setPadding(0, 30, 0, 0)
+            setPadding(0, 24, 0, 0)
         }
 
         val shutterRing = View(this).apply {
@@ -247,6 +278,29 @@ class LiveCameraScannerActivity : ComponentActivity() {
             }
         }
         shutterContainer.addView(shutterButton)
+
+        finishBatchChip = TextView(this).apply {
+            visibility = View.GONE
+            text = "Finish (0) ▶"
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(16, 185, 129))
+                cornerRadius = 32f
+            }
+            setPadding(32, 16, 32, 16)
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                gravity = Gravity.CENTER_VERTICAL or Gravity.END
+                setMargins(0, 0, 40, 0)
+            }
+            setOnClickListener { finishBatchAndReturn() }
+        }
+        shutterContainer.addView(finishBatchChip)
+
         bottomPanel.addView(shutterContainer)
         rootLayout.addView(bottomPanel)
 
@@ -548,8 +602,31 @@ class LiveCameraScannerActivity : ComponentActivity() {
                         )
                     }
 
-                    withContext(Dispatchers.Main) {
-                        showCropLoupeReview(fullBitmap, initialCorners)
+                    if (isBatchMode) {
+                        val warped = if (corners != null && analysisFrameW > 0 && analysisFrameH > 0) {
+                            PerspectiveTransformer.warpPerspective(fullBitmap, initialCorners)
+                        } else {
+                            fullBitmap
+                        }
+                        val outFile = File(cacheDir, "scanned_batch_${batchCapturedPaths.size}_${System.currentTimeMillis()}.jpg")
+                        FileOutputStream(outFile).use { fos ->
+                            warped.compress(Bitmap.CompressFormat.JPEG, 92, fos)
+                        }
+                        if (warped != fullBitmap) warped.recycle()
+                        fullBitmap.recycle()
+
+                        batchCapturedPaths.add(outFile.absolutePath)
+                        withContext(Dispatchers.Main) {
+                            finishBatchChip.visibility = View.VISIBLE
+                            finishBatchChip.text = "Finish (${batchCapturedPaths.size}) ▶"
+                            statusText.text = "✅ Page ${batchCapturedPaths.size} scanned! Ready for next"
+                            isCapturing = false
+                            vibrate()
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            showCropLoupeReview(fullBitmap, initialCorners)
+                        }
                     }
                 }
             } catch (_: Exception) {
@@ -648,6 +725,34 @@ class LiveCameraScannerActivity : ComponentActivity() {
         }
     }
 
+    private fun toggleBatchMode() {
+        isBatchMode = !isBatchMode
+        if (isBatchMode) {
+            batchModeChip.text = "📚 BATCH"
+            batchModeChip.setTextColor(Color.rgb(56, 189, 248))
+            (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(56, 189, 248))
+            statusText.text = "Batch scan mode: Shoot sequence of pages"
+            if (batchCapturedPaths.isNotEmpty()) {
+                finishBatchChip.visibility = View.VISIBLE
+            }
+        } else {
+            batchModeChip.text = "📄 SINGLE"
+            batchModeChip.setTextColor(Color.WHITE)
+            (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.argb(120, 255, 255, 255))
+            statusText.text = "Point camera at document..."
+            finishBatchChip.visibility = View.GONE
+        }
+    }
+
+    private fun finishBatchAndReturn() {
+        if (batchCapturedPaths.isEmpty()) return
+        val resultIntent = Intent().apply {
+            putStringArrayListExtra(EXTRA_BATCH_PATHS, batchCapturedPaths)
+        }
+        setResult(Activity.RESULT_OK, resultIntent)
+        finish()
+    }
+
     private fun vibrate() {
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
@@ -669,5 +774,6 @@ class LiveCameraScannerActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_SCANNED_PATH = "extra_scanned_path"
+        const val EXTRA_BATCH_PATHS = "extra_batch_paths"
     }
 }

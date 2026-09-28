@@ -104,6 +104,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             DocuEditTheme {
                 val uiState by viewModel.uiState.collectAsState()
+                val recentDocs by viewModel.recentDocuments.collectAsState()
                 val snackbarHostState = remember { SnackbarHostState() }
                 val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
                 var pendingUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
@@ -129,9 +130,14 @@ class MainActivity : ComponentActivity() {
                     contract = ActivityResultContracts.StartActivityForResult()
                 ) { result ->
                     if (result.resultCode == Activity.RESULT_OK) {
-                        val path = result.data?.getStringExtra(LiveCameraScannerActivity.EXTRA_SCANNED_PATH)
-                        if (!path.isNullOrBlank()) {
-                            viewModel.loadScannedDocument(path)
+                        val batchPaths = result.data?.getStringArrayListExtra(LiveCameraScannerActivity.EXTRA_BATCH_PATHS)
+                        if (!batchPaths.isNullOrEmpty()) {
+                            viewModel.loadBatchScannedPages(batchPaths)
+                        } else {
+                            val path = result.data?.getStringExtra(LiveCameraScannerActivity.EXTRA_SCANNED_PATH)
+                            if (!path.isNullOrBlank()) {
+                                viewModel.loadScannedDocument(path)
+                            }
                         }
                     }
                 }
@@ -341,11 +347,17 @@ class MainActivity : ComponentActivity() {
                                 onOverlayDragged = { dx, dy -> viewModel.updateOverlayPosition(dx, dy) },
                                 onOverlayScaleChanged = { sm -> viewModel.updateOverlayScale(sm) },
                                 onCommitOverlay = { viewModel.commitOverlayToDocument() },
-                                onCancelOverlay = { viewModel.cancelOverlay() }
+                                onCancelOverlay = { viewModel.cancelOverlay() },
+                                pdfPageCount = uiState.pdfPageCount,
+                                currentPageIndex = uiState.currentPdfPageIndex,
+                                onPreviousPage = { viewModel.previousPdfPage() },
+                                onNextPage = { viewModel.nextPdfPage() }
                             )
                         } else {
                             // Premium CamScanner Home Dashboard
                             HomeScreenDashboard(
+                                recentDocuments = recentDocs,
+                                onOpenSavedDocument = { path -> viewModel.loadScannedDocument(path) },
                                 onCameraScanClicked = {
                                     if (ContextCompat.checkSelfPermission(
                                             this@MainActivity,

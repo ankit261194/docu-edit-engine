@@ -20,6 +20,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import org.json.JSONObject
 import com.docu.editor.core.cv.BackgroundInpainter
+import com.docu.editor.core.history.DocumentHistoryManager
+import com.docu.editor.core.history.SavedDocumentItem
 import com.docu.editor.core.font.FontClassification
 import com.docu.editor.core.font.FontMatcher
 import com.docu.editor.core.ocr.OcrAnalyzer
@@ -68,6 +70,19 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     private val _uiState = MutableStateFlow(DocumentEditorUiState())
     val uiState: StateFlow<DocumentEditorUiState> = _uiState.asStateFlow()
 
+    val recentDocuments = MutableStateFlow<List<SavedDocumentItem>>(emptyList())
+
+    init {
+        refreshRecentDocuments()
+    }
+
+    fun refreshRecentDocuments() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val docs = DocumentHistoryManager.getSavedDocuments(getApplication())
+            recentDocuments.value = docs
+        }
+    }
+
     sealed class UndoStep {
         data class TextPatch(
             val patchBitmap: Bitmap,
@@ -102,17 +117,111 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 val context = getApplication<Application>()
                 val mimeType = context.contentResolver.getType(uri)
 
-                val bitmap = withContext(Dispatchers.IO) {
-                    if (mimeType == "application/pdf") {
-                        PdfPageLoader.renderPageToBitmap(context, uri)
-                    } else {
+                if (mimeType == "application/pdf") {
+                    val pageCount = PdfPageLoader.getPageCount(context, uri)
+                    _uiState.update {
+                        it.copy(
+                            activePdfUri = uri,
+                            pdfPageCount = pageCount,
+                            currentPdfPageIndex = 0,
+                            batchScannedPaths = emptyList()
+                        )
+                    }
+                    val bitmap = withContext(Dispatchers.IO) {
+                        PdfPageLoader.renderPageToBitmap(context, uri, 0)
+                    }
+                    setDocumentBitmap(bitmap)
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            activePdfUri = null,
+                            pdfPageCount = 1,
+                            currentPdfPageIndex = 0,
+                            batchScannedPaths = emptyList()
+                        )
+                    }
+                    val bitmap = withContext(Dispatchers.IO) {
                         loadOptimizedBitmapFromUri(uri)
                     }
+                    setDocumentBitmap(bitmap)
                 }
-
-                setDocumentBitmap(bitmap)
             } catch (e: Exception) {
                 _uiState.update { it.copy(isScanning = false, errorMessage = "Failed to load: ${e.localizedMessage}") }
+            }
+        }
+    }
+
+    fun nextPdfPage() {
+        val state = _uiState.value
+        if (state.activePdfUri != null && state.currentPdfPageIndex < state.pdfPageCount - 1) {
+            loadPdfPage(state.activePdfUri, state.currentPdfPageIndex + 1)
+        } else if (state.batchScannedPaths.isNotEmpty() && state.currentBatchIndex < state.batchScannedPaths.size - 1) {
+            loadBatchPage(state.currentBatchIndex + 1)
+        }
+    }
+
+    fun previousPdfPage() {
+        val state = _uiState.value
+        if (state.activePdfUri != null && state.currentPdfPageIndex > 0) {
+            loadPdfPage(state.activePdfUri, state.currentPdfPageIndex - 1)
+        } else if (state.batchScannedPaths.isNotEmpty() && state.currentBatchIndex > 0) {
+            loadBatchPage(state.currentBatchIndex - 1)
+        }
+    }
+
+    fun loadPdfPage(uri: Uri, pageIndex: Int) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isScanning = true,
+                    processingMessage = "Loading page ${pageIndex + 1} of ${_uiState.value.pdfPageCount}..."
+                )
+            }
+            try {
+                val context = getApplication<Application>()
+                val bitmap = withContext(Dispatchers.IO) {
+                    PdfPageLoader.renderPageToBitmap(context, uri, pageIndex)
+                }
+                _uiState.update { it.copy(currentPdfPageIndex = pageIndex) }
+                setDocumentBitmap(bitmap)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isScanning = false, errorMessage = "Failed to load page: ${e.localizedMessage}") }
+            }
+        }
+    }
+
+    fun loadBatchScannedPages(paths: List<String>) {
+        if (paths.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    batchScannedPaths = paths,
+                    currentBatchIndex = 0,
+                    pdfPageCount = paths.size,
+                    currentPdfPageIndex = 0,
+                    activePdfUri = null
+                )
+            }
+            loadBatchPage(0)
+        }
+    }
+
+    fun loadBatchPage(index: Int) {
+        val paths = _uiState.value.batchScannedPaths
+        if (index !in paths.indices) return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isScanning = true,
+                    processingMessage = "Loading page ${index + 1} of ${paths.size}..."
+                )
+            }
+            val bmp = withContext(Dispatchers.IO) {
+                BitmapFactory.decodeFile(paths[index])
+            }
+            if (bmp != null) {
+                _uiState.update { it.copy(currentBatchIndex = index, currentPdfPageIndex = index) }
+                setDocumentBitmap(bmp)
             }
         }
     }
@@ -174,6 +283,18 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 processingMessage = null,
                 successMessage = "Detected ${items.size} editable words"
             )
+        }
+
+        val context = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                DocumentHistoryManager.saveDocument(
+                    context = context,
+                    bitmap = optimized,
+                    pageCount = _uiState.value.pdfPageCount
+                )
+                refreshRecentDocuments()
+            } catch (_: Exception) {}
         }
     }
 

@@ -49,5 +49,10 @@ data class DocumentEditorUiState(
     val overlayPositionY: Float = 100f,
     val overlayScale: Float = 1.0f,
     val exportUri: String? = null,
-    val canvasRevision: Long = 0L
+    val canvasRevision: Long = 0L,
+    val pdfPageCount: Int = 1,
+    val currentPdfPageIndex: Int = 0,
+    val activePdfUri: android.net.Uri? = null,
+    val batchScannedPaths: List<String> = emptyList(),
+    val currentBatchIndex: Int = 0
 )

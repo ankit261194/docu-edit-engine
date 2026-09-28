@@ -18,6 +18,9 @@ object IdCardStitcher {
         frontCard: Bitmap,
         backCard: Bitmap
     ): Bitmap = withContext(Dispatchers.Default) {
+        val normalizedFront = normalizeAndCropCard(frontCard)
+        val normalizedBack = normalizeAndCropCard(backCard)
+
         val a4Width = 2480
         val a4Height = 3508
 
@@ -33,32 +36,61 @@ object IdCardStitcher {
         val topCardY = a4Height * 0.16f
         val bottomCardY = a4Height * 0.54f
 
-        val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
         val borderPaint = Paint().apply {
-            color = Color.LTGRAY
+            color = Color.rgb(203, 213, 225)
             style = Paint.Style.STROKE
-            strokeWidth = 3f
+            strokeWidth = 4f
         }
 
         // Draw Front Card
         val frontDst = RectF(marginX, topCardY, marginX + cardWidthPx, topCardY + cardHeightPx)
-        canvas.drawBitmap(frontCard, null, frontDst, paint)
-        canvas.drawRoundRect(frontDst, 24f, 24f, borderPaint)
+        canvas.drawBitmap(normalizedFront, null, frontDst, paint)
+        canvas.drawRoundRect(frontDst, 28f, 28f, borderPaint)
 
         // Draw Back Card
         val backDst = RectF(marginX, bottomCardY, marginX + cardWidthPx, bottomCardY + cardHeightPx)
-        canvas.drawBitmap(backCard, null, backDst, paint)
-        canvas.drawRoundRect(backDst, 24f, 24f, borderPaint)
+        canvas.drawBitmap(normalizedBack, null, backDst, paint)
+        canvas.drawRoundRect(backDst, 28f, 28f, borderPaint)
+
+        // Clean up temporary bitmaps if rotated/cropped
+        if (normalizedFront != frontCard) normalizedFront.recycle()
+        if (normalizedBack != backCard) normalizedBack.recycle()
 
         // Draw guideline labels
         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.DKGRAY
-            textSize = 36f
+            color = Color.rgb(71, 85, 105)
+            textSize = 42f
+            isFakeBoldText = true
             textAlign = Paint.Align.CENTER
         }
-        canvas.drawText("ID CARD FRONT", a4Width / 2f, topCardY - 24f, textPaint)
-        canvas.drawText("ID CARD BACK", a4Width / 2f, bottomCardY - 24f, textPaint)
+        canvas.drawText("FRONT SIDE", a4Width / 2f, topCardY - 30f, textPaint)
+        canvas.drawText("BACK SIDE", a4Width / 2f, bottomCardY - 30f, textPaint)
 
         a4Bitmap
+    }
+
+    /**
+     * Auto-rotates vertical/portrait cards to landscape and crops to standard ID-1 aspect ratio.
+     */
+    fun normalizeAndCropCard(card: Bitmap): Bitmap {
+        var bmp = card
+        if (bmp.height > bmp.width) {
+            val matrix = android.graphics.Matrix().apply { postRotate(90f) }
+            bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
+        }
+        val targetAspect = 85.6f / 53.98f
+        val currentAspect = bmp.width.toFloat() / bmp.height.toFloat()
+        return if (currentAspect > targetAspect * 1.05f) {
+            val newWidth = (bmp.height * targetAspect).toInt()
+            val startX = ((bmp.width - newWidth) / 2).coerceAtLeast(0)
+            Bitmap.createBitmap(bmp, startX, 0, newWidth.coerceAtMost(bmp.width), bmp.height)
+        } else if (currentAspect < targetAspect * 0.95f) {
+            val newHeight = (bmp.width / targetAspect).toInt()
+            val startY = ((bmp.height - newHeight) / 2).coerceAtLeast(0)
+            Bitmap.createBitmap(bmp, 0, startY, bmp.width, newHeight.coerceAtMost(bmp.height))
+        } else {
+            bmp
+        }
     }
 }

@@ -72,6 +72,10 @@ fun DocumentInteractiveCanvas(
     onOverlayScaleChanged: (scaleMultiplier: Float) -> Unit = {},
     onCommitOverlay: () -> Unit = {},
     onCancelOverlay: () -> Unit = {},
+    pdfPageCount: Int = 1,
+    currentPageIndex: Int = 0,
+    onPreviousPage: () -> Unit = {},
+    onNextPage: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
@@ -354,6 +358,57 @@ fun DocumentInteractiveCanvas(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
+                }
+            }
+        }
+
+        // Multi-Page PDF & Batch Scan Navigation Pill
+        if (pdfPageCount > 1) {
+            Surface(
+                color = Color(0xFF0F172A).copy(alpha = 0.88f),
+                shape = RoundedCornerShape(20.dp),
+                shadowElevation = 8.dp,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = if (activeOverlayBitmap != null) 90.dp else 16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onPreviousPage,
+                        enabled = currentPageIndex > 0,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Text(
+                            "◀",
+                            color = if (currentPageIndex > 0) Color.White else Color(0xFF64748B),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    Text(
+                        text = "Page ${currentPageIndex + 1} of $pdfPageCount",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+
+                    IconButton(
+                        onClick = onNextPage,
+                        enabled = currentPageIndex < pdfPageCount - 1,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Text(
+                            "▶",
+                            color = if (currentPageIndex < pdfPageCount - 1) Color.White else Color(0xFF64748B),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }

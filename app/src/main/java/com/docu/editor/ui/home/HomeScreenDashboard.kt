@@ -27,6 +27,10 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PictureAsPdf
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Speed
@@ -38,18 +42,24 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.docu.editor.core.history.SavedDocumentItem
 
 @Composable
 fun HomeScreenDashboard(
+    recentDocuments: List<SavedDocumentItem> = emptyList(),
+    onOpenSavedDocument: (filePath: String) -> Unit = {},
     onCameraScanClicked: () -> Unit,
     onOpenFileClicked: () -> Unit,
     onIdCardClicked: () -> Unit,
@@ -296,6 +306,46 @@ fun HomeScreenDashboard(
                 }
             }
 
+            // Recent Documents Section (CamScanner Local Library)
+            if (recentDocuments.isNotEmpty()) {
+                item(span = { GridItemSpan(2) }) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 14.dp, bottom = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Recent Documents (${recentDocuments.size})",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0F172A)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            recentDocuments.take(10).forEach { doc ->
+                                RecentDocumentCard(
+                                    document = doc,
+                                    onClick = { onOpenSavedDocument(doc.filePath) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Bottom trust signals
             item(span = { GridItemSpan(2) }) {
                 Row(
@@ -376,6 +426,90 @@ private fun StudioActionCard(
                     color = Color(0xFF64748B),
                     fontSize = 11.sp,
                     maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RecentDocumentCard(
+    document: SavedDocumentItem,
+    onClick: () -> Unit
+) {
+    val thumbBmp = remember(document.thumbnailPath) {
+        try {
+            BitmapFactory.decodeFile(document.thumbnailPath)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier
+            .width(130.dp)
+            .clickable { onClick() }
+    ) {
+        Column {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(130.dp)
+                    .background(Color(0xFFF1F5F9)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (thumbBmp != null) {
+                    Image(
+                        bitmap = thumbBmp.asImageBitmap(),
+                        contentDescription = document.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.PictureAsPdf,
+                        contentDescription = null,
+                        tint = Color(0xFF94A3B8),
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+
+                if (document.pageCount > 1) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color.Black.copy(alpha = 0.65f),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(6.dp)
+                    ) {
+                        Text(
+                            text = "${document.pageCount}P",
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            Column(modifier = Modifier.padding(8.dp)) {
+                Text(
+                    text = document.title,
+                    color = Color(0xFF0F172A),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = document.formattedDate,
+                    color = Color(0xFF64748B),
+                    fontSize = 9.sp
                 )
             }
         }

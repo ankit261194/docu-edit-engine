@@ -33,7 +33,20 @@ object PdfPageLoader {
         page.close()
         pdfRenderer.close()
         fileDescriptor.close()
-
         bitmap
+    }
+
+    suspend fun getPageCount(context: Context, pdfUri: Uri): Int = withContext(Dispatchers.IO) {
+        try {
+            val contentResolver = context.contentResolver
+            val fileDescriptor = contentResolver.openFileDescriptor(pdfUri, "r") ?: return@withContext 1
+            val pdfRenderer = PdfRenderer(fileDescriptor)
+            val count = pdfRenderer.pageCount
+            pdfRenderer.close()
+            fileDescriptor.close()
+            count
+        } catch (_: Exception) {
+            1
+        }
     }
 }
