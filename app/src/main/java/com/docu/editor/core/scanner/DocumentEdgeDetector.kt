@@ -111,6 +111,78 @@ object DocumentEdgeDetector {
     }
 
     /**
+     * Real-time high-speed corner detector operating directly on CameraX Y-plane Mat (0ms bitmap conversion).
+     */
+    fun detectCornersFromGrayMat(grayMat: Mat, width: Int, height: Int): DocumentCorners? {
+        val blurredMat = Mat()
+        val cannedMat = Mat()
+        val dilatedMat = Mat()
+
+        try {
+            Imgproc.GaussianBlur(grayMat, blurredMat, Size(7.0, 7.0), 0.0)
+            Imgproc.Canny(blurredMat, cannedMat, 40.0, 120.0)
+
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
+            Imgproc.dilate(cannedMat, dilatedMat, kernel)
+            kernel.release()
+
+            val contours = mutableListOf<MatOfPoint>()
+            val hierarchy = Mat()
+            Imgproc.findContours(
+                dilatedMat,
+                contours,
+                hierarchy,
+                Imgproc.RETR_EXTERNAL,
+                Imgproc.CHAIN_APPROX_SIMPLE
+            )
+            hierarchy.release()
+
+            val minArea = (width * height) * 0.12
+            var maxArea = 0.0
+            var bestQuad: MatOfPoint2f? = null
+
+            for (contour in contours) {
+                val contour2f = MatOfPoint2f(*contour.toArray())
+                val peri = Imgproc.arcLength(contour2f, true)
+                val approx = MatOfPoint2f()
+
+                Imgproc.approxPolyDP(contour2f, approx, 0.02 * peri, true)
+                val area = Imgproc.contourArea(approx)
+
+                if (approx.total() == 4L && area > minArea && area > maxArea) {
+                    val mop = MatOfPoint(*approx.toArray())
+                    if (Imgproc.isContourConvex(mop)) {
+                        maxArea = area
+                        bestQuad?.release()
+                        bestQuad = approx
+                    } else {
+                        approx.release()
+                    }
+                    mop.release()
+                } else {
+                    approx.release()
+                }
+                contour2f.release()
+                contour.release()
+            }
+
+            return if (bestQuad != null) {
+                val points = bestQuad.toArray()
+                bestQuad.release()
+                sortCorners(points)
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            return null
+        } finally {
+            blurredMat.release()
+            cannedMat.release()
+            dilatedMat.release()
+        }
+    }
+
+    /**
      * Orders 4 vertices into [Top-Left, Top-Right, Bottom-Right, Bottom-Left].
      */
     private fun sortCorners(pts: Array<Point>): DocumentCorners {

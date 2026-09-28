@@ -1,12 +1,14 @@
 package com.docu.editor.ui
 
 import android.Manifest
+import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import com.docu.editor.ui.scanner.LiveCameraScannerActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -121,7 +123,19 @@ class MainActivity : ComponentActivity() {
                     uri?.let { viewModel.loadDocumentUri(it) }
                 }
 
-                // Camera Photo Capture Launcher
+                // Enterprise Real-Time Live Scanner Launcher
+                val liveScannerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.StartActivityForResult()
+                ) { result ->
+                    if (result.resultCode == Activity.RESULT_OK) {
+                        val path = result.data?.getStringExtra(LiveCameraScannerActivity.EXTRA_SCANNED_PATH)
+                        if (!path.isNullOrBlank()) {
+                            viewModel.loadScannedDocument(path)
+                        }
+                    }
+                }
+
+                // Fallback Camera Photo Capture Launcher
                 val cameraLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.TakePicture()
                 ) { success ->
@@ -134,10 +148,8 @@ class MainActivity : ComponentActivity() {
                     contract = ActivityResultContracts.RequestPermission()
                 ) { isGranted ->
                     if (isGranted) {
-                        launchCameraCapture { uri ->
-                            tempCameraUri = uri
-                            cameraLauncher.launch(uri)
-                        }
+                        val intent = Intent(this@MainActivity, LiveCameraScannerActivity::class.java)
+                        liveScannerLauncher.launch(intent)
                     }
                 }
 
@@ -323,10 +335,8 @@ class MainActivity : ComponentActivity() {
                                             Manifest.permission.CAMERA
                                         ) == PackageManager.PERMISSION_GRANTED
                                     ) {
-                                        launchCameraCapture { uri ->
-                                            tempCameraUri = uri
-                                            cameraLauncher.launch(uri)
-                                        }
+                                        val intent = Intent(this@MainActivity, LiveCameraScannerActivity::class.java)
+                                        liveScannerLauncher.launch(intent)
                                     } else {
                                         cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                                     }

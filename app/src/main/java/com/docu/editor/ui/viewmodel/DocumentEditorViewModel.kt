@@ -123,6 +123,24 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun loadScannedDocument(filePath: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isScanning = true, processingMessage = "Loading scanned document...") }
+            try {
+                val bitmap = withContext(Dispatchers.IO) {
+                    BitmapFactory.decodeFile(filePath)
+                }
+                if (bitmap != null) {
+                    setDocumentBitmap(bitmap)
+                } else {
+                    _uiState.update { it.copy(isScanning = false, errorMessage = "Failed to open scanned document.") }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isScanning = false, errorMessage = "Error opening scan: ${e.localizedMessage}") }
+            }
+        }
+    }
+
     private suspend fun setDocumentBitmap(bitmap: Bitmap) {
         val optimized = withContext(Dispatchers.Default) {
             scaleDownIfNeeded(bitmap, maxDimension = 1920)

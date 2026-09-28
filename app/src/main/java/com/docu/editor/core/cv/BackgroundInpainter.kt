@@ -39,6 +39,13 @@ class BackgroundInpainter {
             return@withContext sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
         }
 
+        // Automatic Watermark & Security Background Protection:
+        // If the area contains watermark lines, guilloche waves, or colored stamps,
+        // use Telea Fast Marching inpainting on ink strokes to keep watermark unbroken!
+        if (WatermarkPreservingInpainter.hasComplexBackground(sourceBitmap, safeTarget)) {
+            return@withContext WatermarkPreservingInpainter.inpaintWatermarkBackground(sourceBitmap, safeTarget)
+        }
+
         // 1. Sample ambient paper color from the perimeter of the target box (excluding ink)
         val sampledColors = samplePerimeterPaperColors(sourceBitmap, safeTarget, sampleMargin)
 
