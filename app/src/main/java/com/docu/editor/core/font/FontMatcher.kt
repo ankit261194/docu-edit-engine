@@ -1,15 +1,18 @@
 package com.docu.editor.core.font
 
 import android.content.Context
+import android.graphics.Rect
 import android.graphics.Typeface
 import com.docu.editor.core.ocr.model.FontWeightEstimate
 import com.docu.editor.core.ocr.model.TypographyMetrics
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.max
 
-enum class FontClassification {
-    SANS_SERIF,
-    SERIF,
-    MONOSPACE
+enum class FontClassification(val displayName: String) {
+    SANS_SERIF("Arial / Standard"),
+    CALIBRI("Calibri / Office"),
+    SERIF("Times New Roman / Formal"),
+    MONOSPACE("Courier / Receipt")
 }
 
 class FontMatcher(private val context: Context) {
@@ -26,37 +29,97 @@ class FontMatcher(private val context: Context) {
     fun matchFont(
         text: String,
         metrics: TypographyMetrics,
-        preferredClassification: FontClassification? = null
+        bounds: Rect? = null,
+        preferredClassification: FontClassification? = null,
+        forceBold: Boolean? = null
     ): MatchedTypeface {
-        val classification = preferredClassification ?: classifyFromMetrics(text, metrics)
-        val isBold = metrics.estimatedFontWeight == FontWeightEstimate.BOLD ||
-                     metrics.estimatedFontWeight == FontWeightEstimate.EXTRA_BOLD
+        val classification = preferredClassification ?: classifyFromMetrics(text, metrics, bounds)
+        val isBold = forceBold ?: (
+            metrics.estimatedFontWeight == FontWeightEstimate.BOLD ||
+            metrics.estimatedFontWeight == FontWeightEstimate.EXTRA_BOLD ||
+            metrics.strokeWidthRatio >= 0.14f
+        )
 
-        val typeface = getSystemFallbackTypeface(classification, isBold)
+        val typeface = getDocumentTypeface(classification, isBold)
 
         return MatchedTypeface(
             typeface = typeface,
             classification = classification,
             isBold = isBold,
-            fontIdentifier = "System:${classification.name}"
+            fontIdentifier = "${classification.name}:${if (isBold) "Bold" else "Regular"}"
         )
     }
 
-    private fun classifyFromMetrics(text: String, metrics: TypographyMetrics): FontClassification {
-        return when {
-            metrics.strokeWidthRatio < 0.10f && metrics.letterSpacingEm > 0.15f -> FontClassification.MONOSPACE
-            metrics.glyphDensity > 0.32f -> FontClassification.SERIF
-            else -> FontClassification.SANS_SERIF
+    fun getDocumentTypeface(classification: FontClassification, isBold: Boolean): Typeface {
+        val cacheKey = "${classification.name}_$isBold"
+        typefaceCache[cacheKey]?.let { return it }
+
+        val loaded = try {
+            when (classification) {
+                FontClassification.SANS_SERIF -> {
+                    val assetName = if (isBold) "fonts/arialbd.ttf" else "fonts/arial.ttf"
+                    Typeface.createFromAsset(context.assets, assetName)
+                }
+                FontClassification.CALIBRI -> {
+                    val base = Typeface.createFromAsset(context.assets, "fonts/calibri.ttf")
+                    if (isBold) Typeface.create(base, Typeface.BOLD) else base
+                }
+                FontClassification.SERIF -> {
+                    val assetName = if (isBold) "fonts/timesbd.ttf" else "fonts/times.ttf"
+                    Typeface.createFromAsset(context.assets, assetName)
+                }
+                FontClassification.MONOSPACE -> {
+                    val assetName = if (isBold) "fonts/courbd.ttf" else "fonts/cour.ttf"
+                    Typeface.createFromAsset(context.assets, assetName)
+                }
+            }
+        } catch (_: Exception) {
+            // Graceful fallback to Android system fonts if asset is missing
+            val sysFamily = when (classification) {
+                FontClassification.SERIF -> Typeface.SERIF
+                FontClassification.SANS_SERIF, FontClassification.CALIBRI -> Typeface.SANS_SERIF
+                FontClassification.MONOSPACE -> Typeface.MONOSPACE
+            }
+            Typeface.create(sysFamily, if (isBold) Typeface.BOLD else Typeface.NORMAL)
         }
+
+        typefaceCache[cacheKey] = loaded
+        return loaded
     }
 
-    private fun getSystemFallbackTypeface(classification: FontClassification, isBold: Boolean): Typeface {
-        val baseFamily = when (classification) {
-            FontClassification.SERIF -> Typeface.SERIF
-            FontClassification.SANS_SERIF -> Typeface.SANS_SERIF
-            FontClassification.MONOSPACE -> Typeface.MONOSPACE
+    companion object {
+        fun classifyFromMetrics(
+            text: String,
+            metrics: TypographyMetrics,
+            bounds: Rect? = null
+        ): FontClassification {
+            val avgCharWidth = if (bounds != null && bounds.width() > 0) {
+                bounds.width().toFloat() / max(1, text.length)
+            } else {
+                metrics.estimatedFontSizePx * 0.52f
+            }
+            val height = if (bounds != null && bounds.height() > 0) bounds.height().toFloat() else metrics.estimatedFontSizePx
+            val charAspectRatio = avgCharWidth / max(1f, height)
+
+            return when {
+                // 1. Monospace: fixed pitch typewriter numbers/code
+                (metrics.strokeWidthRatio < 0.10f && metrics.letterSpacingEm > 0.14f) ||
+                (text.all { it.isDigit() || it == '-' || it == '/' || it == '.' } && charAspectRatio > 0.58f) -> {
+                    FontClassification.MONOSPACE
+                }
+                // 2. Serif: certificates, formal letters, high density / stroke modulation
+                metrics.glyphDensity > 0.32f -> {
+                    FontClassification.SERIF
+                }
+                // 3. Calibri: compact modern office font (narrower proportions)
+                charAspectRatio < 0.48f -> {
+                    FontClassification.CALIBRI
+                }
+                // 4. Arial: standard 80% business invoices and forms
+                else -> {
+                    FontClassification.SANS_SERIF
+                }
+            }
         }
-        val style = if (isBold) Typeface.BOLD else Typeface.NORMAL
-        return Typeface.create(baseFamily, style)
     }
 }

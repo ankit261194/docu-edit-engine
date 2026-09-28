@@ -20,6 +20,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import org.json.JSONObject
 import com.docu.editor.core.cv.BackgroundInpainter
+import com.docu.editor.core.font.FontClassification
 import com.docu.editor.core.font.FontMatcher
 import com.docu.editor.core.ocr.OcrAnalyzer
 import com.docu.editor.core.ocr.model.DetectedTextItem
@@ -164,7 +165,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     fun applyTextReplacement(
         targetItem: DetectedTextItem,
         newText: String,
-        isBold: Boolean = true,
+        fontClassification: FontClassification? = null,
+        isBold: Boolean? = null,
         sizeMultiplier: Float = 1.0f,
         colorOverrideRgb: Int? = null,
         useCloudAi: Boolean = false
@@ -194,12 +196,12 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                                 targetBounds = targetItem.boundingBox,
                                 currentText = targetItem.text,
                                 newText = newText,
-                                isBold = isBold,
+                                isBold = effectiveBold ?: false,
                                 sizeMultiplier = sizeMultiplier,
                                 colorHex = String.format("#%06X", (0xFFFFFF and effectiveInkColor))
                             )
                             if (cloudResult != null) {
-                                effectiveBold = cloudResult.optBoolean("is_bold", effectiveBold)
+                                effectiveBold = cloudResult.optBoolean("is_bold", effectiveBold ?: false)
                                 val cloudInk = cloudResult.optString("ink_color_hex")
                                 if (!cloudInk.isNullOrEmpty()) {
                                     try {
@@ -221,10 +223,12 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         cleanedBackground = cleanedBackground,
                         params = TextRenderer.TextRenderParams(
                             newText = newText,
+                            originalText = targetItem.text,
                             targetBounds = targetItem.boundingBox,
                             inkColorRgb = effectiveInkColor,
                             rotationAngle = targetItem.rotationAngle,
                             typographyMetrics = targetItem.typography,
+                            overrideClassification = fontClassification,
                             isBold = effectiveBold,
                             sizeMultiplier = sizeMultiplier
                         )

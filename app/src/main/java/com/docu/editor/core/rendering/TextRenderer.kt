@@ -14,12 +14,13 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
 
     data class TextRenderParams(
         val newText: String,
+        val originalText: String = "",
         val targetBounds: Rect,
         val inkColorRgb: Int,
         val rotationAngle: Float = 0f,
         val typographyMetrics: TypographyMetrics,
         val overrideClassification: FontClassification? = null,
-        val isBold: Boolean = true,
+        val isBold: Boolean? = null,
         val sizeMultiplier: Float = 1.0f
     )
 
@@ -36,24 +37,19 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         params: TextRenderParams
     ): TextRenderResult {
         val matchedFont = fontMatcher.matchFont(
-            text = params.newText,
+            text = if (params.originalText.isNotBlank()) params.originalText else params.newText,
             metrics = params.typographyMetrics,
-            preferredClassification = params.overrideClassification
+            bounds = params.targetBounds,
+            preferredClassification = params.overrideClassification,
+            forceBold = params.isBold
         )
-
-        val baseTypeface = matchedFont.typeface
-        val activeTypeface = if (params.isBold) {
-            android.graphics.Typeface.create(baseTypeface, android.graphics.Typeface.BOLD)
-        } else {
-            android.graphics.Typeface.create(baseTypeface, android.graphics.Typeface.NORMAL)
-        }
 
         val solidInk = ensureSolidInkColor(params.inkColorRgb)
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
             color = solidInk
-            typeface = activeTypeface
-            isFakeBoldText = false // Never double-bold; activeTypeface already has clean typographic bolding
+            typeface = matchedFont.typeface
+            isFakeBoldText = false // Never double-bold; matchedFont already has genuine typographer's bold TTF
             style = Paint.Style.FILL
         }
 
@@ -61,6 +57,7 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             text = params.newText,
             targetBounds = params.targetBounds,
             paint = paint,
+            originalText = params.originalText,
             sizeMultiplier = params.sizeMultiplier
         )
 

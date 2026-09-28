@@ -388,10 +388,11 @@ class MainActivity : ComponentActivity() {
                                 item = targetItem,
                                 sheetState = sheetState,
                                 onDismiss = { viewModel.selectTextItem(null) },
-                                onApplyEdit = { newText, isBold, sizeMultiplier, colorRgb, useCloudAi ->
+                                onApplyEdit = { newText, fontClassification, isBold, sizeMultiplier, colorRgb, useCloudAi ->
                                     viewModel.applyTextReplacement(
                                         targetItem = targetItem,
                                         newText = newText,
+                                        fontClassification = fontClassification,
                                         isBold = isBold,
                                         sizeMultiplier = sizeMultiplier,
                                         colorOverrideRgb = colorRgb,

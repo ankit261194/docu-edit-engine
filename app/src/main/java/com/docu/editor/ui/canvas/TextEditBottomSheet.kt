@@ -1,5 +1,6 @@
 package com.docu.editor.ui.canvas
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,10 +19,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FormatBold
+import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
@@ -55,7 +58,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.docu.editor.core.font.FontClassification
+import com.docu.editor.core.font.FontMatcher
 import com.docu.editor.core.ocr.model.DetectedTextItem
+import com.docu.editor.core.ocr.model.FontWeightEstimate
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -65,23 +70,34 @@ fun TextEditBottomSheet(
     onDismiss: () -> Unit,
     onApplyEdit: (
         newText: String,
+        fontClassification: FontClassification,
         isBold: Boolean,
         sizeMultiplier: Float,
         colorRgb: Int,
         useCloudAi: Boolean
     ) -> Unit
 ) {
+    // 100% Automatic Detection (Like CamScanner):
+    val autoDetectedClassification = remember(item.id) {
+        FontMatcher.classifyFromMetrics(item.text, item.typography, item.boundingBox)
+    }
+    val autoDetectedBold = remember(item.id) {
+        item.typography.estimatedFontWeight == FontWeightEstimate.BOLD ||
+        item.typography.estimatedFontWeight == FontWeightEstimate.EXTRA_BOLD ||
+        item.typography.strokeWidthRatio >= 0.14f
+    }
+
     var editedText by remember(item.id) { mutableStateOf(item.text) }
-    var isBold by remember(item.id) { mutableStateOf(true) }
+    var selectedFontType by remember(item.id) { mutableStateOf(autoDetectedClassification) }
+    var isBold by remember(item.id) { mutableStateOf(autoDetectedBold) }
     var sizeMultiplier by remember(item.id) { mutableFloatStateOf(1.0f) }
     var selectedColorRgb by remember(item.id) { mutableIntStateOf(item.inkColorRgb) } // Default to document original ink
-    var selectedFontType by remember(item.id) { mutableStateOf(FontClassification.SANS_SERIF) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        containerColor = Color.White // High-contrast clean white background
+        containerColor = Color.White
     ) {
         Column(
             modifier = Modifier
@@ -89,7 +105,7 @@ fun TextEditBottomSheet(
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
-            // Header: Crisp High-Contrast Dark Text
+            // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -103,7 +119,7 @@ fun TextEditBottomSheet(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Customize font, size & ink to match your PDF",
+                        text = "Auto-matched to original document typography",
                         color = Color(0xFF64748B),
                         fontSize = 12.sp
                     )
@@ -115,7 +131,36 @@ fun TextEditBottomSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Text Input Field (High-contrast borders)
+            // Auto-Detection Badge (CamScanner style indicator)
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = Color(0xFFEFF6FF),
+                border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.AutoAwesome,
+                        contentDescription = null,
+                        tint = Color(0xFF2563EB),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Auto-Matched Font: ${selectedFontType.displayName} • ${if (isBold) "Bold" else "Regular"}",
+                        color = Color(0xFF1D4ED8),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Text Input Field
             OutlinedTextField(
                 value = editedText,
                 onValueChange = { editedText = it },
@@ -136,11 +181,11 @@ fun TextEditBottomSheet(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Live Comparison Preview Box (Side-by-side verification before applying!)
+            // Live Comparison Preview Box
             Surface(
                 color = Color(0xFFF1F5F9),
                 shape = RoundedCornerShape(12.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
@@ -205,22 +250,32 @@ fun TextEditBottomSheet(
             Surface(
                 color = Color(0xFFF8FAFC),
                 shape = RoundedCornerShape(14.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
-                    // Row 1: Font Classification (Sans, Serif, Mono)
+                    // Row 1: Font Family Selector (Arial, Calibri, Times, Courier)
+                    Text("Font Family:", color = Color(0xFF475569), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(6.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Font:", color = Color(0xFF475569), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-
                         FilterChip(
                             selected = selectedFontType == FontClassification.SANS_SERIF,
                             onClick = { selectedFontType = FontClassification.SANS_SERIF },
-                            label = { Text("Sans (Invoice)", fontSize = 11.sp) },
+                            label = { Text("Arial", fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF2563EB),
+                                selectedLabelColor = Color.White
+                            )
+                        )
+
+                        FilterChip(
+                            selected = selectedFontType == FontClassification.CALIBRI,
+                            onClick = { selectedFontType = FontClassification.CALIBRI },
+                            label = { Text("Calibri", fontSize = 11.sp) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = Color(0xFF2563EB),
                                 selectedLabelColor = Color.White
@@ -230,7 +285,7 @@ fun TextEditBottomSheet(
                         FilterChip(
                             selected = selectedFontType == FontClassification.SERIF,
                             onClick = { selectedFontType = FontClassification.SERIF },
-                            label = { Text("Serif (Legal)", fontSize = 11.sp) },
+                            label = { Text("Times", fontSize = 11.sp) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = Color(0xFF2563EB),
                                 selectedLabelColor = Color.White
@@ -240,7 +295,7 @@ fun TextEditBottomSheet(
                         FilterChip(
                             selected = selectedFontType == FontClassification.MONOSPACE,
                             onClick = { selectedFontType = FontClassification.MONOSPACE },
-                            label = { Text("Mono", fontSize = 11.sp) },
+                            label = { Text("Courier", fontSize = 11.sp) },
                             colors = FilterChipDefaults.filterChipColors(
                                 selectedContainerColor = Color(0xFF2563EB),
                                 selectedLabelColor = Color.White
@@ -300,48 +355,84 @@ fun TextEditBottomSheet(
                             // Natural Laser Charcoal
                             ColorChipLight(
                                 color = Color(0xFF222428),
-                                label = "Dark",
-                                isSelected = selectedColorRgb == 0xFF222428.toInt(),
-                                onClick = { selectedColorRgb = 0xFF222428.toInt() }
+                                label = "Charcoal",
+                                isSelected = selectedColorRgb == android.graphics.Color.rgb(34, 36, 40),
+                                onClick = { selectedColorRgb = android.graphics.Color.rgb(34, 36, 40) }
                             )
 
-                            // Document Navy Blue
+                            // Navy Blue (Pen/Stamp)
                             ColorChipLight(
-                                color = Color(0xFF0D47A1),
+                                color = Color(0xFF0F2B5C),
+                                label = "Navy",
+                                isSelected = selectedColorRgb == android.graphics.Color.rgb(15, 43, 92),
+                                onClick = { selectedColorRgb = android.graphics.Color.rgb(15, 43, 92) }
+                            )
+
+                            // Legal Blue
+                            ColorChipLight(
+                                color = Color(0xFF1E3A8A),
                                 label = "Blue",
-                                isSelected = selectedColorRgb == 0xFF0D47A1.toInt(),
-                                onClick = { selectedColorRgb = 0xFF0D47A1.toInt() }
+                                isSelected = selectedColorRgb == android.graphics.Color.rgb(30, 58, 138),
+                                onClick = { selectedColorRgb = android.graphics.Color.rgb(30, 58, 138) }
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Row 3: Font Size Stepper & Slider
+                    // Row 3: Fine-Tune Font Size Stepper
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Size Scale: ${(sizeMultiplier * 100).toInt()}%",
-                            color = Color(0xFF0F172A),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(
-                                onClick = { sizeMultiplier = (sizeMultiplier - 0.05f).coerceAtLeast(0.60f) },
-                                modifier = Modifier.size(32.dp)
+                            Icon(Icons.Default.FormatSize, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Size: ${(sizeMultiplier * 100).toInt()}%",
+                                color = Color(0xFF0F172A),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFE2E8F0),
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clickable { sizeMultiplier = (sizeMultiplier - 0.05f).coerceAtLeast(0.60f) }
                             ) {
-                                Icon(Icons.Default.Remove, contentDescription = "Decrease", tint = Color(0xFF0F172A))
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Remove, contentDescription = "Decrease", tint = Color(0xFF1E293B), modifier = Modifier.size(16.dp))
+                                }
                             }
-                            IconButton(
-                                onClick = { sizeMultiplier = (sizeMultiplier + 0.05f).coerceAtMost(1.80f) },
-                                modifier = Modifier.size(32.dp)
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFE2E8F0),
+                                modifier = Modifier
+                                    .clickable { sizeMultiplier = 1.0f }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
                             ) {
-                                Icon(Icons.Default.Add, contentDescription = "Increase", tint = Color(0xFF0F172A))
+                                Text("Reset", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF475569))
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFE2E8F0),
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clickable { sizeMultiplier = (sizeMultiplier + 0.05f).coerceAtMost(1.80f) }
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Add, contentDescription = "Increase", tint = Color(0xFF1E293B), modifier = Modifier.size(16.dp))
+                                }
                             }
                         }
                     }
@@ -366,10 +457,10 @@ fun TextEditBottomSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Instant Local Apply
+                // Instant Local Apply (Default CamScanner Auto Mode)
                 Button(
                     onClick = {
-                        onApplyEdit(editedText, isBold, sizeMultiplier, selectedColorRgb, false)
+                        onApplyEdit(editedText, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, false)
                     },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
@@ -377,13 +468,13 @@ fun TextEditBottomSheet(
                 ) {
                     Icon(Icons.Default.AutoFixHigh, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Instant Apply", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("Auto Apply", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
 
                 // Gemini Pro Cloud AI Apply
                 Button(
                     onClick = {
-                        onApplyEdit(editedText, isBold, sizeMultiplier, selectedColorRgb, true)
+                        onApplyEdit(editedText, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, true)
                     },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
