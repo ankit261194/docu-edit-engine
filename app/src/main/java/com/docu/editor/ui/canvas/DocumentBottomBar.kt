@@ -26,7 +26,7 @@ import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
@@ -283,7 +283,7 @@ fun DocumentBottomBar(
                 )
 
                 ToolDockButton(
-                    icon = Icons.Default.MenuBook,
+                    icon = Icons.AutoMirrored.Filled.MenuBook,
                     label = "Book Dewarp",
                     isSelected = false,
                     onClick = onBookDewarpClicked

@@ -665,30 +665,20 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     PerspectiveTransformer.warpPerspective(current, corners)
                 }
 
-                if (warped != null) {
-                    val items = withContext(Dispatchers.Default) {
-                        ocrAnalyzer.detectTextBlocks(warped, TextHierarchyLevel.ELEMENT)
-                    }
-                    _uiState.update {
-                        it.copy(
-                            currentBitmap = warped,
-                            detectedItems = items,
-                            isApplyingEdit = false,
-                            processingMessage = null,
-                            successMessage = "Document cropped & flattened perfectly",
-                            canUndo = true,
-                            canRedo = false,
-                            canvasRevision = it.canvasRevision + 1
-                        )
-                    }
-                } else {
-                    _uiState.update {
-                        it.copy(
-                            isApplyingEdit = false,
-                            processingMessage = null,
-                            errorMessage = "Could not find 4 clear paper corners. Keep camera closer."
-                        )
-                    }
+                val items = withContext(Dispatchers.Default) {
+                    ocrAnalyzer.detectTextBlocks(warped, TextHierarchyLevel.ELEMENT)
+                }
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = warped,
+                        detectedItems = items,
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        successMessage = "Document cropped & flattened perfectly",
+                        canUndo = true,
+                        canRedo = false,
+                        canvasRevision = it.canvasRevision + 1
+                    )
                 }
             } catch (e: Exception) {
                 _uiState.update {

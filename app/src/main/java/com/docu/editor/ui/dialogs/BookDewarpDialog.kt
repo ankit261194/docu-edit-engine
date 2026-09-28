@@ -17,7 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -80,7 +80,7 @@ fun BookDewarpDialog(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                Icons.Default.MenuBook,
+                                Icons.AutoMirrored.Filled.MenuBook,
                                 contentDescription = null,
                                 tint = Color(0xFF16A34A),
                                 modifier = Modifier.size(20.dp)
