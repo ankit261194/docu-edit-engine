@@ -82,7 +82,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
     private var isTorchOn = false
     private var isCapturing = false
 
-    enum class ScannerMode { SINGLE, BATCH, ID_CARD }
+    enum class ScannerMode { SINGLE, BATCH, ID_CARD, BOOK }
     private var scannerMode = ScannerMode.SINGLE
     private var isBatchMode = false
     private var idCardFrontBitmap: Bitmap? = null
@@ -487,11 +487,37 @@ class LiveCameraScannerActivity : ComponentActivity() {
         }
     }
 
+    private fun playShutterSound() {
+        try {
+            val sound = android.media.MediaActionSound()
+            sound.play(android.media.MediaActionSound.SHUTTER_CLICK)
+        } catch (_: Exception) {}
+    }
+
     private fun handleFrameResult(corners: DocumentCorners?, frameW: Int, frameH: Int) {
         if (isCapturing || cropLoupeOverlayView.visibility == View.VISIBLE) return
 
         if (scannerMode == ScannerMode.ID_CARD) {
             statusText.text = if (idCardFrontBitmap == null) "🪪 Align ID card FRONT in frame" else "🪪 Align ID card BACK in frame"
+            stableFrameCount++
+            val progress = (stableFrameCount.toFloat() / 20f).coerceIn(0f, 1f)
+            overlayView.updateCorners(null, true, frameW, frameH, progress)
+            if (autoSnapEnabled && stableFrameCount >= 20 && !isCapturing) {
+                playShutterSound()
+                captureHighResAndFinish(null)
+            }
+            return
+        }
+
+        if (scannerMode == ScannerMode.BOOK) {
+            statusText.text = "📖 Align book spine on dashed center line"
+            stableFrameCount++
+            val progress = (stableFrameCount.toFloat() / 22f).coerceIn(0f, 1f)
+            overlayView.updateCorners(null, true, frameW, frameH, progress)
+            if (autoSnapEnabled && stableFrameCount >= 22 && !isCapturing) {
+                playShutterSound()
+                captureHighResAndFinish(null)
+            }
             return
         }
 
@@ -499,40 +525,44 @@ class LiveCameraScannerActivity : ComponentActivity() {
             if (isCornersStable(corners, lastCorners)) {
                 stableFrameCount++
             } else {
-                stableFrameCount = 0
+                stableFrameCount = max(0, stableFrameCount - 2)
             }
             lastCorners = corners
 
-            val isSteady = stableFrameCount >= 10
-            overlayView.updateCorners(corners, isSteady, frameW, frameH)
+            val progress = (stableFrameCount.toFloat() / 9f).coerceIn(0f, 1f)
+            val isSteady = stableFrameCount >= 4
+            overlayView.updateCorners(corners, isSteady, frameW, frameH, progress)
 
             if (isSteady) {
-                statusText.text = "Steady! Hold still..."
-                if (autoSnapEnabled && stableFrameCount >= 14 && !isCapturing) {
+                statusText.text = "Hold still... Auto-snapping (${(progress * 100).toInt()}%)"
+                if (autoSnapEnabled && stableFrameCount >= 9 && !isCapturing) {
+                    playShutterSound()
                     captureHighResAndFinish(corners)
                 }
             } else {
-                statusText.text = "Document detected"
+                statusText.text = "Document detected • Steadying..."
             }
         } else {
-            stableFrameCount = 0
+            stableFrameCount = max(0, stableFrameCount - 3)
             lastCorners = null
-            overlayView.updateCorners(null, false, frameW, frameH)
+            overlayView.updateCorners(null, false, frameW, frameH, 0f)
             statusText.text = "Point camera at document..."
         }
     }
 
     private fun isCornersStable(c1: DocumentCorners, c2: DocumentCorners?): Boolean {
         if (c2 == null) return false
-        val threshold = 22f
-        return abs(c1.topLeft.x - c2.topLeft.x) < threshold &&
-                abs(c1.topLeft.y - c2.topLeft.y) < threshold &&
-                abs(c1.topRight.x - c2.topRight.x) < threshold &&
-                abs(c1.topRight.y - c2.topRight.y) < threshold &&
-                abs(c1.bottomRight.x - c2.bottomRight.x) < threshold &&
-                abs(c1.bottomRight.y - c2.bottomRight.y) < threshold &&
-                abs(c1.bottomLeft.x - c2.bottomLeft.x) < threshold &&
-                abs(c1.bottomLeft.y - c2.bottomLeft.y) < threshold
+        val center1X = (c1.topLeft.x + c1.topRight.x + c1.bottomRight.x + c1.bottomLeft.x) / 4f
+        val center1Y = (c1.topLeft.y + c1.topRight.y + c1.bottomRight.y + c1.bottomLeft.y) / 4f
+        val center2X = (c2.topLeft.x + c2.topRight.x + c2.bottomRight.x + c2.bottomLeft.x) / 4f
+        val center2Y = (c2.topLeft.y + c2.topRight.y + c2.bottomRight.y + c2.bottomLeft.y) / 4f
+
+        val centerDrift = kotlin.math.hypot((center1X - center2X).toDouble(), (center1Y - center2Y).toDouble()).toFloat()
+        val cornerDriftMax = max(
+            max(abs(c1.topLeft.x - c2.topLeft.x), abs(c1.topRight.x - c2.topRight.x)),
+            max(abs(c1.bottomRight.x - c2.bottomRight.x), abs(c1.bottomLeft.x - c2.bottomLeft.x))
+        )
+        return centerDrift < 28f && cornerDriftMax < 45f
     }
 
     private fun captureHighResAndFinish(detectedCorners: DocumentCorners?) {
@@ -653,6 +683,37 @@ class LiveCameraScannerActivity : ComponentActivity() {
                                 setResult(Activity.RESULT_OK, resultIntent)
                                 finish()
                             }
+                        }
+                        return@launch
+                    }
+
+                    if (scannerMode == ScannerMode.BOOK) {
+                        val halfW = fullBitmap.width / 2
+                        val leftBmp = Bitmap.createBitmap(fullBitmap, 0, 0, halfW, fullBitmap.height)
+                        val rightBmp = Bitmap.createBitmap(fullBitmap, halfW, 0, fullBitmap.width - halfW, fullBitmap.height)
+                        fullBitmap.recycle()
+
+                        val outLeft = File(cacheDir, "scanned_book_p1_${System.currentTimeMillis()}.jpg")
+                        FileOutputStream(outLeft).use { fos ->
+                            leftBmp.compress(Bitmap.CompressFormat.JPEG, 94, fos)
+                        }
+                        leftBmp.recycle()
+
+                        val outRight = File(cacheDir, "scanned_book_p2_${System.currentTimeMillis() + 1}.jpg")
+                        FileOutputStream(outRight).use { fos ->
+                            rightBmp.compress(Bitmap.CompressFormat.JPEG, 94, fos)
+                        }
+                        rightBmp.recycle()
+
+                        batchCapturedPaths.add(outLeft.absolutePath)
+                        batchCapturedPaths.add(outRight.absolutePath)
+
+                        withContext(Dispatchers.Main) {
+                            val resultIntent = Intent().apply {
+                                putStringArrayListExtra(EXTRA_BATCH_PATHS, batchCapturedPaths)
+                            }
+                            setResult(Activity.RESULT_OK, resultIntent)
+                            finish()
                         }
                         return@launch
                     }
@@ -790,7 +851,8 @@ class LiveCameraScannerActivity : ComponentActivity() {
         scannerMode = when (scannerMode) {
             ScannerMode.SINGLE -> ScannerMode.BATCH
             ScannerMode.BATCH -> ScannerMode.ID_CARD
-            ScannerMode.ID_CARD -> ScannerMode.SINGLE
+            ScannerMode.ID_CARD -> ScannerMode.BOOK
+            ScannerMode.BOOK -> ScannerMode.SINGLE
         }
         isBatchMode = (scannerMode == ScannerMode.BATCH)
 
@@ -802,6 +864,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 statusText.text = "Point camera at document..."
                 finishBatchChip.visibility = View.GONE
                 overlayView.isIdCardMode = false
+                overlayView.isBookMode = false
                 overlayView.invalidate()
                 idCardFrontBitmap?.recycle()
                 idCardFrontBitmap = null
@@ -815,6 +878,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
                     finishBatchChip.visibility = View.VISIBLE
                 }
                 overlayView.isIdCardMode = false
+                overlayView.isBookMode = false
                 overlayView.invalidate()
                 idCardFrontBitmap?.recycle()
                 idCardFrontBitmap = null
@@ -826,8 +890,21 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 statusText.text = "🪪 Align front of ID card in frame"
                 finishBatchChip.visibility = View.GONE
                 overlayView.isIdCardMode = true
+                overlayView.isBookMode = false
                 overlayView.idCardGuideText = "ALIGN ID CARD FRONT"
                 overlayView.invalidate()
+                idCardFrontBitmap = null
+            }
+            ScannerMode.BOOK -> {
+                batchModeChip.text = "📖 BOOK (2-PAGE)"
+                batchModeChip.setTextColor(Color.rgb(250, 204, 21))
+                (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(250, 204, 21))
+                statusText.text = "📖 Align book: Left & Right pages will auto-split"
+                finishBatchChip.visibility = View.GONE
+                overlayView.isIdCardMode = false
+                overlayView.isBookMode = true
+                overlayView.invalidate()
+                idCardFrontBitmap?.recycle()
                 idCardFrontBitmap = null
             }
         }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
@@ -158,6 +159,18 @@ fun ExportDialog(
                     iconTint = Color(0xFF10B981),
                     isSelected = selectedFormat == "PNG",
                     onClick = { selectedFormat = "PNG" }
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Format Option 4: Microsoft Word (.docx)
+                FormatOptionCard(
+                    title = "Microsoft Word (.docx)",
+                    description = "Fully editable text, headings & tables in MS Word & Google Docs",
+                    icon = Icons.Default.Article,
+                    iconTint = Color(0xFF1E40AF),
+                    isSelected = selectedFormat == "DOCX",
+                    onClick = { selectedFormat = "DOCX" }
                 )
 
                 // PDF Specific Option: Fit to A4

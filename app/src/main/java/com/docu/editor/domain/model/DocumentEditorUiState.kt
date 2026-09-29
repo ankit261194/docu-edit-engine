@@ -75,5 +75,9 @@ data class DocumentEditorUiState(
     val currentPdfPageIndex: Int = 0,
     val activePdfUri: android.net.Uri? = null,
     val batchScannedPaths: List<String> = emptyList(),
-    val currentBatchIndex: Int = 0
+    val currentBatchIndex: Int = 0,
+    val showCloudSyncDialog: Boolean = false,
+    val cloudSyncResult: com.docu.editor.ui.dialogs.CloudSyncResult? = null,
+    val isPerformingHandwritingOcr: Boolean = false
 )
+

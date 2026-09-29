@@ -24,6 +24,7 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Description
@@ -83,6 +84,7 @@ fun DocumentBottomBar(
     onPagesOverviewClicked: () -> Unit = {},
     onCompressClicked: () -> Unit,
     onExportClicked: () -> Unit,
+    onCloudSyncClicked: () -> Unit = {},
     selectedLassoCount: Int = 0,
     onMergeEditLasso: () -> Unit = {},
     onWhiteoutLasso: () -> Unit = {},
@@ -446,6 +448,12 @@ fun DocumentBottomBar(
                             label = "Save & Share",
                             isSelected = false,
                             onClick = onExportClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.CloudUpload,
+                            label = "Cloud Sync",
+                            isSelected = false,
+                            onClick = onCloudSyncClicked
                         )
                     }
                 }

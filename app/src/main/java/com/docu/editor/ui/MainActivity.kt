@@ -404,6 +404,9 @@ class MainActivity : ComponentActivity() {
                                 onExportClicked = {
                                     viewModel.showExportDialog(true)
                                 },
+                                onCloudSyncClicked = {
+                                    viewModel.syncDocumentToCloud()
+                                },
                                 selectedLassoCount = uiState.selectedItems.size,
                                 onMergeEditLasso = { viewModel.mergeAndEditLassoSelection() },
                                 onWhiteoutLasso = { viewModel.whiteoutLassoSelection() },
@@ -747,7 +750,59 @@ class MainActivity : ComponentActivity() {
                                         Toast.makeText(this@MainActivity, "Export CSV error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                                     }
                                 },
+                                onShareDocx = { docxText ->
+                                    val path = viewModel.exportDocxFile(docxText)
+                                    if (path != null) {
+                                        val file = File(path)
+                                        val shareUri = FileProvider.getUriForFile(
+                                            this@MainActivity,
+                                            "${applicationContext.packageName}.fileprovider",
+                                            file
+                                        )
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                            putExtra(Intent.EXTRA_STREAM, shareUri)
+                                            putExtra(Intent.EXTRA_SUBJECT, "Word Document (.docx)")
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        startActivity(Intent.createChooser(shareIntent, "Open in Word / Docs"))
+                                    } else {
+                                        Toast.makeText(this@MainActivity, "Failed to create .docx", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                onHandwritingAiRequest = { onComplete ->
+                                    viewModel.transcribeHandwritingWithAi(onComplete)
+                                },
                                 onDismiss = { viewModel.showOcrTextExtractDialog(false) }
+                            )
+                        }
+
+                        // CamScanner Multi-Device Cloud Web Sync Dialog
+                        if (uiState.showCloudSyncDialog && uiState.cloudSyncResult != null) {
+                            com.docu.editor.ui.dialogs.CloudSyncDialog(
+                                syncResult = uiState.cloudSyncResult!!,
+                                onCopyLink = { url ->
+                                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    val clip = android.content.ClipData.newPlainText("DocuEdit Web Viewer", url)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(this@MainActivity, "Web Viewer link copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                },
+                                onOpenWebViewer = { url ->
+                                    try {
+                                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                    } catch (_: Exception) {
+                                        Toast.makeText(this@MainActivity, "Could not open browser", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                onShareLink = { url ->
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, "View my scanned document online: $url")
+                                        putExtra(Intent.EXTRA_SUBJECT, "DocuEdit Cloud Web Document")
+                                    }
+                                    startActivity(Intent.createChooser(shareIntent, "Share Web Document Link"))
+                                },
+                                onDismiss = { viewModel.showCloudSyncDialog(false) }
                             )
                         }
 

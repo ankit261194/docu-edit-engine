@@ -47,13 +47,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Article
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.window.DialogProperties
 import com.docu.editor.core.ocr.model.DetectedTextItem
 
 /**
  * Enterprise CamScanner-Grade OCR Text Extraction & Recognition Dialog.
  * Aggregates all recognized text in reading order, provides instant 1-tap "Copy All",
- * text search, document export as plain text (.txt), and Table-to-Excel (.csv) structure export.
+ * text search, document export as plain text (.txt), Microsoft Word (.docx),
+ * and Gemini Vision Handwriting transcription AI.
  */
 @Composable
 fun OcrTextExtractDialog(
@@ -61,6 +65,8 @@ fun OcrTextExtractDialog(
     onCopyAll: (String) -> Unit,
     onShareTxt: (String) -> Unit,
     onShareCsv: (String) -> Unit = {},
+    onShareDocx: (String) -> Unit = {},
+    onHandwritingAiRequest: ((onComplete: (String?) -> Unit) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     // Reconstruct full text in natural reading order (line by line)
@@ -225,7 +231,67 @@ fun OcrTextExtractDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Bottom Action Buttons
+                // Row 1: Premium AI & Word Superpowers (CamScanner)
+                var isTranscribing by remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 1. Handwriting OCR AI
+                    Button(
+                        onClick = {
+                            if (onHandwritingAiRequest != null && !isTranscribing) {
+                                isTranscribing = true
+                                onHandwritingAiRequest { result ->
+                                    isTranscribing = false
+                                    if (!result.isNullOrBlank()) {
+                                        editableText = result
+                                    }
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                    ) {
+                        if (isTranscribing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = "AI Transcribing...", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        } else {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(text = "✍️ Handwriting AI", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+
+                    // 2. Export Word (.docx)
+                    Button(
+                        onClick = {
+                            onShareDocx(editableText)
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E40AF)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp)
+                    ) {
+                        Icon(Icons.Default.Article, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(text = "📄 Word (.docx)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Bottom Action Buttons (Copy, TXT, Excel CSV)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

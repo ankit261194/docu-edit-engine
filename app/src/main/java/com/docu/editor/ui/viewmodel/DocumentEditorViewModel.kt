@@ -47,6 +47,8 @@ import com.docu.editor.core.watermark.WatermarkEngine
 import com.docu.editor.core.dewarp.BookCurveDewarper
 import com.docu.editor.core.signature.SignatureExtractor
 import com.docu.editor.core.signature.StampExtractor
+import com.docu.editor.core.export.DocxExportEngine
+import com.docu.editor.ui.dialogs.CloudSyncResult
 import com.docu.editor.domain.model.DocumentEditorUiState
 import com.docu.editor.domain.model.DocumentFilterMode
 import com.docu.editor.domain.model.EditorToolMode
@@ -1362,6 +1364,30 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             }
                             outFile
                         }
+                        "DOCX" -> {
+                            val cleanName = if (rawName.endsWith(".docx", ignoreCase = true)) rawName else "$rawName.docx"
+                            val outFile = File(downloadsDir, cleanName)
+                            val state = _uiState.value
+                            val sb = StringBuilder()
+                            if (state.pdfPageCount > 1) {
+                                for (pIdx in 0 until state.pdfPageCount) {
+                                    sb.append("## Page ${pIdx + 1}\n\n")
+                                    val items = pageDetectedItemsMap[pIdx] ?: if (pIdx == state.currentPdfPageIndex) state.detectedItems else emptyList()
+                                    val pText = items.sortedWith(
+                                        compareBy<DetectedTextItem> { it.boundingBox.top / 20 }.thenBy { it.boundingBox.left }
+                                    ).joinToString(" ") { it.text }
+                                    sb.append(pText).append("\n\n")
+                                }
+                            } else {
+                                val pText = state.detectedItems.sortedWith(
+                                    compareBy<DetectedTextItem> { it.boundingBox.top / 20 }.thenBy { it.boundingBox.left }
+                                ).joinToString(" ") { it.text }
+                                sb.append(pText)
+                            }
+                            val docText = sb.toString().ifBlank { "Scanned Document Notes" }
+                            DocxExportEngine.generateDocx(rawName, docText, outFile)
+                            outFile
+                        }
                         else -> {
                             val cleanName = if (rawName.endsWith(".jpg", ignoreCase = true) || rawName.endsWith(".jpeg", ignoreCase = true)) rawName else "$rawName.jpg"
                             val outFile = File(downloadsDir, cleanName)
@@ -1840,6 +1866,206 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             txtFile.absolutePath
         } catch (e: Exception) {
             null
+        }
+    }
+
+    fun exportDocxFile(content: String, customFileName: String? = null): String? {
+        return try {
+            val time = System.currentTimeMillis()
+            val rawName = customFileName?.ifBlank { null } ?: "DocuEdit_Notes_$time"
+            val cleanName = if (rawName.endsWith(".docx", ignoreCase = true)) rawName else "$rawName.docx"
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val outFile = File(downloadsDir, cleanName)
+            val success = DocxExportEngine.generateDocx(rawName, content, outFile)
+            if (success) outFile.absolutePath else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun showCloudSyncDialog(show: Boolean) {
+        _uiState.update { it.copy(showCloudSyncDialog = show) }
+    }
+
+    fun syncDocumentToCloud(customTitle: String? = null) {
+        val current = _uiState.value.currentBitmap ?: return
+        saveCurrentPageToCache()
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = true,
+                    processingMessage = "Syncing document to shribalajikripadham.online..."
+                )
+            }
+            try {
+                val context = getApplication<Application>()
+                val state = _uiState.value
+                val time = System.currentTimeMillis()
+                val title = customTitle?.ifBlank { null } ?: "Document_$time"
+
+                val syncResult = withContext(Dispatchers.IO) {
+                    // 1. Export document to PDF in cache
+                    val tempPdf = File(context.cacheDir, "cloud_sync_temp_$time.pdf")
+                    if (state.pdfPageCount > 1) {
+                        val allPages = mutableListOf<Bitmap>()
+                        val allItems = mutableMapOf<Int, List<DetectedTextItem>>()
+                        for (i in 0 until state.pdfPageCount) {
+                            val pageBmp = editedPagesMap[i] ?: run {
+                                if (state.activePdfUri != null) {
+                                    PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, i)
+                                } else if (state.batchScannedPaths.size > i) {
+                                    BitmapFactory.decodeFile(state.batchScannedPaths[i])
+                                } else {
+                                    current
+                                }
+                            } ?: current
+                            allPages.add(pageBmp)
+                            allItems[i] = pageDetectedItemsMap[i] ?: emptyList()
+                        }
+                        PdfExportEngine.exportBitmapsToMultiPagePdf(allPages, tempPdf, true, allItems)
+                    } else {
+                        PdfExportEngine.exportBitmapToPdf(current, tempPdf, true, state.detectedItems)
+                    }
+
+                    val pdfBytes = tempPdf.readBytes()
+                    val base64Data = Base64.encodeToString(pdfBytes, Base64.NO_WRAP)
+                    tempPdf.delete()
+
+                    // 2. Call shribalajikripadham.online/api/docu_ai.php
+                    val payload = JSONObject().apply {
+                        put("action", "cloud_upload")
+                        put("file_base64", base64Data)
+                        put("file_type", "pdf")
+                        put("title", title)
+                        put("pages_count", state.pdfPageCount)
+                    }
+
+                    val url = URL("https://shribalajikripadham.online/api/docu_ai.php")
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.requestMethod = "POST"
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 25000
+                    conn.doOutput = true
+
+                    conn.outputStream.use { os ->
+                        os.write(payload.toString().toByteArray(Charsets.UTF_8))
+                    }
+
+                    if (conn.responseCode == 200) {
+                        val resp = conn.inputStream.bufferedReader().use { it.readText() }
+                        val json = JSONObject(resp)
+                        if (json.optBoolean("success")) {
+                            CloudSyncResult(
+                                docId = json.optString("doc_id"),
+                                title = json.optString("title", title),
+                                shareUrl = json.optString("share_url"),
+                                downloadUrl = json.optString("download_url"),
+                                qrUrl = json.optString("qr_url"),
+                                fileSizeFormatted = json.optString("file_size_formatted", "100 KB"),
+                                pagesCount = json.optInt("pages_count", state.pdfPageCount)
+                            )
+                        } else null
+                    } else null
+                }
+
+                if (syncResult != null) {
+                    _uiState.update {
+                        it.copy(
+                            isApplyingEdit = false,
+                            processingMessage = null,
+                            cloudSyncResult = syncResult,
+                            showCloudSyncDialog = true,
+                            successMessage = "☁️ Synced to web cloud! Link ready to share."
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isApplyingEdit = false,
+                            processingMessage = null,
+                            errorMessage = "Cloud sync failed. Check server connection."
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Cloud sync error: ${e.localizedMessage}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun transcribeHandwritingWithAi(onComplete: (String?) -> Unit) {
+        val current = _uiState.value.currentBitmap ?: run {
+            onComplete(null)
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isPerformingHandwritingOcr = true) }
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val baos = ByteArrayOutputStream()
+                    val scaled = scaleDownIfNeeded(current, 1600)
+                    scaled.compress(Bitmap.CompressFormat.JPEG, 88, baos)
+                    if (scaled != current) scaled.recycle()
+                    val base64Img = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
+
+                    val customApiKey = getGeminiApiKey()
+                    val payload = JSONObject().apply {
+                        put("action", "handwriting_ocr")
+                        put("image", base64Img)
+                        if (customApiKey.isNotBlank()) {
+                            put("gemini_api_key", customApiKey)
+                        }
+                    }
+
+                    val url = URL("https://shribalajikripadham.online/api/docu_ai.php")
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.requestMethod = "POST"
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    if (customApiKey.isNotBlank()) {
+                        conn.setRequestProperty("X-Gemini-Key", customApiKey)
+                    }
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 35000
+                    conn.doOutput = true
+
+                    conn.outputStream.use { os ->
+                        os.write(payload.toString().toByteArray(Charsets.UTF_8))
+                    }
+
+                    if (conn.responseCode == 200) {
+                        val resp = conn.inputStream.bufferedReader().use { it.readText() }
+                        val json = JSONObject(resp)
+                        if (json.optBoolean("success")) {
+                            json.optString("transcription")
+                        } else null
+                    } else null
+                } catch (_: Exception) {
+                    null
+                }
+            }
+
+            val finalTranscription = if (!result.isNullOrBlank()) {
+                result
+            } else {
+                val localItems = withContext(Dispatchers.Default) {
+                    ocrAnalyzer.detectTextBlocks(current, TextHierarchyLevel.ELEMENT)
+                }
+                localItems.sortedWith(
+                    compareBy<DetectedTextItem> { it.boundingBox.top / 20 }.thenBy { it.boundingBox.left }
+                ).joinToString(" ") { it.text }
+            }
+
+            _uiState.update { it.copy(isPerformingHandwritingOcr = false) }
+            onComplete(finalTranscription)
         }
     }
 
