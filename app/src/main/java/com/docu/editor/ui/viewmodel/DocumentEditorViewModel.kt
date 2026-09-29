@@ -42,6 +42,7 @@ import com.docu.editor.core.scanner.DocumentEdgeDetector
 import com.docu.editor.core.scanner.DocumentFilters
 import com.docu.editor.core.scanner.IdCardStitcher
 import com.docu.editor.core.scanner.PerspectiveTransformer
+import com.docu.editor.core.scanner.model.DocumentCorners
 import com.docu.editor.core.watermark.WatermarkEngine
 import com.docu.editor.core.dewarp.BookCurveDewarper
 import com.docu.editor.core.signature.SignatureExtractor
@@ -1040,6 +1041,53 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun applyInteractiveCrop(corners: DocumentCorners) {
+        val current = _uiState.value.currentBitmap ?: return
+
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isScanning = true,
+                    processingMessage = "Flattening perspective with 8-point loupe...",
+                    showInteractiveCropDialog = false
+                )
+            }
+
+            try {
+                val warped = withContext(Dispatchers.Default) {
+                    PerspectiveTransformer.warpPerspective(current, corners)
+                }
+
+                val items = withContext(Dispatchers.Default) {
+                    ocrAnalyzer.detectTextBlocks(warped, TextHierarchyLevel.ELEMENT)
+                }
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = warped,
+                        detectedItems = items,
+                        isScanning = false,
+                        processingMessage = null,
+                        successMessage = "Document cropped & flattened perfectly",
+                        canUndo = true,
+                        canRedo = false,
+                        hasUnsavedChanges = true,
+                        canvasRevision = it.canvasRevision + 1
+                    )
+                }
+                val pageIdx = _uiState.value.currentPdfPageIndex
+                editedPagesMap[pageIdx] = warped
+                pageDetectedItemsMap[pageIdx] = items
+                updateRecentDocumentThumbnail(warped)
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(isScanning = false, processingMessage = null, errorMessage = "Crop error: ${e.localizedMessage}")
+                }
+            }
+        }
+    }
+
     // --- ID Card Duplex Mode ---
 
     fun setIdCardFront(bitmap: Bitmap) {
@@ -1688,6 +1736,29 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     fun showPdfToolboxDialog(show: Boolean) {
         _uiState.update { it.copy(showPdfToolboxDialog = show) }
+    }
+
+    fun showOcrTextExtractDialog(show: Boolean) {
+        _uiState.update { it.copy(showOcrTextExtractDialog = show) }
+    }
+
+    fun showInteractiveCropDialog(show: Boolean) {
+        _uiState.update { it.copy(showInteractiveCropDialog = show) }
+    }
+
+    fun showCloudAiSettingsDialog(show: Boolean) {
+        _uiState.update { it.copy(showCloudAiSettingsDialog = show) }
+    }
+
+    fun exportTextToFile(text: String): String? {
+        return try {
+            val context = getApplication<Application>()
+            val txtFile = File(context.cacheDir, "extracted_text_${System.currentTimeMillis()}.txt")
+            txtFile.writeText(text, Charsets.UTF_8)
+            txtFile.absolutePath
+        } catch (e: Exception) {
+            null
+        }
     }
 
     fun showFiltersSheet(show: Boolean) {

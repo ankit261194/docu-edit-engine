@@ -78,11 +78,16 @@ import com.docu.editor.ui.canvas.DocumentInteractiveCanvas
 import com.docu.editor.ui.canvas.TextEditBottomSheet
 import com.docu.editor.ui.dialogs.ExportDialog
 import com.docu.editor.ui.dialogs.IdCardDialog
+import com.docu.editor.ui.dialogs.InteractiveCropDialog
+import com.docu.editor.ui.dialogs.OcrTextExtractDialog
+import com.docu.editor.ui.dialogs.CloudAiSettingsDialog
 import com.docu.editor.ui.dialogs.PdfToolboxDialog
 import com.docu.editor.ui.dialogs.SignatureDialog
 import com.docu.editor.ui.dialogs.WatermarkDialog
 import com.docu.editor.ui.dialogs.BookDewarpDialog
 import com.docu.editor.ui.home.HomeScreenDashboard
+import android.widget.Toast
+import android.content.Context
 import com.docu.editor.ui.theme.DocuEditTheme
 import com.docu.editor.ui.update.UpdateDialog
 import com.docu.editor.ui.viewmodel.DocumentEditorViewModel
@@ -381,8 +386,17 @@ class MainActivity : ComponentActivity() {
                                 onRotateClicked = {
                                     viewModel.rotateDocumentClockwise()
                                 },
-                                onAutoCropClicked = {
-                                    viewModel.applyAutoPerspectiveCrop()
+                                onInteractiveCropClicked = {
+                                    viewModel.showInteractiveCropDialog(true)
+                                },
+                                onExtractTextClicked = {
+                                    viewModel.showOcrTextExtractDialog(true)
+                                },
+                                onSignatureClicked = {
+                                    viewModel.showSignatureDialog(true)
+                                },
+                                onPagesOverviewClicked = {
+                                    viewModel.showPagesOverview(true)
                                 },
                                 onCompressClicked = {
                                     viewModel.showPdfToolboxDialog(true)
@@ -472,6 +486,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onTryDemoClicked = {
                                     viewModel.loadSampleDocument()
+                                },
+                                onCloudAiSettingsClicked = {
+                                    viewModel.showCloudAiSettingsDialog(true)
                                 }
                             )
                         }
@@ -661,6 +678,66 @@ class MainActivity : ComponentActivity() {
                                     viewModel.applyBookDewarp(spine, intensity)
                                 },
                                 onDismiss = { viewModel.showBookDewarpDialog(false) }
+                            )
+                        }
+
+                        // Interactive 4-Corner Perspective Crop with Loupe Magnifier (CamScanner)
+                        val currentBmp = uiState.currentBitmap
+                        if (uiState.showInteractiveCropDialog && currentBmp != null) {
+                            InteractiveCropDialog(
+                                sourceBitmap = currentBmp,
+                                onApplyCrop = { corners ->
+                                    viewModel.applyInteractiveCrop(corners)
+                                },
+                                onRotateClockwise = {
+                                    viewModel.rotateDocumentClockwise()
+                                },
+                                onDismiss = { viewModel.showInteractiveCropDialog(false) }
+                            )
+                        }
+
+                        // CamScanner OCR Text Extraction Dialog
+                        if (uiState.showOcrTextExtractDialog) {
+                            OcrTextExtractDialog(
+                                detectedItems = uiState.detectedItems,
+                                onCopyAll = { text ->
+                                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    val clip = android.content.ClipData.newPlainText("DocuEdit OCR", text)
+                                    clipboard.setPrimaryClip(clip)
+                                    Toast.makeText(this@MainActivity, "Copied all text to clipboard!", Toast.LENGTH_SHORT).show()
+                                },
+                                onShareTxt = { text ->
+                                    val path = viewModel.exportTextToFile(text)
+                                    if (path != null) {
+                                        val file = File(path)
+                                        val shareUri = FileProvider.getUriForFile(
+                                            this@MainActivity,
+                                            "${applicationContext.packageName}.fileprovider",
+                                            file
+                                        )
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_STREAM, shareUri)
+                                            putExtra(Intent.EXTRA_TEXT, text)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        startActivity(Intent.createChooser(shareIntent, "Share Extracted Text"))
+                                    }
+                                },
+                                onDismiss = { viewModel.showOcrTextExtractDialog(false) }
+                            )
+                        }
+
+                        // Cloud AI & Hosting Settings Dialog
+                        if (uiState.showCloudAiSettingsDialog) {
+                            CloudAiSettingsDialog(
+                                currentApiKey = viewModel.getGeminiApiKey(),
+                                onSaveApiKey = { key ->
+                                    viewModel.setGeminiApiKey(key)
+                                    viewModel.showCloudAiSettingsDialog(false)
+                                    Toast.makeText(this@MainActivity, "Cloud AI settings updated!", Toast.LENGTH_SHORT).show()
+                                },
+                                onDismiss = { viewModel.showCloudAiSettingsDialog(false) }
                             )
                         }
 

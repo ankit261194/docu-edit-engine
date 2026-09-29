@@ -1,6 +1,7 @@
 package com.docu.editor.ui.canvas
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -18,15 +19,17 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Crop
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.RotateRight
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
@@ -35,6 +38,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -55,6 +59,12 @@ import androidx.compose.ui.unit.sp
 import com.docu.editor.domain.model.DocumentFilterMode
 import com.docu.editor.domain.model.EditorToolMode
 
+/**
+ * Enterprise CamScanner-Grade Document Bottom Bar Dock.
+ * Puts all CamScanner core capabilities within 1 tap:
+ * Edit Text, Extract Text (OCR), Magic Filters, Sign & Stamp, 4-Corner Crop,
+ * Whiteout Eraser, Watermark, Pages Manager, Rotate, PDF Tools, and Save/Share.
+ */
 @Composable
 fun DocumentBottomBar(
     activeMode: EditorToolMode,
@@ -64,7 +74,10 @@ fun DocumentBottomBar(
     onFilterSelected: (DocumentFilterMode) -> Unit,
     onBrightnessContrastChanged: (brightness: Float, contrast: Float) -> Unit = { _, _ -> },
     onRotateClicked: () -> Unit,
-    onAutoCropClicked: () -> Unit,
+    onInteractiveCropClicked: () -> Unit,
+    onExtractTextClicked: () -> Unit,
+    onSignatureClicked: () -> Unit,
+    onPagesOverviewClicked: () -> Unit = {},
     onCompressClicked: () -> Unit,
     onExportClicked: () -> Unit,
     selectedLassoCount: Int = 0,
@@ -80,10 +93,10 @@ fun DocumentBottomBar(
     var contrast by remember { mutableFloatStateOf(1f) }
 
     Surface(
-        color = androidx.compose.material3.MaterialTheme.colorScheme.surface,
+        color = MaterialTheme.colorScheme.surface,
         shadowElevation = 16.dp,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -91,7 +104,7 @@ fun DocumentBottomBar(
                 .fillMaxWidth()
                 .padding(vertical = 10.dp)
         ) {
-            // Optional Filter selection row + Fine-tune Sliders
+            // CamScanner Filters Row + Fine-tune Sliders
             AnimatedVisibility(visible = showFiltersRow) {
                 Column(
                     modifier = Modifier
@@ -106,6 +119,7 @@ fun DocumentBottomBar(
                     ) {
                         DocumentFilterMode.values().forEach { filter ->
                             val isSelected = filter == activeFilter
+                            val isMagicColor = filter == DocumentFilterMode.MAGIC_COLOR
                             FilterChip(
                                 selected = isSelected,
                                 onClick = {
@@ -115,10 +129,10 @@ fun DocumentBottomBar(
                                 },
                                 label = {
                                     Text(
-                                        filter.displayName,
+                                        text = if (isMagicColor) "✨ Magic Color" else filter.displayName,
                                         color = if (isSelected) Color.White else Color(0xFF1E293B),
                                         fontSize = 12.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
+                                        fontWeight = if (isSelected || isMagicColor) FontWeight.Bold else FontWeight.SemiBold
                                     )
                                 },
                                 leadingIcon = if (isSelected) {
@@ -132,8 +146,8 @@ fun DocumentBottomBar(
                                     }
                                 } else null,
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Color(0xFF2563EB),
-                                    containerColor = Color(0xFFF1F5F9)
+                                    selectedContainerColor = if (isMagicColor) Color(0xFFD97706) else Color(0xFF2563EB),
+                                    containerColor = if (isMagicColor) Color(0xFFFEF3C7) else Color(0xFFF1F5F9)
                                 ),
                                 shape = RoundedCornerShape(10.dp)
                             )
@@ -185,9 +199,9 @@ fun DocumentBottomBar(
             // Whiteout Brush Size Slider
             AnimatedVisibility(visible = activeMode == EditorToolMode.WHITEOUT) {
                 Surface(
-                    color = androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                     shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
@@ -202,7 +216,7 @@ fun DocumentBottomBar(
                             text = "Brush: ${whiteoutBrushRadius.toInt()}px",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Slider(
                             value = whiteoutBrushRadius,
@@ -278,7 +292,7 @@ fun DocumentBottomBar(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Primary Bottom Action Dock (Scrollable on smaller screens)
+            // Primary Bottom Action Dock (Scrollable CamScanner Suite)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -287,6 +301,7 @@ fun DocumentBottomBar(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // 1. Edit Text
                 ToolDockButton(
                     icon = Icons.Default.Edit,
                     label = "Edit Text",
@@ -294,6 +309,41 @@ fun DocumentBottomBar(
                     onClick = { onModeSelected(EditorToolMode.TEXT_EDIT) }
                 )
 
+                // 2. Extract Text (CamScanner OCR)
+                ToolDockButton(
+                    icon = Icons.Default.Description,
+                    label = "Extract Text",
+                    isSelected = false,
+                    onClick = onExtractTextClicked
+                )
+
+                // 3. CamScanner Magic Color Filters
+                ToolDockButton(
+                    icon = Icons.Default.AutoFixHigh,
+                    label = "Magic Filters",
+                    isSelected = showFiltersRow,
+                    onClick = {
+                        onModeSelected(EditorToolMode.FILTERS)
+                    }
+                )
+
+                // 4. Sign & Stamp (CamScanner Signature)
+                ToolDockButton(
+                    icon = Icons.Default.Draw,
+                    label = "Sign & Stamp",
+                    isSelected = false,
+                    onClick = onSignatureClicked
+                )
+
+                // 5. Crop & Deskew (8-Point Loupe Crop)
+                ToolDockButton(
+                    icon = Icons.Default.Crop,
+                    label = "Crop / Deskew",
+                    isSelected = false,
+                    onClick = onInteractiveCropClicked
+                )
+
+                // 6. Lasso Select
                 ToolDockButton(
                     icon = Icons.Default.SelectAll,
                     label = "Lasso Select",
@@ -301,6 +351,7 @@ fun DocumentBottomBar(
                     onClick = { onModeSelected(EditorToolMode.LASSO_SELECT) }
                 )
 
+                // 7. Add Text Box
                 ToolDockButton(
                     icon = Icons.Default.Check,
                     label = "Add Text",
@@ -308,6 +359,7 @@ fun DocumentBottomBar(
                     onClick = { onModeSelected(EditorToolMode.ADD_TEXT) }
                 )
 
+                // 8. Whiteout / Eraser
                 ToolDockButton(
                     icon = Icons.Default.Clear,
                     label = "Whiteout",
@@ -315,6 +367,7 @@ fun DocumentBottomBar(
                     onClick = { onModeSelected(EditorToolMode.WHITEOUT) }
                 )
 
+                // 9. Watermark
                 ToolDockButton(
                     icon = Icons.Default.Security,
                     label = "Watermark",
@@ -322,6 +375,23 @@ fun DocumentBottomBar(
                     onClick = onWatermarkClicked
                 )
 
+                // 10. Rotate 90°
+                ToolDockButton(
+                    icon = Icons.AutoMirrored.Filled.RotateRight,
+                    label = "Rotate 90°",
+                    isSelected = false,
+                    onClick = onRotateClicked
+                )
+
+                // 11. Multi-Page Overview
+                ToolDockButton(
+                    icon = Icons.Default.Layers,
+                    label = "Pages",
+                    isSelected = false,
+                    onClick = onPagesOverviewClicked
+                )
+
+                // 12. Book Curve Dewarp
                 ToolDockButton(
                     icon = Icons.AutoMirrored.Filled.MenuBook,
                     label = "Book Dewarp",
@@ -329,29 +399,7 @@ fun DocumentBottomBar(
                     onClick = onBookDewarpClicked
                 )
 
-                ToolDockButton(
-                    icon = Icons.Default.Crop,
-                    label = "Rotate 90°",
-                    isSelected = false,
-                    onClick = onRotateClicked
-                )
-
-                ToolDockButton(
-                    icon = Icons.Default.AutoFixHigh,
-                    label = "Filters",
-                    isSelected = showFiltersRow,
-                    onClick = {
-                        onModeSelected(EditorToolMode.FILTERS)
-                    }
-                )
-
-                ToolDockButton(
-                    icon = Icons.Default.Crop,
-                    label = "Auto Crop",
-                    isSelected = activeMode == EditorToolMode.CROP_DESKEW,
-                    onClick = onAutoCropClicked
-                )
-
+                // 13. PDF Toolbox & Compression
                 ToolDockButton(
                     icon = Icons.Default.Compress,
                     label = "Compress",
@@ -359,6 +407,7 @@ fun DocumentBottomBar(
                     onClick = onCompressClicked
                 )
 
+                // 14. Save / Share
                 ToolDockButton(
                     icon = Icons.Default.Share,
                     label = "Save / Share",
