@@ -81,4 +81,36 @@ class PdfToolbox(private val context: Context) {
             tempFile.delete()
         }
     }
+
+    /**
+     * Decrypts a password-protected PDF document and writes out an unlocked PDF file.
+     */
+    suspend fun decryptPdf(
+        sourceUri: Uri,
+        password: String,
+        outputFile: File
+    ): Boolean = withContext(Dispatchers.IO) {
+        val tempFile = File.createTempFile("to_decrypt_", ".pdf", context.cacheDir)
+        try {
+            context.contentResolver.openInputStream(sourceUri)?.use { input ->
+                FileOutputStream(tempFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            val document = PDDocument.load(tempFile, password)
+            try {
+                if (document.isEncrypted) {
+                    document.isAllSecurityToBeRemoved = true
+                }
+                document.save(outputFile)
+                true
+            } finally {
+                document.close()
+            }
+        } catch (_: Exception) {
+            false
+        } finally {
+            tempFile.delete()
+        }
+    }
 }

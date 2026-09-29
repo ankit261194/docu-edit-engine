@@ -707,9 +707,15 @@ class LiveCameraScannerActivity : ComponentActivity() {
 
     private fun toggleTorch() {
         val cam = camera ?: return
-        isTorchOn = !isTorchOn
-        cam.cameraControl.enableTorch(isTorchOn)
-        torchBtn.setColorFilter(if (isTorchOn) Color.YELLOW else Color.WHITE)
+        try {
+            if (cam.cameraInfo.hasFlashUnit()) {
+                isTorchOn = !isTorchOn
+                cam.cameraControl.enableTorch(isTorchOn)
+                torchBtn.setColorFilter(if (isTorchOn) Color.YELLOW else Color.WHITE)
+            } else {
+                android.widget.Toast.makeText(this, "Torch not available on this camera", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        } catch (_: Exception) {}
     }
 
     private fun toggleAutoSnap() {

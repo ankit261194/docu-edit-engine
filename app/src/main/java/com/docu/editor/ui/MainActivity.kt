@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import com.docu.editor.ui.scanner.LiveCameraScannerActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -15,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -30,6 +32,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,6 +48,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.text.TextStyle
+import com.docu.editor.core.print.PrintDocumentHelper
+import com.docu.editor.ui.dialogs.ExitConfirmationDialog
+import com.docu.editor.ui.dialogs.PagesOverviewDialog
+import com.docu.editor.ui.dialogs.PdfPasswordPromptDialog
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -222,24 +232,66 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                BackHandler(enabled = uiState.currentBitmap != null) {
+                    viewModel.closeActiveDocument()
+                }
+
                 Scaffold(
                     snackbarHost = { SnackbarHost(snackbarHostState) },
                     topBar = {
                         if (uiState.currentBitmap != null) {
                             TopAppBar(
                                 title = {
-                                    Column {
-                                        Text(
-                                            "DocuEdit Studio",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 17.sp,
-                                            color = Color(0xFF0F172A)
+                                    if (uiState.isSearchActive) {
+                                        BasicTextField(
+                                            value = uiState.searchQuery,
+                                            onValueChange = { viewModel.setSearchQuery(it) },
+                                            singleLine = true,
+                                            textStyle = TextStyle(
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Medium
+                                            ),
+                                            decorationBox = { innerTextField ->
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .background(
+                                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                                            RoundedCornerShape(8.dp)
+                                                        )
+                                                        .padding(horizontal = 10.dp, vertical = 7.dp)
+                                                ) {
+                                                    if (uiState.searchQuery.isEmpty()) {
+                                                        Text(
+                                                            "Search words in page...",
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                            fontSize = 14.sp
+                                                        )
+                                                    }
+                                                    innerTextField()
+                                                }
+                                            }
                                         )
-                                        Text(
-                                            "${uiState.detectedItems.size} editable text blocks detected",
-                                            fontSize = 11.sp,
-                                            color = Color(0xFF64748B)
-                                        )
+                                    } else {
+                                        Column {
+                                            Text(
+                                                "DocuEdit Studio",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 17.sp,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            val subtext = if (uiState.pdfPageCount > 1) {
+                                                "Page ${uiState.currentPdfPageIndex + 1}/${uiState.pdfPageCount} • ${uiState.detectedItems.size} blocks"
+                                            } else {
+                                                "${uiState.detectedItems.size} editable text blocks detected"
+                                            }
+                                            Text(
+                                                subtext,
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 },
                                 navigationIcon = {
@@ -247,14 +299,30 @@ class MainActivity : ComponentActivity() {
                                         Icon(
                                             Icons.AutoMirrored.Filled.ArrowBack,
                                             contentDescription = "Back to Home",
-                                            tint = Color(0xFF0F172A)
+                                            tint = MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                 },
                                 colors = TopAppBarDefaults.topAppBarColors(
-                                    containerColor = Color.White
+                                    containerColor = MaterialTheme.colorScheme.surface
                                 ),
                                 actions = {
+                                    if (uiState.pdfPageCount > 1) {
+                                        IconButton(onClick = { viewModel.showPagesOverview(true) }) {
+                                            Icon(
+                                                Icons.Default.Layers,
+                                                contentDescription = "Pages Overview",
+                                                tint = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                    IconButton(onClick = { viewModel.toggleSearch(!uiState.isSearchActive) }) {
+                                        Icon(
+                                            if (uiState.isSearchActive) Icons.Default.Close else Icons.Default.Search,
+                                            contentDescription = "Search Words",
+                                            tint = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
                                     IconButton(
                                         onClick = { viewModel.undo() },
                                         enabled = uiState.canUndo
@@ -262,7 +330,7 @@ class MainActivity : ComponentActivity() {
                                         Icon(
                                             Icons.AutoMirrored.Filled.Undo,
                                             contentDescription = "Undo",
-                                            tint = if (uiState.canUndo) Color(0xFF0F172A) else Color(0xFFCBD5E1)
+                                            tint = if (uiState.canUndo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant
                                         )
                                     }
                                     IconButton(
@@ -272,7 +340,7 @@ class MainActivity : ComponentActivity() {
                                         Icon(
                                             Icons.AutoMirrored.Filled.Redo,
                                             contentDescription = "Redo",
-                                            tint = if (uiState.canRedo) Color(0xFF0F172A) else Color(0xFFCBD5E1)
+                                            tint = if (uiState.canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant
                                         )
                                     }
                                     IconButton(
@@ -325,7 +393,9 @@ class MainActivity : ComponentActivity() {
                                 onWhiteoutLasso = { viewModel.whiteoutLassoSelection() },
                                 onClearLasso = { viewModel.clearLassoSelection() },
                                 onWatermarkClicked = { viewModel.showWatermarkDialog(true) },
-                                onBookDewarpClicked = { viewModel.showBookDewarpDialog(true) }
+                                onBookDewarpClicked = { viewModel.showBookDewarpDialog(true) },
+                                whiteoutBrushRadius = uiState.whiteoutBrushRadius,
+                                onWhiteoutBrushRadiusChanged = { r -> viewModel.setWhiteoutBrushRadius(r) }
                             )
                         }
                     }
@@ -354,20 +424,26 @@ class MainActivity : ComponentActivity() {
                                 overlayPositionX = uiState.overlayPositionX,
                                 overlayPositionY = uiState.overlayPositionY,
                                 overlayScale = uiState.overlayScale,
+                                overlayRotation = uiState.overlayRotation,
                                 onOverlayDragged = { dx, dy -> viewModel.updateOverlayPosition(dx, dy) },
                                 onOverlayScaleChanged = { sm -> viewModel.updateOverlayScale(sm) },
+                                onOverlayRotateChanged = { delta -> viewModel.rotateOverlayBy(delta) },
                                 onCommitOverlay = { viewModel.commitOverlayToDocument() },
                                 onCancelOverlay = { viewModel.cancelOverlay() },
+                                searchMatchingIndices = uiState.searchMatchingIndices,
                                 pdfPageCount = uiState.pdfPageCount,
                                 currentPageIndex = uiState.currentPdfPageIndex,
                                 onPreviousPage = { viewModel.previousPdfPage() },
-                                onNextPage = { viewModel.nextPdfPage() }
+                                onNextPage = { viewModel.nextPdfPage() },
+                                onOpenPagesOverview = { viewModel.showPagesOverview(true) }
                             )
                         } else {
                             // Premium CamScanner Home Dashboard
                             HomeScreenDashboard(
                                 recentDocuments = recentDocs,
                                 onOpenSavedDocument = { path -> viewModel.loadScannedDocument(path) },
+                                onDeleteRecentDocument = { id -> viewModel.deleteRecentDocument(id) },
+                                onClearAllRecentDocuments = { viewModel.clearRecentDocuments() },
                                 onCameraScanClicked = {
                                     if (ContextCompat.checkSelfPermission(
                                             this@MainActivity,
@@ -453,6 +529,48 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        // Exit Confirmation Dialog
+                        if (uiState.showExitConfirmationDialog) {
+                            ExitConfirmationDialog(
+                                onKeepEditing = { viewModel.showExitConfirmationDialog(false) },
+                                onDiscard = {
+                                    viewModel.showExitConfirmationDialog(false)
+                                    viewModel.closeActiveDocumentImmediately()
+                                },
+                                onSaveAndExport = {
+                                    viewModel.showExitConfirmationDialog(false)
+                                    viewModel.showExportDialog(true)
+                                }
+                            )
+                        }
+
+                        // PDF Password Prompt Dialog
+                        if (uiState.showPasswordPromptDialog) {
+                            PdfPasswordPromptDialog(
+                                onUnlock = { pass ->
+                                    viewModel.unlockAndLoadPdf(pass)
+                                },
+                                onDismiss = { viewModel.dismissPasswordPrompt() }
+                            )
+                        }
+
+                        // Pages Overview Dialog
+                        if (uiState.showPagesOverviewDialog) {
+                            PagesOverviewDialog(
+                                pageCount = uiState.pdfPageCount,
+                                currentPageIndex = uiState.currentPdfPageIndex,
+                                pageThumbnails = viewModel.editedPagesMap,
+                                onSelectPage = { index ->
+                                    viewModel.showPagesOverview(false)
+                                    viewModel.jumpToPage(index)
+                                },
+                                onDeletePage = { index ->
+                                    viewModel.deletePage(index)
+                                },
+                                onDismiss = { viewModel.showPagesOverview(false) }
+                            )
+                        }
+
                         // ID Card Dialog
                         if (uiState.showIdCardDialog) {
                             IdCardDialog(
@@ -491,11 +609,17 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // Export Format Dialog (Real PDF / JPG / PNG)
+                        // Export Format Dialog (Real PDF / JPG / PNG / Print)
                         if (uiState.showExportDialog) {
                             ExportDialog(
-                                onExportConfirmed = { format, fitToA4 ->
-                                    viewModel.exportCurrentDocument(format, fitToA4)
+                                onExportConfirmed = { format, fitToA4, customFileName ->
+                                    viewModel.exportCurrentDocument(format, fitToA4, customFileName)
+                                },
+                                onPrintClicked = {
+                                    val bmp = uiState.currentBitmap
+                                    if (bmp != null) {
+                                        PrintDocumentHelper.printBitmap(this@MainActivity, bmp)
+                                    }
                                 },
                                 onDismiss = { viewModel.showExportDialog(false) }
                             )
@@ -510,6 +634,7 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onPasswordProtectSelected = { pass ->
                                     viewModel.showPdfToolboxDialog(false)
+                                    viewModel.passwordProtectAndExport(pass)
                                 },
                                 onDismiss = { viewModel.showPdfToolboxDialog(false) }
                             )

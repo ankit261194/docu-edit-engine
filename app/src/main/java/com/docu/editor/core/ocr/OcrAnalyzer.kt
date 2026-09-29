@@ -11,6 +11,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -18,15 +19,25 @@ import java.util.UUID
 
 class OcrAnalyzer {
 
-    // DevanagariTextRecognizerOptions recognizes BOTH Latin (English) and Devanagari (Hindi) natively!
-    private val recognizer = TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
+    // Primary: Devanagari recognizer (recognizes BOTH English and Hindi/Devanagari)
+    private val devanagariRecognizer = TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
+    // Fallback: Default Latin recognizer
+    private val latinRecognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
     suspend fun detectTextBlocks(
         bitmap: Bitmap,
         hierarchyLevel: TextHierarchyLevel = TextHierarchyLevel.ELEMENT
     ): List<DetectedTextItem> = withContext(Dispatchers.Default) {
         val image = InputImage.fromBitmap(bitmap, 0)
-        val visionText: Text = recognizer.process(image).await()
+        val visionText: Text = try {
+            devanagariRecognizer.process(image).await()
+        } catch (_: Exception) {
+            try {
+                latinRecognizer.process(image).await()
+            } catch (_: Exception) {
+                return@withContext emptyList()
+            }
+        }
 
         val results = mutableListOf<DetectedTextItem>()
 
@@ -119,6 +130,7 @@ class OcrAnalyzer {
     }
 
     fun close() {
-        recognizer.close()
+        devanagariRecognizer.close()
+        latinRecognizer.close()
     }
 }

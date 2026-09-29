@@ -72,16 +72,18 @@ fun DocumentBottomBar(
     onWhiteoutLasso: () -> Unit = {},
     onClearLasso: () -> Unit = {},
     onWatermarkClicked: () -> Unit = {},
-    onBookDewarpClicked: () -> Unit = {}
+    onBookDewarpClicked: () -> Unit = {},
+    whiteoutBrushRadius: Float = 22f,
+    onWhiteoutBrushRadiusChanged: (Float) -> Unit = {}
 ) {
     var brightness by remember { mutableFloatStateOf(0f) }
     var contrast by remember { mutableFloatStateOf(1f) }
 
     Surface(
-        color = Color.White,
+        color = androidx.compose.material3.MaterialTheme.colorScheme.surface,
         shadowElevation = 16.dp,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -171,6 +173,44 @@ fun DocumentBottomBar(
                             onValueChangeFinished = { onBrightnessContrastChanged(brightness, contrast) },
                             valueRange = 0.6f..1.8f,
                             modifier = Modifier.weight(1f),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF2563EB),
+                                activeTrackColor = Color(0xFF2563EB)
+                            )
+                        )
+                    }
+                }
+            }
+
+            // Whiteout Brush Size Slider
+            AnimatedVisibility(visible = activeMode == EditorToolMode.WHITEOUT) {
+                Surface(
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Brush: ${whiteoutBrushRadius.toInt()}px",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface
+                        )
+                        Slider(
+                            value = whiteoutBrushRadius,
+                            onValueChange = onWhiteoutBrushRadiusChanged,
+                            valueRange = 8f..60f,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 8.dp),
                             colors = SliderDefaults.colors(
                                 thumbColor = Color(0xFF2563EB),
                                 activeTrackColor = Color(0xFF2563EB)

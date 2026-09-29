@@ -1,6 +1,7 @@
 package com.docu.editor.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -110,9 +111,59 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     private val redoStack = Stack<UndoStep>()
     private val maxUndoDepth = 12
 
+    val editedPagesMap = mutableMapOf<Int, Bitmap>()
+    val pageDetectedItemsMap = mutableMapOf<Int, List<DetectedTextItem>>()
+    private val pageUndoStacks = mutableMapOf<Int, Stack<UndoStep>>()
+    private val pageRedoStacks = mutableMapOf<Int, Stack<UndoStep>>()
+
+    fun saveCurrentPageToCache() {
+        val state = _uiState.value
+        val pageIndex = state.currentPdfPageIndex
+        val bmp = state.currentBitmap
+        if (bmp != null) {
+            editedPagesMap[pageIndex] = bmp
+            pageDetectedItemsMap[pageIndex] = state.detectedItems
+            pageUndoStacks[pageIndex] = Stack<UndoStep>().apply { addAll(undoStack) }
+            pageRedoStacks[pageIndex] = Stack<UndoStep>().apply { addAll(redoStack) }
+        }
+    }
+
+    fun restorePageFromCache(pageIndex: Int): Boolean {
+        val cachedBmp = editedPagesMap[pageIndex] ?: return false
+        val cachedItems = pageDetectedItemsMap[pageIndex] ?: emptyList()
+
+        undoStack.clear()
+        redoStack.clear()
+        pageUndoStacks[pageIndex]?.let { undoStack.addAll(it) }
+        pageRedoStacks[pageIndex]?.let { redoStack.addAll(it) }
+
+        _uiState.update {
+            it.copy(
+                currentBitmap = cachedBmp,
+                originalBitmap = cachedBmp,
+                detectedItems = cachedItems,
+                currentPdfPageIndex = pageIndex,
+                currentBatchIndex = pageIndex,
+                selectedItem = null,
+                selectedItems = emptyList(),
+                isScanning = false,
+                processingMessage = null,
+                canUndo = undoStack.isNotEmpty(),
+                canRedo = redoStack.isNotEmpty(),
+                canvasRevision = it.canvasRevision + 1
+            )
+        }
+        return true
+    }
+
     // --- Loading Documents & Images ---
 
     fun loadDocumentUri(uri: Uri) {
+        editedPagesMap.clear()
+        pageDetectedItemsMap.clear()
+        pageUndoStacks.clear()
+        pageRedoStacks.clear()
+
         viewModelScope.launch {
             _uiState.update { it.copy(isScanning = true, processingMessage = "Loading document...") }
             try {
@@ -147,8 +198,107 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     }
                     setDocumentBitmap(bitmap)
                 }
+            } catch (e: SecurityException) {
+                _uiState.update {
+                    it.copy(
+                        isScanning = false,
+                        showPasswordPromptDialog = true,
+                        pendingEncryptedPdfUri = uri,
+                        errorMessage = "Password protected document. Enter password to unlock."
+                    )
+                }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isScanning = false, errorMessage = "Failed to load: ${e.localizedMessage}") }
+                val msg = e.localizedMessage ?: ""
+                if (msg.contains("password", ignoreCase = true) || msg.contains("encrypt", ignoreCase = true)) {
+                    _uiState.update {
+                        it.copy(
+                            isScanning = false,
+                            showPasswordPromptDialog = true,
+                            pendingEncryptedPdfUri = uri,
+                            errorMessage = "Password protected document. Enter password to unlock."
+                        )
+                    }
+                } else {
+                    _uiState.update { it.copy(isScanning = false, errorMessage = "Failed to load: $msg") }
+                }
+            }
+        }
+    }
+
+    fun unlockAndLoadPdf(password: String) {
+        val pendingUri = _uiState.value.pendingEncryptedPdfUri ?: return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isScanning = true,
+                    processingMessage = "Decrypting document...",
+                    showPasswordPromptDialog = false
+                )
+            }
+            try {
+                val context = getApplication<Application>()
+                val decryptedFile = File(context.cacheDir, "unlocked_${System.currentTimeMillis()}.pdf")
+                val success = PdfToolbox(context).decryptPdf(pendingUri, password, decryptedFile)
+                if (success) {
+                    _uiState.update { it.copy(pendingEncryptedPdfUri = null, successMessage = "Document unlocked successfully!") }
+                    loadDocumentUri(Uri.fromFile(decryptedFile))
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isScanning = false,
+                            showPasswordPromptDialog = true,
+                            errorMessage = "Incorrect password. Please try again."
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isScanning = false,
+                        showPasswordPromptDialog = true,
+                        errorMessage = "Decryption failed: ${e.localizedMessage}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissPasswordPrompt() {
+        _uiState.update { it.copy(showPasswordPromptDialog = false, pendingEncryptedPdfUri = null, isScanning = false) }
+    }
+
+    fun passwordProtectAndExport(password: String) {
+        val context = getApplication<Application>()
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Encrypting PDF with AES-128...", showPdfToolboxDialog = false) }
+            try {
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val time = System.currentTimeMillis()
+                val outFile = File(downloadsDir, "DocuEdit_Protected_$time.pdf")
+
+                val sourceUri = _uiState.value.activePdfUri ?: run {
+                    val current = _uiState.value.currentBitmap ?: throw IllegalStateException("No active document")
+                    val tempSource = File(context.cacheDir, "temp_to_protect_$time.pdf")
+                    PdfExportEngine.exportBitmapToPdf(current, tempSource, true, _uiState.value.detectedItems)
+                    Uri.fromFile(tempSource)
+                }
+
+                PdfToolbox(context).passwordProtectPdf(
+                    sourceUri = sourceUri,
+                    userPassword = password,
+                    outputFile = outFile
+                )
+
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        exportUri = outFile.absolutePath,
+                        successMessage = "Encrypted PDF saved to Downloads: ${outFile.name}"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "Encryption failed: ${e.localizedMessage}") }
             }
         }
     }
@@ -156,8 +306,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     fun nextPdfPage() {
         val state = _uiState.value
         if (state.activePdfUri != null && state.currentPdfPageIndex < state.pdfPageCount - 1) {
+            saveCurrentPageToCache()
             loadPdfPage(state.activePdfUri, state.currentPdfPageIndex + 1)
         } else if (state.batchScannedPaths.isNotEmpty() && state.currentBatchIndex < state.batchScannedPaths.size - 1) {
+            saveCurrentPageToCache()
             loadBatchPage(state.currentBatchIndex + 1)
         }
     }
@@ -165,13 +317,19 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     fun previousPdfPage() {
         val state = _uiState.value
         if (state.activePdfUri != null && state.currentPdfPageIndex > 0) {
+            saveCurrentPageToCache()
             loadPdfPage(state.activePdfUri, state.currentPdfPageIndex - 1)
         } else if (state.batchScannedPaths.isNotEmpty() && state.currentBatchIndex > 0) {
+            saveCurrentPageToCache()
             loadBatchPage(state.currentBatchIndex - 1)
         }
     }
 
     fun loadPdfPage(uri: Uri, pageIndex: Int) {
+        saveCurrentPageToCache()
+        if (restorePageFromCache(pageIndex)) {
+            return
+        }
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -194,6 +352,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     fun loadBatchScannedPages(paths: List<String>) {
         if (paths.isEmpty()) return
+        editedPagesMap.clear()
+        pageDetectedItemsMap.clear()
+        pageUndoStacks.clear()
+        pageRedoStacks.clear()
+
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -211,6 +374,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     fun loadBatchPage(index: Int) {
         val paths = _uiState.value.batchScannedPaths
         if (index !in paths.indices) return
+        saveCurrentPageToCache()
+        if (restorePageFromCache(index)) {
+            return
+        }
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -226,6 +393,85 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 setDocumentBitmap(bmp)
             }
         }
+    }
+
+    fun jumpToPage(index: Int) {
+        val state = _uiState.value
+        if (index !in 0 until state.pdfPageCount) return
+        if (state.activePdfUri != null) {
+            loadPdfPage(state.activePdfUri, index)
+        } else if (state.batchScannedPaths.isNotEmpty()) {
+            loadBatchPage(index)
+        }
+    }
+
+    fun deletePage(index: Int) {
+        val state = _uiState.value
+        if (state.pdfPageCount <= 1) return
+        saveCurrentPageToCache()
+
+        editedPagesMap.remove(index)
+        pageDetectedItemsMap.remove(index)
+        pageUndoStacks.remove(index)
+        pageRedoStacks.remove(index)
+
+        val newEdited = mutableMapOf<Int, Bitmap>()
+        val newDetected = mutableMapOf<Int, List<DetectedTextItem>>()
+        val newUndos = mutableMapOf<Int, Stack<UndoStep>>()
+        val newRedos = mutableMapOf<Int, Stack<UndoStep>>()
+
+        for (i in 0 until state.pdfPageCount) {
+            if (i < index) {
+                editedPagesMap[i]?.let { newEdited[i] = it }
+                pageDetectedItemsMap[i]?.let { newDetected[i] = it }
+                pageUndoStacks[i]?.let { newUndos[i] = it }
+                pageRedoStacks[i]?.let { newRedos[i] = it }
+            } else if (i > index) {
+                editedPagesMap[i]?.let { newEdited[i - 1] = it }
+                pageDetectedItemsMap[i]?.let { newDetected[i - 1] = it }
+                pageUndoStacks[i]?.let { newUndos[i - 1] = it }
+                pageRedoStacks[i]?.let { newRedos[i - 1] = it }
+            }
+        }
+        editedPagesMap.clear()
+        editedPagesMap.putAll(newEdited)
+        pageDetectedItemsMap.clear()
+        pageDetectedItemsMap.putAll(newDetected)
+        pageUndoStacks.clear()
+        pageUndoStacks.putAll(newUndos)
+        pageRedoStacks.clear()
+        pageRedoStacks.putAll(newRedos)
+
+        val newBatch = if (state.batchScannedPaths.isNotEmpty()) {
+            state.batchScannedPaths.filterIndexed { i, _ -> i != index }
+        } else {
+            emptyList()
+        }
+
+        val newPageCount = state.pdfPageCount - 1
+        val newIndex = index.coerceAtMost(newPageCount - 1)
+
+        _uiState.update {
+            it.copy(
+                pdfPageCount = newPageCount,
+                batchScannedPaths = newBatch,
+                currentPdfPageIndex = newIndex,
+                currentBatchIndex = newIndex,
+                hasUnsavedChanges = true,
+                successMessage = "Page ${index + 1} deleted"
+            )
+        }
+
+        if (state.activePdfUri != null) {
+            loadPdfPage(state.activePdfUri, newIndex)
+        } else if (newBatch.isNotEmpty()) {
+            loadBatchPage(newIndex)
+        }
+    }
+
+    fun showPagesOverview(show: Boolean) {
+        saveCurrentPageToCache()
+        _uiState.update { it.copy(showPagesOverviewDialog = show) }
     }
 
     fun loadSampleDocument() {
@@ -278,6 +524,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             ocrAnalyzer.detectTextBlocks(optimized, TextHierarchyLevel.ELEMENT)
         }
 
+        val pageIdx = _uiState.value.currentPdfPageIndex
+        editedPagesMap[pageIdx] = optimized
+        pageDetectedItemsMap[pageIdx] = items
+
         _uiState.update {
             it.copy(
                 detectedItems = items,
@@ -290,9 +540,26 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         val context = getApplication<Application>()
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                DocumentHistoryManager.saveDocument(
+                val saved = DocumentHistoryManager.saveDocument(
                     context = context,
                     bitmap = optimized,
+                    pageCount = _uiState.value.pdfPageCount
+                )
+                _uiState.update { it.copy(currentDocHistoryId = saved.id) }
+                refreshRecentDocuments()
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun updateRecentDocumentThumbnail(bitmap: Bitmap) {
+        val historyId = _uiState.value.currentDocHistoryId ?: return
+        val context = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                DocumentHistoryManager.updateDocument(
+                    context = context,
+                    id = historyId,
+                    bitmap = bitmap,
                     pageCount = _uiState.value.pdfPageCount
                 )
                 refreshRecentDocuments()
@@ -306,33 +573,75 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(selectedItem = item) }
     }
 
-    fun applyWhiteoutCircle(bitmapX: Float, bitmapY: Float, radius: Float = 22f) {
+    fun setWhiteoutBrushRadius(radius: Float) {
+        _uiState.update { it.copy(whiteoutBrushRadius = radius.coerceIn(8f, 80f)) }
+    }
+
+    fun applyWhiteoutCircle(bitmapX: Float, bitmapY: Float, radius: Float = _uiState.value.whiteoutBrushRadius) {
         val currentBitmap = _uiState.value.currentBitmap ?: return
 
-        val patchL = (bitmapX - radius - 2).toInt().coerceIn(0, currentBitmap.width - 1)
-        val patchT = (bitmapY - radius - 2).toInt().coerceIn(0, currentBitmap.height - 1)
-        val patchR = (bitmapX + radius + 2).toInt().coerceIn(0, currentBitmap.width)
-        val patchB = (bitmapY + radius + 2).toInt().coerceIn(0, currentBitmap.height)
+        val patchL = (bitmapX - radius - 4).toInt().coerceIn(0, currentBitmap.width - 1)
+        val patchT = (bitmapY - radius - 4).toInt().coerceIn(0, currentBitmap.height - 1)
+        val patchR = (bitmapX + radius + 4).toInt().coerceIn(0, currentBitmap.width)
+        val patchB = (bitmapY + radius + 4).toInt().coerceIn(0, currentBitmap.height)
         val patchW = max(1, patchR - patchL)
         val patchH = max(1, patchB - patchT)
 
         val patchBmp = Bitmap.createBitmap(currentBitmap, patchL, patchT, patchW, patchH)
         pushUndoStep(UndoStep.PixelPatch(patchBmp, patchL, patchT))
 
+        // Sample authentic local paper color in ring around eraser
+        var sumR = 0L
+        var sumG = 0L
+        var sumB = 0L
+        var count = 0
+        val sampleRadius = (radius + 6).toInt()
+        val cx = bitmapX.toInt()
+        val cy = bitmapY.toInt()
+        for (dx in -sampleRadius..sampleRadius step 3) {
+            for (dy in -sampleRadius..sampleRadius step 3) {
+                val distSq = dx * dx + dy * dy
+                if (distSq in (radius * radius).toInt()..(sampleRadius * sampleRadius)) {
+                    val px = (cx + dx).coerceIn(0, currentBitmap.width - 1)
+                    val py = (cy + dy).coerceIn(0, currentBitmap.height - 1)
+                    val pixel = currentBitmap.getPixel(px, py)
+                    val r = Color.red(pixel)
+                    val g = Color.green(pixel)
+                    val b = Color.blue(pixel)
+                    val luma = 0.299f * r + 0.587f * g + 0.114f * b
+                    if (luma > 150) {
+                        sumR += r
+                        sumG += g
+                        sumB += b
+                        count++
+                    }
+                }
+            }
+        }
+        val paperColor = if (count > 0) {
+            Color.rgb((sumR / count).toInt(), (sumG / count).toInt(), (sumB / count).toInt())
+        } else {
+            Color.WHITE
+        }
+
         val canvas = Canvas(currentBitmap)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.WHITE
+            color = paperColor
             style = Paint.Style.FILL
         }
         canvas.drawCircle(bitmapX, bitmapY, radius, paint)
+
+        editedPagesMap[_uiState.value.currentPdfPageIndex] = currentBitmap
 
         _uiState.update {
             it.copy(
                 canUndo = true,
                 canRedo = false,
+                hasUnsavedChanges = true,
                 canvasRevision = it.canvasRevision + 1
             )
         }
+        updateRecentDocumentThumbnail(currentBitmap)
     }
 
     fun applyTextReplacement(
@@ -506,9 +815,15 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         successMessage = if (useCloudAi) "Gemini Pro: Replaced seamlessly" else "Replaced text seamlessly",
                         canUndo = true,
                         canRedo = false,
+                        hasUnsavedChanges = true,
                         canvasRevision = it.canvasRevision + 1
                     )
                 }
+
+                val pageIdx = _uiState.value.currentPdfPageIndex
+                editedPagesMap[pageIdx] = updatedBitmap
+                pageDetectedItemsMap[pageIdx] = updatedItems
+                updateRecentDocumentThumbnail(updatedBitmap)
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
@@ -546,6 +861,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         cropBmp.recycle()
         val base64Img = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
 
+        val customApiKey = getGeminiApiKey()
         val payload = JSONObject().apply {
             put("action", "analyze_text")
             put("image", base64Img)
@@ -554,12 +870,18 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             put("is_bold", isBold)
             put("size_multiplier", sizeMultiplier.toDouble())
             put("color_hex", colorHex)
+            if (customApiKey.isNotBlank()) {
+                put("gemini_api_key", customApiKey)
+            }
         }
 
         val url = URL("https://shribalajikripadham.online/api/docu_ai.php")
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "application/json")
+        if (customApiKey.isNotBlank()) {
+            conn.setRequestProperty("X-Gemini-Key", customApiKey)
+        }
         conn.connectTimeout = 8000
         conn.readTimeout = 12000
         conn.doOutput = true
@@ -815,8 +1137,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(showExportDialog = show) }
     }
 
-    fun exportCurrentDocument(format: String = "PDF", fitToA4: Boolean = true) {
+    fun exportCurrentDocument(format: String = "PDF", fitToA4: Boolean = true, customFileName: String = "") {
         val current = _uiState.value.currentBitmap ?: return
+        saveCurrentPageToCache()
+
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -825,24 +1149,62 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 )
             }
             try {
+                val context = getApplication<Application>()
                 val file = withContext(Dispatchers.IO) {
                     val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                     val time = System.currentTimeMillis()
+                    val rawName = if (customFileName.isNotBlank()) {
+                        customFileName.trim().replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                    } else {
+                        "DocuEdit_Export_$time"
+                    }
 
                     when (format.uppercase()) {
                         "PDF" -> {
-                            val outFile = File(downloadsDir, "DocuEdit_Export_$time.pdf")
-                            PdfExportEngine.exportBitmapToPdf(current, outFile, fitToA4, _uiState.value.detectedItems)
+                            val cleanName = if (rawName.endsWith(".pdf", ignoreCase = true)) rawName else "$rawName.pdf"
+                            val outFile = File(downloadsDir, cleanName)
+                            val state = _uiState.value
+
+                            if (state.pdfPageCount > 1) {
+                                val allPages = mutableListOf<Bitmap>()
+                                val allItems = mutableMapOf<Int, List<DetectedTextItem>>()
+
+                                for (i in 0 until state.pdfPageCount) {
+                                    val pageBmp = editedPagesMap[i] ?: run {
+                                        if (state.activePdfUri != null) {
+                                            PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, i)
+                                        } else if (state.batchScannedPaths.size > i) {
+                                            BitmapFactory.decodeFile(state.batchScannedPaths[i])
+                                        } else {
+                                            current
+                                        }
+                                    } ?: current
+                                    allPages.add(pageBmp)
+                                    allItems[i] = pageDetectedItemsMap[i] ?: emptyList()
+                                }
+
+                                PdfExportEngine.exportBitmapsToMultiPagePdf(
+                                    bitmaps = allPages,
+                                    outputFile = outFile,
+                                    fitToA4 = fitToA4,
+                                    pagesDetectedItems = allItems
+                                )
+                            } else {
+                                PdfExportEngine.exportBitmapToPdf(current, outFile, fitToA4, _uiState.value.detectedItems)
+                            }
+                            outFile
                         }
                         "PNG" -> {
-                            val outFile = File(downloadsDir, "DocuEdit_Export_$time.png")
+                            val cleanName = if (rawName.endsWith(".png", ignoreCase = true)) rawName else "$rawName.png"
+                            val outFile = File(downloadsDir, cleanName)
                             FileOutputStream(outFile).use { out ->
                                 current.compress(Bitmap.CompressFormat.PNG, 100, out)
                             }
                             outFile
                         }
                         else -> {
-                            val outFile = File(downloadsDir, "DocuEdit_Export_$time.jpg")
+                            val cleanName = if (rawName.endsWith(".jpg", ignoreCase = true) || rawName.endsWith(".jpeg", ignoreCase = true)) rawName else "$rawName.jpg"
+                            val outFile = File(downloadsDir, cleanName)
                             FileOutputStream(outFile).use { out ->
                                 current.compress(Bitmap.CompressFormat.JPEG, 94, out)
                             }
@@ -857,6 +1219,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         processingMessage = null,
                         showExportDialog = false,
                         exportUri = file.absolutePath,
+                        hasUnsavedChanges = false,
                         successMessage = "Saved to Downloads: ${file.name}"
                     )
                 }
@@ -1156,6 +1519,15 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun updateOverlayRotation(rotation: Float) {
+        _uiState.update { it.copy(overlayRotation = rotation % 360f) }
+    }
+
+    fun rotateOverlayBy(deltaDegrees: Float) {
+        val newRot = (_uiState.value.overlayRotation + deltaDegrees) % 360f
+        _uiState.update { it.copy(overlayRotation = newRot) }
+    }
+
     fun commitOverlayToDocument() {
         val current = _uiState.value.currentBitmap ?: return
         val overlay = _uiState.value.activeOverlayBitmap ?: return
@@ -1168,33 +1540,106 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         val posX = _uiState.value.overlayPositionX
         val posY = _uiState.value.overlayPositionY
         val scale = _uiState.value.overlayScale
+        val rotation = _uiState.value.overlayRotation
 
         val dstW = (overlay.width * scale).toInt()
         val dstH = (overlay.height * scale).toInt()
         val dstRect = Rect(posX.toInt(), posY.toInt(), posX.toInt() + dstW, posY.toInt() + dstH)
 
         val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-        canvas.drawBitmap(overlay, null, dstRect, paint)
+        if (rotation != 0f) {
+            canvas.save()
+            canvas.rotate(rotation, posX + dstW / 2f, posY + dstH / 2f)
+            canvas.drawBitmap(overlay, null, dstRect, paint)
+            canvas.restore()
+        } else {
+            canvas.drawBitmap(overlay, null, dstRect, paint)
+        }
+
+        editedPagesMap[_uiState.value.currentPdfPageIndex] = resultBitmap
 
         _uiState.update {
             it.copy(
                 currentBitmap = resultBitmap,
                 activeOverlayBitmap = null,
+                overlayRotation = 0f,
                 canUndo = true,
                 canRedo = false,
+                hasUnsavedChanges = true,
                 canvasRevision = it.canvasRevision + 1,
                 successMessage = "Signature stamped permanently!"
             )
         }
+        updateRecentDocumentThumbnail(resultBitmap)
     }
 
     fun cancelOverlay() {
         _uiState.update {
             it.copy(
                 activeOverlayBitmap = null,
+                overlayRotation = 0f,
                 processingMessage = null
             )
         }
+    }
+
+    // --- Search in Document ---
+
+    fun setSearchQuery(query: String) {
+        val matches = if (query.isBlank()) {
+            emptyList()
+        } else {
+            val q = query.trim().lowercase()
+            _uiState.value.detectedItems.mapIndexedNotNull { index, item ->
+                if (item.text.lowercase().contains(q)) index else null
+            }
+        }
+        _uiState.update {
+            it.copy(
+                searchQuery = query,
+                searchMatchingIndices = matches
+            )
+        }
+    }
+
+    fun toggleSearch(active: Boolean) {
+        _uiState.update {
+            it.copy(
+                isSearchActive = active,
+                searchQuery = if (active) it.searchQuery else "",
+                searchMatchingIndices = if (active) it.searchMatchingIndices else emptyList()
+            )
+        }
+    }
+
+    // --- Recent Documents Management ---
+
+    fun deleteRecentDocument(id: String) {
+        val context = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            DocumentHistoryManager.deleteDocument(context, id)
+            refreshRecentDocuments()
+        }
+    }
+
+    fun clearRecentDocuments() {
+        val context = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            DocumentHistoryManager.clearAllDocuments(context)
+            refreshRecentDocuments()
+        }
+    }
+
+    // --- Gemini Custom API Key Configuration ---
+
+    fun getGeminiApiKey(): String {
+        val prefs = getApplication<Application>().getSharedPreferences("docu_settings", Context.MODE_PRIVATE)
+        return prefs.getString("gemini_api_key", "") ?: ""
+    }
+
+    fun setGeminiApiKey(key: String) {
+        val prefs = getApplication<Application>().getSharedPreferences("docu_settings", Context.MODE_PRIVATE)
+        prefs.edit().putString("gemini_api_key", key.trim()).apply()
     }
 
     // --- Navigation & Tool Switching ---
@@ -1219,11 +1664,27 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(showFiltersSheet = show) }
     }
 
-    fun closeActiveDocument() {
+    fun showExitConfirmationDialog(show: Boolean) {
+        _uiState.update { it.copy(showExitConfirmationDialog = show) }
+    }
+
+    fun closeActiveDocumentImmediately() {
         _uiState.update {
             DocumentEditorUiState()
         }
         clearUndoRedo()
+        editedPagesMap.clear()
+        pageDetectedItemsMap.clear()
+        pageUndoStacks.clear()
+        pageRedoStacks.clear()
+    }
+
+    fun closeActiveDocument() {
+        if (_uiState.value.hasUnsavedChanges) {
+            _uiState.update { it.copy(showExitConfirmationDialog = true) }
+        } else {
+            closeActiveDocumentImmediately()
+        }
     }
 
     // --- Undo & Redo (Zero-Copy Localized Patches) ---

@@ -113,6 +113,42 @@ object DocumentHistoryManager {
         item
     }
 
+    suspend fun updateDocument(
+        context: Context,
+        id: String,
+        bitmap: Bitmap,
+        pageCount: Int = 1
+    ): SavedDocumentItem? = withContext(Dispatchers.IO) {
+        val currentList = getSavedDocuments(context).toMutableList()
+        val existingIndex = currentList.indexOfFirst { it.id == id }
+        if (existingIndex == -1) return@withContext null
+
+        val existing = currentList[existingIndex]
+        val docFile = File(existing.filePath)
+        FileOutputStream(docFile).use { fos ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 92, fos)
+        }
+
+        val thumbFile = File(existing.thumbnailPath)
+        val thumbScale = 240f / bitmap.width.coerceAtLeast(1)
+        val thumbH = (bitmap.height * thumbScale).toInt().coerceAtLeast(1)
+        val thumbBmp = Bitmap.createScaledBitmap(bitmap, 240, thumbH, true)
+        FileOutputStream(thumbFile).use { fos ->
+            thumbBmp.compress(Bitmap.CompressFormat.JPEG, 85, fos)
+        }
+        if (thumbBmp != bitmap) thumbBmp.recycle()
+
+        val updated = existing.copy(
+            timestamp = System.currentTimeMillis(),
+            fileSizeBytes = docFile.length(),
+            pageCount = pageCount
+        )
+        currentList.removeAt(existingIndex)
+        currentList.add(0, updated)
+        saveIndex(context, currentList)
+        updated
+    }
+
     suspend fun deleteDocument(context: Context, id: String) = withContext(Dispatchers.IO) {
         val currentList = getSavedDocuments(context).toMutableList()
         val toRemove = currentList.find { it.id == id }
@@ -122,6 +158,15 @@ object DocumentHistoryManager {
             currentList.remove(toRemove)
             saveIndex(context, currentList)
         }
+    }
+
+    suspend fun clearAllDocuments(context: Context) = withContext(Dispatchers.IO) {
+        val currentList = getSavedDocuments(context)
+        for (item in currentList) {
+            File(item.filePath).delete()
+            File(item.thumbnailPath).delete()
+        }
+        File(context.filesDir, INDEX_FILE_NAME).delete()
     }
 
     private fun saveIndex(context: Context, list: List<SavedDocumentItem>) {

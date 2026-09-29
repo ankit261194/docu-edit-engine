@@ -3,6 +3,7 @@ package com.docu.editor.ui.canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -99,11 +100,21 @@ fun TextEditBottomSheet(
     var showCustomColorPicker by remember(item.id) { mutableStateOf(false) }
     var customHue by remember(item.id) { mutableFloatStateOf(0f) }
 
+    val isDark = isSystemInDarkTheme()
+    val sheetBg = if (isDark) Color(0xFF1E293B) else Color.White
+    val textPrimary = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
+    val textSecondary = if (isDark) Color(0xFF94A3B8) else Color(0xFF64748B)
+    val surfaceBg = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC)
+    val surfaceBorder = if (isDark) Color(0xFF334155) else Color(0xFFE2E8F0)
+    val inputBg = if (isDark) Color(0xFF0F172A) else Color(0xFFF8FAFC)
+    val chipUnselectedBg = if (isDark) Color(0xFF334155) else Color(0xFFE2E8F0)
+    val chipUnselectedText = if (isDark) Color(0xFFCBD5E1) else Color(0xFF334155)
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        containerColor = Color.White
+        containerColor = sheetBg
     ) {
         Column(
             modifier = Modifier
@@ -120,18 +131,18 @@ fun TextEditBottomSheet(
                 Column {
                     Text(
                         text = "Edit Document Text",
-                        color = Color(0xFF0F172A),
+                        color = textPrimary,
                         fontSize = 19.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = "Auto-matched to original document typography",
-                        color = Color(0xFF64748B),
+                        color = textSecondary,
                         fontSize = 12.sp
                     )
                 }
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF0F172A))
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = textPrimary)
                 }
             }
 
@@ -140,8 +151,8 @@ fun TextEditBottomSheet(
             // Auto-Detection Badge (CamScanner style indicator)
             Surface(
                 shape = RoundedCornerShape(8.dp),
-                color = Color(0xFFEFF6FF),
-                border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                color = if (isDark) Color(0xFF1E3A8A).copy(alpha = 0.4f) else Color(0xFFEFF6FF),
+                border = BorderStroke(1.dp, if (isDark) Color(0xFF2563EB) else Color(0xFFBFDBFE)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -151,13 +162,13 @@ fun TextEditBottomSheet(
                     Icon(
                         Icons.Default.AutoAwesome,
                         contentDescription = null,
-                        tint = Color(0xFF2563EB),
+                        tint = Color(0xFF60A5FA),
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Auto-Matched Font: ${selectedFontType.displayName} • ${if (isBold) "Bold" else "Regular"}",
-                        color = Color(0xFF1D4ED8),
+                        color = if (isDark) Color(0xFF93C5FD) else Color(0xFF1D4ED8),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -174,12 +185,12 @@ fun TextEditBottomSheet(
                 singleLine = false,
                 maxLines = 3,
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color(0xFF0F172A),
-                    unfocusedTextColor = Color(0xFF0F172A),
+                    focusedTextColor = textPrimary,
+                    unfocusedTextColor = textPrimary,
                     focusedBorderColor = Color(0xFF2563EB),
-                    unfocusedBorderColor = Color(0xFFCBD5E1),
-                    focusedContainerColor = Color(0xFFF8FAFC),
-                    unfocusedContainerColor = Color(0xFFF8FAFC)
+                    unfocusedBorderColor = surfaceBorder,
+                    focusedContainerColor = inputBg,
+                    unfocusedContainerColor = inputBg
                 ),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -189,15 +200,15 @@ fun TextEditBottomSheet(
 
             // Live Comparison Preview Box
             Surface(
-                color = Color(0xFFF1F5F9),
+                color = surfaceBg,
                 shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                border = BorderStroke(1.dp, surfaceBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
                         text = "LIVE VISUAL COMPARISON:",
-                        color = Color(0xFF64748B),
+                        color = textSecondary,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -210,12 +221,12 @@ fun TextEditBottomSheet(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "Original Document:",
-                                color = Color(0xFF94A3B8),
+                                color = textSecondary,
                                 fontSize = 11.sp
                             )
                             Text(
                                 text = item.text,
-                                color = Color(0xFF1E293B),
+                                color = textPrimary,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -224,13 +235,13 @@ fun TextEditBottomSheet(
                             modifier = Modifier
                                 .width(1.dp)
                                 .height(32.dp)
-                                .background(Color(0xFFCBD5E1))
+                                .background(surfaceBorder)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "New Preview:",
-                                color = Color(0xFF2563EB),
+                                color = Color(0xFF3B82F6),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -254,9 +265,9 @@ fun TextEditBottomSheet(
 
             // Typography Controls Card
             Surface(
-                color = Color(0xFFF8FAFC),
+                color = surfaceBg,
                 shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                border = BorderStroke(1.dp, surfaceBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
@@ -265,10 +276,10 @@ fun TextEditBottomSheet(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Font Family:", color = Color(0xFF475569), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Font Family:", color = textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         Text(
                             text = "${selectedFontType.category} • ${selectedFontType.displayName}",
-                            color = Color(0xFF2563EB),
+                            color = Color(0xFF3B82F6),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -288,7 +299,9 @@ fun TextEditBottomSheet(
                                 label = { Text(font.displayName.substringBefore(" /"), fontSize = 11.sp) },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = Color(0xFF2563EB),
-                                    selectedLabelColor = Color.White
+                                    selectedLabelColor = Color.White,
+                                    containerColor = chipUnselectedBg,
+                                    labelColor = chipUnselectedText
                                 )
                             )
                         }
@@ -302,7 +315,7 @@ fun TextEditBottomSheet(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Alignment:", color = Color(0xFF475569), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text("Alignment:", color = textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf(
                                 Triple(android.graphics.Paint.Align.LEFT, "Left", "⫷"),
@@ -312,16 +325,16 @@ fun TextEditBottomSheet(
                                 val isSelected = selectedAlignment == align
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
-                                    color = if (isSelected) Color(0xFF2563EB) else Color(0xFFE2E8F0),
+                                    color = if (isSelected) Color(0xFF2563EB) else chipUnselectedBg,
                                     modifier = Modifier.clickable { selectedAlignment = align }
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(symbol, fontSize = 13.sp, color = if (isSelected) Color.White else Color(0xFF334155), fontWeight = FontWeight.Bold)
+                                        Text(symbol, fontSize = 13.sp, color = if (isSelected) Color.White else chipUnselectedText, fontWeight = FontWeight.Bold)
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text(name, fontSize = 11.sp, color = if (isSelected) Color.White else Color(0xFF334155), fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium)
+                                        Text(name, fontSize = 11.sp, color = if (isSelected) Color.White else chipUnselectedText, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium)
                                     }
                                 }
                             }
@@ -339,7 +352,7 @@ fun TextEditBottomSheet(
                         // Bold Toggle Button
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = if (isBold) Color(0xFF2563EB) else Color(0xFFE2E8F0),
+                            color = if (isBold) Color(0xFF2563EB) else chipUnselectedBg,
                             modifier = Modifier.clickable { isBold = !isBold }
                         ) {
                             Row(
@@ -349,13 +362,13 @@ fun TextEditBottomSheet(
                                 Icon(
                                     Icons.Default.FormatBold,
                                     contentDescription = "Bold",
-                                    tint = if (isBold) Color.White else Color(0xFF475569),
+                                    tint = if (isBold) Color.White else chipUnselectedText,
                                     modifier = Modifier.size(16.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     text = if (isBold) "BOLD (On)" else "Normal",
-                                    color = if (isBold) Color.White else Color(0xFF475569),
+                                    color = if (isBold) Color.White else chipUnselectedText,
                                     fontSize = 12.sp,
                                     fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal
                                 )
@@ -368,7 +381,7 @@ fun TextEditBottomSheet(
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier.horizontalScroll(rememberScrollState())
                         ) {
-                            Text("Ink:", color = Color(0xFF475569), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Ink:", color = textSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
 
                             // Document Original Ink
                             ColorChipLight(
@@ -437,13 +450,13 @@ fun TextEditBottomSheet(
                             // Custom Spectrum Chip
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = if (showCustomColorPicker) Color(0xFF2563EB) else Color(0xFFE2E8F0),
+                                color = if (showCustomColorPicker) Color(0xFF2563EB) else chipUnselectedBg,
                                 modifier = Modifier.clickable { showCustomColorPicker = !showCustomColorPicker }
                             ) {
                                 Text(
                                     text = "🎨 Custom",
                                     fontSize = 11.sp,
-                                    color = if (showCustomColorPicker) Color.White else Color(0xFF334155),
+                                    color = if (showCustomColorPicker) Color.White else chipUnselectedText,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                 )
@@ -458,7 +471,7 @@ fun TextEditBottomSheet(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Hue Spectrum:", fontSize = 11.sp, color = Color(0xFF64748B), fontWeight = FontWeight.SemiBold)
+                            Text("Hue Spectrum:", fontSize = 11.sp, color = textSecondary, fontWeight = FontWeight.SemiBold)
                             Box(
                                 modifier = Modifier
                                     .size(20.dp)
@@ -478,7 +491,7 @@ fun TextEditBottomSheet(
                             colors = SliderDefaults.colors(
                                 thumbColor = Color(selectedColorRgb),
                                 activeTrackColor = Color(0xFF6366F1),
-                                inactiveTrackColor = Color(0xFFE2E8F0)
+                                inactiveTrackColor = surfaceBorder
                             )
                         )
                     }
@@ -496,7 +509,7 @@ fun TextEditBottomSheet(
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = "Size: ${(sizeMultiplier * 100).toInt()}%",
-                                color = Color(0xFF0F172A),
+                                color = textPrimary,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -508,35 +521,35 @@ fun TextEditBottomSheet(
                         ) {
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFFE2E8F0),
+                                color = chipUnselectedBg,
                                 modifier = Modifier
                                     .size(34.dp)
                                     .clickable { sizeMultiplier = (sizeMultiplier - 0.05f).coerceAtLeast(0.60f) }
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.Remove, contentDescription = "Decrease", tint = Color(0xFF1E293B), modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.Remove, contentDescription = "Decrease", tint = textPrimary, modifier = Modifier.size(16.dp))
                                 }
                             }
 
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFFE2E8F0),
+                                color = chipUnselectedBg,
                                 modifier = Modifier
                                     .clickable { sizeMultiplier = 1.0f }
                                     .padding(horizontal = 8.dp, vertical = 6.dp)
                             ) {
-                                Text("Reset", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF475569))
+                                Text("Reset", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = chipUnselectedText)
                             }
 
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFFE2E8F0),
+                                color = chipUnselectedBg,
                                 modifier = Modifier
                                     .size(34.dp)
                                     .clickable { sizeMultiplier = (sizeMultiplier + 0.05f).coerceAtMost(1.80f) }
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Default.Add, contentDescription = "Increase", tint = Color(0xFF1E293B), modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.Add, contentDescription = "Increase", tint = textPrimary, modifier = Modifier.size(16.dp))
                                 }
                             }
                         }
@@ -549,7 +562,7 @@ fun TextEditBottomSheet(
                         colors = SliderDefaults.colors(
                             thumbColor = Color(0xFF2563EB),
                             activeTrackColor = Color(0xFF2563EB),
-                            inactiveTrackColor = Color(0xFFCBD5E1)
+                            inactiveTrackColor = surfaceBorder
                         )
                     )
                 }

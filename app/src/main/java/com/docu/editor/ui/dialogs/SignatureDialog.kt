@@ -80,8 +80,8 @@ fun SignatureDialog(
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+            colors = CardDefaults.cardColors(containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant),
             elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -326,12 +326,36 @@ private fun SignatureDrawingPad(
 ) {
     val strokes = remember { mutableStateListOf<List<Offset>>() }
     var currentStroke by remember { mutableStateOf<List<Offset>>(emptyList()) }
+    var penThickness by remember { androidx.compose.runtime.mutableFloatStateOf(4.5f) }
 
     Column(modifier = Modifier.fillMaxWidth()) {
+        // Pen Width Slider
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Pen Width: ${penThickness.toInt()}dp",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface
+            )
+            androidx.compose.material3.Slider(
+                value = penThickness,
+                onValueChange = { penThickness = it },
+                valueRange = 2f..12f,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 8.dp)
+            )
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(190.dp)
+                .height(180.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color(0xFFFAFAFA))
                 .border(1.5.dp, Color(0xFFCBD5E1), RoundedCornerShape(12.dp))
@@ -357,7 +381,7 @@ private fun SignatureDrawingPad(
                 }
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                val strokeWidthPx = 4.5.dp.toPx()
+                val strokeWidthPx = penThickness.dp.toPx()
                 for (stroke in strokes) {
                     for (i in 0 until stroke.size - 1) {
                         drawLine(
@@ -395,8 +419,23 @@ private fun SignatureDrawingPad(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Undo Last Stroke Button
+            androidx.compose.material3.OutlinedButton(
+                onClick = {
+                    if (strokes.isNotEmpty()) {
+                        strokes.removeAt(strokes.size - 1)
+                    }
+                },
+                enabled = strokes.isNotEmpty(),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("↩ Undo", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+
+            // Clear All Button
             Button(
                 onClick = {
                     strokes.clear()
@@ -404,11 +443,12 @@ private fun SignatureDrawingPad(
                 },
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF1F5F9)),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(0.9f)
             ) {
-                Text("Clear", color = Color(0xFF475569), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text("Clear", color = Color(0xFF475569), fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
 
+            // Apply Signature Button
             Button(
                 onClick = {
                     if (strokes.isNotEmpty()) {
@@ -417,7 +457,7 @@ private fun SignatureDrawingPad(
                         val c = android.graphics.Canvas(bmp)
                         val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                             color = selectedColor.toArgb()
-                            strokeWidth = 9f
+                            strokeWidth = penThickness * 2f
                             style = android.graphics.Paint.Style.STROKE
                             strokeCap = android.graphics.Paint.Cap.ROUND
                             strokeJoin = android.graphics.Paint.Join.ROUND
@@ -459,9 +499,9 @@ private fun SignatureDrawingPad(
                 enabled = strokes.isNotEmpty(),
                 shape = RoundedCornerShape(10.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1.3f)
             ) {
-                Text("Apply Sign", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                Text("Apply Sign", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
     }

@@ -66,31 +66,53 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val masterCanvas = Canvas(masterOutput)
 
         val isAmount = isNumericOrCurrency(params.newText) || isNumericOrCurrency(params.originalText)
-        val renderedWidth = paint.measureText(params.newText)
-        val startX = when (params.alignment) {
-            Paint.Align.RIGHT -> (params.targetBounds.right.toFloat() - renderedWidth).coerceAtLeast(params.targetBounds.left.toFloat())
-            Paint.Align.CENTER -> params.targetBounds.left.toFloat() + (params.targetBounds.width() - renderedWidth) / 2f
-            else -> {
-                if (isAmount && renderedWidth < params.targetBounds.width()) {
-                    params.targetBounds.right.toFloat() - renderedWidth
-                } else {
-                    params.targetBounds.left.toFloat()
-                }
-            }
-        }
         val pivotX = params.targetBounds.exactCenterX()
         val pivotY = params.targetBounds.exactCenterY()
 
-        drawRotatedText(
-            canvas = masterCanvas,
-            text = params.newText,
-            x = startX,
-            y = fitResult.baselineY,
-            angle = params.rotationAngle,
-            pivotX = pivotX,
-            pivotY = pivotY,
-            paint = paint
-        )
+        val lines = params.newText.split("\n")
+        val fontMetrics = paint.fontMetrics
+        val lineHeight = fontMetrics.descent - fontMetrics.ascent + fontMetrics.leading
+
+        if (abs(params.rotationAngle) > 0.5f) {
+            masterCanvas.save()
+            masterCanvas.rotate(params.rotationAngle, pivotX, pivotY)
+            for (i in lines.indices) {
+                val line = lines[i]
+                val lineWidth = paint.measureText(line)
+                val lineStartX = when (params.alignment) {
+                    Paint.Align.RIGHT -> (params.targetBounds.right.toFloat() - lineWidth).coerceAtLeast(params.targetBounds.left.toFloat())
+                    Paint.Align.CENTER -> params.targetBounds.left.toFloat() + (params.targetBounds.width() - lineWidth) / 2f
+                    else -> {
+                        if (isAmount && lineWidth < params.targetBounds.width()) {
+                            params.targetBounds.right.toFloat() - lineWidth
+                        } else {
+                            params.targetBounds.left.toFloat()
+                        }
+                    }
+                }
+                val lineY = fitResult.baselineY + (i * lineHeight)
+                masterCanvas.drawText(line, lineStartX, lineY, paint)
+            }
+            masterCanvas.restore()
+        } else {
+            for (i in lines.indices) {
+                val line = lines[i]
+                val lineWidth = paint.measureText(line)
+                val lineStartX = when (params.alignment) {
+                    Paint.Align.RIGHT -> (params.targetBounds.right.toFloat() - lineWidth).coerceAtLeast(params.targetBounds.left.toFloat())
+                    Paint.Align.CENTER -> params.targetBounds.left.toFloat() + (params.targetBounds.width() - lineWidth) / 2f
+                    else -> {
+                        if (isAmount && lineWidth < params.targetBounds.width()) {
+                            params.targetBounds.right.toFloat() - lineWidth
+                        } else {
+                            params.targetBounds.left.toFloat()
+                        }
+                    }
+                }
+                val lineY = fitResult.baselineY + (i * lineHeight)
+                masterCanvas.drawText(line, lineStartX, lineY, paint)
+            }
+        }
 
         return TextRenderResult(
             outputBitmap = masterOutput,
@@ -123,25 +145,5 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         if (clean.isEmpty()) return false
         val numericOrSymbols = clean.count { it.isDigit() || it in "₹$€£.,%/-+:#" }
         return numericOrSymbols >= (clean.length * 0.70f) && clean.any { it.isDigit() }
-    }
-
-    private fun drawRotatedText(
-        canvas: Canvas,
-        text: String,
-        x: Float,
-        y: Float,
-        angle: Float,
-        pivotX: Float,
-        pivotY: Float,
-        paint: Paint
-    ) {
-        if (abs(angle) > 0.5f) {
-            canvas.save()
-            canvas.rotate(angle, pivotX, pivotY)
-            canvas.drawText(text, x, y, paint)
-            canvas.restore()
-        } else {
-            canvas.drawText(text, x, y, paint)
-        }
     }
 }

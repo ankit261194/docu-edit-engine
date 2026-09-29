@@ -21,8 +21,10 @@ object AutoFitFontCondenser {
         originalText: String = "",
         sizeMultiplier: Float = 1.0f
     ): AdjustedTypography {
+        val lines = text.split("\n")
+        val lineCount = max(1, lines.size)
         val targetWidth = max(10, targetBounds.width()).toFloat()
-        val targetHeight = max(8, targetBounds.height()).toFloat()
+        val targetHeight = (max(8, targetBounds.height()).toFloat() / lineCount)
 
         // Calibrated typographic height (matches standard document font cap-height to avoid tall overflow)
         var fontSize = targetHeight * 0.80f * sizeMultiplier
@@ -33,7 +35,11 @@ object AutoFitFontCondenser {
         paint.letterSpacing = 0f
         paint.textScaleX = 1.0f
 
-        val measuredWidth = paint.measureText(text)
+        val measuredWidth = if (lineCount > 1) {
+            lines.maxOfOrNull { paint.measureText(it) } ?: paint.measureText(text)
+        } else {
+            paint.measureText(text)
+        }
         val origLen = if (originalText.isNotEmpty()) originalText.length else text.length
         val newLen = max(1, text.length)
 
@@ -79,14 +85,27 @@ object AutoFitFontCondenser {
             trackingEm = 0f
         }
 
+        // Indic / Devanagari script protection:
+        // Letter-spacing breaks the continuous top line (shirorekha) in Hindi/Devanagari.
+        val hasIndicScript = text.any { it.code in 0x0900..0x0D7F }
+        if (hasIndicScript) {
+            trackingEm = 0f
+        }
+
         paint.textSize = fontSize
         paint.letterSpacing = trackingEm
         paint.textScaleX = scaleX
 
         // Accurate baseline alignment centering glyphs vertically in bounding box
         val fontMetrics = paint.fontMetrics
-        val centerY = targetBounds.centerY().toFloat()
-        val baselineY = centerY - (fontMetrics.ascent + fontMetrics.descent) / 2f
+        val lineHeight = fontMetrics.descent - fontMetrics.ascent + fontMetrics.leading
+        val totalTextHeight = if (lineCount > 1) {
+            (lineCount - 1) * lineHeight + (fontMetrics.descent - fontMetrics.ascent)
+        } else {
+            fontMetrics.descent - fontMetrics.ascent
+        }
+        val topY = targetBounds.centerY().toFloat() - totalTextHeight / 2f
+        val baselineY = topY - fontMetrics.ascent
 
         return AdjustedTypography(
             fontSize = fontSize,

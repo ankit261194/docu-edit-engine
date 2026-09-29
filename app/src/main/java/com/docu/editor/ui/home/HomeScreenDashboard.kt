@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Close
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
@@ -60,6 +61,8 @@ import com.docu.editor.core.history.SavedDocumentItem
 fun HomeScreenDashboard(
     recentDocuments: List<SavedDocumentItem> = emptyList(),
     onOpenSavedDocument: (filePath: String) -> Unit = {},
+    onDeleteRecentDocument: (String) -> Unit = {},
+    onClearAllRecentDocuments: () -> Unit = {},
     onCameraScanClicked: () -> Unit,
     onOpenFileClicked: () -> Unit,
     onIdCardClicked: () -> Unit,
@@ -70,7 +73,7 @@ fun HomeScreenDashboard(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF8FAFC)) // Crisp, clean modern light canvas
+            .background(androidx.compose.material3.MaterialTheme.colorScheme.background)
     ) {
         // Top Header
         Row(
@@ -323,8 +326,19 @@ fun HomeScreenDashboard(
                                 text = "Recent Documents (${recentDocuments.size})",
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0F172A)
+                                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface
                             )
+                            androidx.compose.material3.TextButton(
+                                onClick = onClearAllRecentDocuments,
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                            ) {
+                                Text(
+                                    text = "Clear All",
+                                    color = Color(0xFFEF4444),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(10.dp))
@@ -338,7 +352,8 @@ fun HomeScreenDashboard(
                             recentDocuments.take(10).forEach { doc ->
                                 RecentDocumentCard(
                                     document = doc,
-                                    onClick = { onOpenSavedDocument(doc.filePath) }
+                                    onClick = { onOpenSavedDocument(doc.filePath) },
+                                    onDelete = { onDeleteRecentDocument(doc.id) }
                                 )
                             }
                         }
@@ -435,7 +450,8 @@ private fun StudioActionCard(
 @Composable
 private fun RecentDocumentCard(
     document: SavedDocumentItem,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val thumbBmp = remember(document.thumbnailPath) {
         try {
@@ -447,8 +463,8 @@ private fun RecentDocumentCard(
 
     Card(
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        colors = CardDefaults.cardColors(containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier
             .width(130.dp)
@@ -459,7 +475,7 @@ private fun RecentDocumentCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(130.dp)
-                    .background(Color(0xFFF1F5F9)),
+                    .background(androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                 contentAlignment = Alignment.Center
             ) {
                 if (thumbBmp != null) {
@@ -475,6 +491,25 @@ private fun RecentDocumentCard(
                         contentDescription = null,
                         tint = Color(0xFF94A3B8),
                         modifier = Modifier.size(36.dp)
+                    )
+                }
+
+                // Delete Button on Card
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(5.dp)
+                        .size(24.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.60f))
+                        .clickable { onDelete() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Delete Document",
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
                     )
                 }
 
@@ -500,7 +535,7 @@ private fun RecentDocumentCard(
             Column(modifier = Modifier.padding(8.dp)) {
                 Text(
                     text = document.title,
-                    color = Color(0xFF0F172A),
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1
@@ -508,7 +543,7 @@ private fun RecentDocumentCard(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = document.formattedDate,
-                    color = Color(0xFF64748B),
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 9.sp
                 )
             }

@@ -106,16 +106,24 @@ object PdfExportEngine {
 
     suspend fun exportBitmapsToMultiPagePdf(
         bitmaps: List<Bitmap>,
-        outputFile: File
+        outputFile: File,
+        fitToA4: Boolean = true,
+        pagesDetectedItems: Map<Int, List<DetectedTextItem>> = emptyMap()
     ): File = withContext(Dispatchers.IO) {
         val pdfDocument = PdfDocument()
 
         try {
             bitmaps.forEachIndexed { index, bmp ->
-                val (pageWidthPt, pageHeightPt) = if (bmp.width > bmp.height) {
-                    Pair(A4_HEIGHT_PT, A4_WIDTH_PT)
+                val (pageWidthPt, pageHeightPt) = if (fitToA4) {
+                    if (bmp.width > bmp.height) {
+                        Pair(A4_HEIGHT_PT, A4_WIDTH_PT)
+                    } else {
+                        Pair(A4_WIDTH_PT, A4_HEIGHT_PT)
+                    }
                 } else {
-                    Pair(A4_WIDTH_PT, A4_HEIGHT_PT)
+                    val w = (bmp.width * 72f / 150f).toInt().coerceAtLeast(100)
+                    val h = (bmp.height * 72f / 150f).toInt().coerceAtLeast(100)
+                    Pair(w, h)
                 }
 
                 val pageInfo = PdfDocument.PageInfo.Builder(pageWidthPt, pageHeightPt, index + 1).create()
@@ -138,6 +146,29 @@ object PdfExportEngine {
                 val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
 
                 canvas.drawBitmap(bmp, srcRect, dstRect, paint)
+
+                val detectedItems = pagesDetectedItems[index] ?: emptyList()
+                if (detectedItems.isNotEmpty()) {
+                    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
+                        color = android.graphics.Color.argb(1, 255, 255, 255)
+                        style = Paint.Style.FILL
+                    }
+                    for (item in detectedItems) {
+                        val box = item.boundingBox
+                        val text = item.text
+                        if (text.isBlank()) continue
+
+                        val boxLeft = left + (box.left * scale)
+                        val boxTop = top + (box.top * scale)
+                        val boxHeight = (box.height() * scale).coerceAtLeast(6f)
+                        textPaint.textSize = boxHeight * 0.85f
+
+                        val fontMetrics = textPaint.fontMetrics
+                        val baselineY = boxTop + (boxHeight / 2f) - (fontMetrics.ascent + fontMetrics.descent) / 2f
+                        canvas.drawText(text, boxLeft, baselineY, textPaint)
+                    }
+                }
+
                 pdfDocument.finishPage(page)
             }
 
