@@ -59,6 +59,19 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import kotlin.math.min
 
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import com.docu.editor.core.signature.SignatureVaultManager
+import com.docu.editor.core.signature.SavedSignatureItem
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 @Composable
 fun SignatureDialog(
     extractedBitmap: Bitmap?,
@@ -68,7 +81,9 @@ fun SignatureDialog(
     onApplyToDocument: (Bitmap) -> Unit = {},
     onDismiss: () -> Unit
 ) {
-    var selectedTab by remember { mutableIntStateOf(0) } // 0: Signature, 1: Stamp
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Signature, 1: Stamp, 2: Seal, 3: Vault
     var selectedColorIndex by remember { mutableIntStateOf(0) } // 0: Blue, 1: Black, 2: Red
 
     val inkColors = listOf(
@@ -106,7 +121,12 @@ fun SignatureDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (selectedTab == 0) "Signature Extractor" else "Stamp Extractor",
+                            text = when (selectedTab) {
+                                0 -> "Finger Signature"
+                                1 -> "Signature Extractor"
+                                2 -> "Stamp Extractor"
+                                else -> "Permanent Vault"
+                            },
                             color = Color(0xFF0F172A),
                             fontSize = 17.sp,
                             fontWeight = FontWeight.Bold
@@ -137,7 +157,7 @@ fun SignatureDialog(
                         onClick = { selectedTab = 0 },
                         text = {
                             Text(
-                                "✍️ Finger Draw",
+                                "✍️ Draw",
                                 fontSize = 11.sp,
                                 fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Medium,
                                 color = if (selectedTab == 0) Color(0xFF0F172A) else Color(0xFF64748B)
@@ -149,7 +169,7 @@ fun SignatureDialog(
                         onClick = { selectedTab = 1 },
                         text = {
                             Text(
-                                "📷 Photo Sign",
+                                "📷 Photo",
                                 fontSize = 11.sp,
                                 fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Medium,
                                 color = if (selectedTab == 1) Color(0xFF0F172A) else Color(0xFF64748B)
@@ -161,10 +181,22 @@ fun SignatureDialog(
                         onClick = { selectedTab = 2 },
                         text = {
                             Text(
-                                "🔴 Stamp / Seal",
+                                "🔴 Stamp",
                                 fontSize = 11.sp,
                                 fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Medium,
                                 color = if (selectedTab == 2) Color(0xFF0F172A) else Color(0xFF64748B)
+                            )
+                        }
+                    )
+                    Tab(
+                        selected = selectedTab == 3,
+                        onClick = { selectedTab = 3 },
+                        text = {
+                            Text(
+                                "📚 Vault",
+                                fontSize = 11.sp,
+                                fontWeight = if (selectedTab == 3) FontWeight.Bold else FontWeight.Medium,
+                                color = if (selectedTab == 3) Color(0xFF0F172A) else Color(0xFF64748B)
                             )
                         }
                     )
@@ -219,11 +251,14 @@ fun SignatureDialog(
                     SignatureDrawingPad(
                         selectedColor = Color(inkColors[selectedColorIndex].second),
                         onApplySignature = { drawnBmp ->
+                            coroutineScope.launch {
+                                SignatureVaultManager.saveToVault(context, drawnBmp, "SIGNATURE")
+                            }
                             onApplyToDocument(drawnBmp)
                             onDismiss()
                         }
                     )
-                } else {
+                } else if (selectedTab == 1 || selectedTab == 2) {
                     // Source Image Picker
                     Box(
                         modifier = Modifier
@@ -289,6 +324,13 @@ fun SignatureDialog(
                         Spacer(modifier = Modifier.height(10.dp))
                         Button(
                             onClick = {
+                                coroutineScope.launch {
+                                    SignatureVaultManager.saveToVault(
+                                        context,
+                                        extractedBitmap,
+                                        if (selectedTab == 1) "SIGNATURE" else "STAMP"
+                                    )
+                                }
                                 onApplyToDocument(extractedBitmap)
                                 onDismiss()
                             },
@@ -311,6 +353,188 @@ fun SignatureDialog(
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp
                             )
+                        }
+                    }
+                } else {
+                    // Tab 3: Permanent Signature & Stamp Vault
+                    SignatureVaultView(
+                        onApplyToDocument = { bmp ->
+                            onApplyToDocument(bmp)
+                            onDismiss()
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SignatureVaultView(
+    onApplyToDocument: (Bitmap) -> Unit
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var items by remember { mutableStateOf<List<SavedSignatureItem>>(emptyList()) }
+    var loadedBitmaps by remember { mutableStateOf<Map<String, Bitmap>>(emptyMap()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    fun refreshVault() {
+        scope.launch {
+            val loaded = SignatureVaultManager.loadAll(context)
+            items = loaded
+            val bmpMap = mutableMapOf<String, Bitmap>()
+            for (item in loaded) {
+                val bmp = SignatureVaultManager.loadBitmap(item)
+                if (bmp != null) bmpMap[item.id] = bmp
+            }
+            loadedBitmaps = bmpMap
+            isLoading = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        refreshVault()
+    }
+
+    if (isLoading) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(180.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.material3.CircularProgressIndicator(
+                color = Color(0xFFDB2777),
+                modifier = Modifier.size(32.dp)
+            )
+        }
+    } else if (items.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(180.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color(0xFFF8FAFC))
+                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+                .padding(16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "📭 Vault is Empty",
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF475569)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Signatures or stamps created in Draw or Photo tabs are saved here forever for 1-tap reuse!",
+                    fontSize = 12.sp,
+                    color = Color(0xFF94A3B8),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        }
+    } else {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(260.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            items(items, key = { it.id }) { item ->
+                val bmp = loadedBitmaps[item.id]
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(70.dp, 45.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.White)
+                                    .border(1.dp, Color(0xFFCBD5E1), RoundedCornerShape(8.dp))
+                                    .padding(4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (bmp != null) {
+                                    Image(
+                                        bitmap = bmp.asImageBitmap(),
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(if (item.type == "SIGNATURE") Color(0xFFEFF6FF) else Color(0xFFFEF2F2))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = if (item.type == "SIGNATURE") "✍️ SIGN" else "🔴 STAMP",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (item.type == "SIGNATURE") Color(0xFF2563EB) else Color(0xFFDC2626)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date(item.timestamp)),
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF64748B)
+                                )
+                            }
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = {
+                                    scope.launch {
+                                        SignatureVaultManager.delete(context, item.id)
+                                        refreshVault()
+                                    }
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete",
+                                    tint = Color(0xFFEF4444),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Button(
+                                onClick = {
+                                    if (bmp != null) {
+                                        onApplyToDocument(bmp)
+                                    }
+                                },
+                                enabled = bmp != null,
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text("Use", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
                         }
                     }
                 }

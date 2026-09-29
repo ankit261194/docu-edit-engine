@@ -25,11 +25,31 @@ class ScannerOverlayView @JvmOverloads constructor(
     private var isStable: Boolean = false
     private var frameWidth: Int = 1
     private var frameHeight: Int = 1
+    var isIdCardMode: Boolean = false
+    var idCardGuideText: String = "ALIGN ID CARD FRONT"
 
     private val polygonPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 6f
         pathEffect = CornerPathEffect(16f)
+    }
+
+    private val idCardFramePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 6f
+        color = Color.rgb(56, 189, 248) // Vibrant Sky Blue / Cyan
+    }
+
+    private val idCardScrimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.argb(130, 0, 0, 0)
+    }
+
+    private val idCardTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textSize = 38f
+        isFakeBoldText = true
+        textAlign = Paint.Align.CENTER
     }
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -56,8 +76,34 @@ class ScannerOverlayView @JvmOverloads constructor(
         postInvalidateOnAnimation()
     }
 
+    fun getIdCardRect(): android.graphics.RectF {
+        val cardAspect = 85.6f / 53.98f
+        val cardW = width * 0.88f
+        val cardH = cardW / cardAspect
+        val l = (width - cardW) / 2f
+        val t = (height - cardH) / 2f - 40f
+        return android.graphics.RectF(l, t, l + cardW, t + cardH)
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+
+        if (isIdCardMode) {
+            val cardRect = getIdCardRect()
+            // Draw darkened scrim areas around the card rectangle
+            canvas.drawRect(0f, 0f, width.toFloat(), cardRect.top, idCardScrimPaint)
+            canvas.drawRect(0f, cardRect.bottom, width.toFloat(), height.toFloat(), idCardScrimPaint)
+            canvas.drawRect(0f, cardRect.top, cardRect.left, cardRect.bottom, idCardScrimPaint)
+            canvas.drawRect(cardRect.right, cardRect.top, width.toFloat(), cardRect.bottom, idCardScrimPaint)
+
+            // Draw glowing rounded border
+            canvas.drawRoundRect(cardRect, 28f, 28f, idCardFramePaint)
+
+            // Draw hint text above the frame
+            canvas.drawText(idCardGuideText, width / 2f, cardRect.top - 24f, idCardTextPaint)
+            return
+        }
+
         val pts = corners ?: return
 
         val scaleX = width.toFloat() / frameWidth

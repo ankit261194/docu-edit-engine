@@ -82,7 +82,10 @@ class LiveCameraScannerActivity : ComponentActivity() {
     private var isTorchOn = false
     private var isCapturing = false
 
+    enum class ScannerMode { SINGLE, BATCH, ID_CARD }
+    private var scannerMode = ScannerMode.SINGLE
     private var isBatchMode = false
+    private var idCardFrontBitmap: Bitmap? = null
     private val batchCapturedPaths = ArrayList<String>()
     private lateinit var batchModeChip: TextView
     private lateinit var finishBatchChip: TextView
@@ -487,6 +490,11 @@ class LiveCameraScannerActivity : ComponentActivity() {
     private fun handleFrameResult(corners: DocumentCorners?, frameW: Int, frameH: Int) {
         if (isCapturing || cropLoupeOverlayView.visibility == View.VISIBLE) return
 
+        if (scannerMode == ScannerMode.ID_CARD) {
+            statusText.text = if (idCardFrontBitmap == null) "🪪 Align ID card FRONT in frame" else "🪪 Align ID card BACK in frame"
+            return
+        }
+
         if (corners != null) {
             if (isCornersStable(corners, lastCorners)) {
                 stableFrameCount++
@@ -600,6 +608,53 @@ class LiveCameraScannerActivity : ComponentActivity() {
                             bottomRight = PointF(fullBitmap.width - marginX, fullBitmap.height - marginY),
                             bottomLeft = PointF(marginX, fullBitmap.height - marginY)
                         )
+                    }
+
+                    if (scannerMode == ScannerMode.ID_CARD) {
+                        val cardRect = overlayView.getIdCardRect()
+                        val scaleX = fullBitmap.width.toFloat() / overlayView.width.coerceAtLeast(1)
+                        val scaleY = fullBitmap.height.toFloat() / overlayView.height.coerceAtLeast(1)
+                        val cropL = (cardRect.left * scaleX).toInt().coerceIn(0, fullBitmap.width - 10)
+                        val cropT = (cardRect.top * scaleY).toInt().coerceIn(0, fullBitmap.height - 10)
+                        val cropW = (cardRect.width() * scaleX).toInt().coerceIn(10, fullBitmap.width - cropL)
+                        val cropH = (cardRect.height() * scaleY).toInt().coerceIn(10, fullBitmap.height - cropT)
+                        val cardCrop = Bitmap.createBitmap(fullBitmap, cropL, cropT, cropW, cropH)
+                        fullBitmap.recycle()
+
+                        if (idCardFrontBitmap == null) {
+                            idCardFrontBitmap = cardCrop
+                            withContext(Dispatchers.Main) {
+                                overlayView.idCardGuideText = "ALIGN ID CARD BACK"
+                                overlayView.invalidate()
+                                statusText.text = "✅ Front captured! Flip & align BACK side"
+                                isCapturing = false
+                                vibrate()
+                            }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                statusText.text = "⚡ Auto-stitching ID card to A4 page..."
+                            }
+                            val front = idCardFrontBitmap!!
+                            val stitchedA4 = com.docu.editor.core.scanner.IdCardStitcher.stitchIdCardToA4(front, cardCrop)
+                            front.recycle()
+                            idCardFrontBitmap = null
+                            cardCrop.recycle()
+
+                            val outFile = File(cacheDir, "scanned_idcard_${System.currentTimeMillis()}.jpg")
+                            FileOutputStream(outFile).use { fos ->
+                                stitchedA4.compress(Bitmap.CompressFormat.JPEG, 94, fos)
+                            }
+                            stitchedA4.recycle()
+
+                            withContext(Dispatchers.Main) {
+                                val resultIntent = Intent().apply {
+                                    putExtra(EXTRA_SCANNED_PATH, outFile.absolutePath)
+                                }
+                                setResult(Activity.RESULT_OK, resultIntent)
+                                finish()
+                            }
+                        }
+                        return@launch
                     }
 
                     if (isBatchMode) {
@@ -732,21 +787,49 @@ class LiveCameraScannerActivity : ComponentActivity() {
     }
 
     private fun toggleBatchMode() {
-        isBatchMode = !isBatchMode
-        if (isBatchMode) {
-            batchModeChip.text = "📚 BATCH"
-            batchModeChip.setTextColor(Color.rgb(56, 189, 248))
-            (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(56, 189, 248))
-            statusText.text = "Batch scan mode: Shoot sequence of pages"
-            if (batchCapturedPaths.isNotEmpty()) {
-                finishBatchChip.visibility = View.VISIBLE
+        scannerMode = when (scannerMode) {
+            ScannerMode.SINGLE -> ScannerMode.BATCH
+            ScannerMode.BATCH -> ScannerMode.ID_CARD
+            ScannerMode.ID_CARD -> ScannerMode.SINGLE
+        }
+        isBatchMode = (scannerMode == ScannerMode.BATCH)
+
+        when (scannerMode) {
+            ScannerMode.SINGLE -> {
+                batchModeChip.text = "📄 SINGLE"
+                batchModeChip.setTextColor(Color.WHITE)
+                (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.argb(120, 255, 255, 255))
+                statusText.text = "Point camera at document..."
+                finishBatchChip.visibility = View.GONE
+                overlayView.isIdCardMode = false
+                overlayView.invalidate()
+                idCardFrontBitmap?.recycle()
+                idCardFrontBitmap = null
             }
-        } else {
-            batchModeChip.text = "📄 SINGLE"
-            batchModeChip.setTextColor(Color.WHITE)
-            (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.argb(120, 255, 255, 255))
-            statusText.text = "Point camera at document..."
-            finishBatchChip.visibility = View.GONE
+            ScannerMode.BATCH -> {
+                batchModeChip.text = "📚 BATCH"
+                batchModeChip.setTextColor(Color.rgb(56, 189, 248))
+                (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(56, 189, 248))
+                statusText.text = "Batch scan mode: Shoot sequence of pages"
+                if (batchCapturedPaths.isNotEmpty()) {
+                    finishBatchChip.visibility = View.VISIBLE
+                }
+                overlayView.isIdCardMode = false
+                overlayView.invalidate()
+                idCardFrontBitmap?.recycle()
+                idCardFrontBitmap = null
+            }
+            ScannerMode.ID_CARD -> {
+                batchModeChip.text = "🪪 ID CARD"
+                batchModeChip.setTextColor(Color.rgb(251, 146, 60))
+                (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(251, 146, 60))
+                statusText.text = "🪪 Align front of ID card in frame"
+                finishBatchChip.visibility = View.GONE
+                overlayView.isIdCardMode = true
+                overlayView.idCardGuideText = "ALIGN ID CARD FRONT"
+                overlayView.invalidate()
+                idCardFrontBitmap = null
+            }
         }
     }
 

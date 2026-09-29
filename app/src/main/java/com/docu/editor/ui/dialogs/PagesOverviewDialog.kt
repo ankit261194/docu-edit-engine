@@ -21,6 +21,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -52,6 +54,7 @@ fun PagesOverviewDialog(
     pageThumbnails: Map<Int, Bitmap>,
     onSelectPage: (Int) -> Unit,
     onDeletePage: (Int) -> Unit,
+    onMovePage: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
     onDismiss: () -> Unit
 ) {
     Dialog(
@@ -194,17 +197,45 @@ fun PagesOverviewDialog(
                                         color = if (isCurrent) Color(0xFF2563EB) else MaterialTheme.colorScheme.onSurface
                                     )
 
-                                    if (pageCount > 1) {
-                                        IconButton(
-                                            onClick = { onDeletePage(index) },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Delete,
-                                                contentDescription = "Delete Page",
-                                                tint = Color(0xFFEF4444),
-                                                modifier = Modifier.size(16.dp)
-                                            )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (index > 0) {
+                                            IconButton(
+                                                onClick = { onMovePage(index, index - 1) },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                                    contentDescription = "Move Earlier",
+                                                    tint = Color(0xFF64748B),
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                            }
+                                        }
+                                        if (index < pageCount - 1) {
+                                            IconButton(
+                                                onClick = { onMovePage(index, index + 1) },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                                    contentDescription = "Move Later",
+                                                    tint = Color(0xFF64748B),
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                            }
+                                        }
+                                        if (pageCount > 1) {
+                                            IconButton(
+                                                onClick = { onDeletePage(index) },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Delete,
+                                                    contentDescription = "Delete Page",
+                                                    tint = Color(0xFFEF4444),
+                                                    modifier = Modifier.size(15.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }

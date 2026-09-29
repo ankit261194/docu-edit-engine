@@ -3,6 +3,7 @@ package com.docu.editor.ui.canvas
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -44,8 +45,10 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -290,133 +293,172 @@ fun DocumentBottomBar(
                 }
             }
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
-            // Primary Bottom Action Dock (Scrollable CamScanner Suite)
+            // Tier 1: Category Selector Pills
+            var selectedCategory by remember { mutableStateOf(BottomBarCategory.EDIT_OCR) }
+
+            // Auto-switch category based on active tools
+            LaunchedEffect(activeMode, showFiltersRow) {
+                if (showFiltersRow) {
+                    selectedCategory = BottomBarCategory.ENHANCE_FILTER
+                } else if (activeMode in listOf(EditorToolMode.TEXT_EDIT, EditorToolMode.ADD_TEXT, EditorToolMode.WHITEOUT, EditorToolMode.LASSO_SELECT)) {
+                    selectedCategory = BottomBarCategory.EDIT_OCR
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                BottomBarCategory.values().forEach { cat ->
+                    val isCatSelected = (selectedCategory == cat)
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isCatSelected) Color(0xFFEFF6FF) else Color(0xFFF8FAFC))
+                            .border(
+                                1.dp,
+                                if (isCatSelected) Color(0xFF2563EB) else Color(0xFFE2E8F0),
+                                RoundedCornerShape(8.dp)
+                            )
+                            .clickable {
+                                selectedCategory = cat
+                                if (cat == BottomBarCategory.ENHANCE_FILTER && !showFiltersRow) {
+                                    onModeSelected(EditorToolMode.FILTERS)
+                                }
+                            }
+                            .padding(vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = cat.title,
+                            fontSize = 10.5.sp,
+                            fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isCatSelected) Color(0xFF1D4ED8) else Color(0xFF64748B),
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Tier 2: Category Action Dock
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
                     .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 1. Edit Text
-                ToolDockButton(
-                    icon = Icons.Default.Edit,
-                    label = "Edit Text",
-                    isSelected = activeMode == EditorToolMode.TEXT_EDIT,
-                    onClick = { onModeSelected(EditorToolMode.TEXT_EDIT) }
-                )
-
-                // 2. Extract Text (CamScanner OCR)
-                ToolDockButton(
-                    icon = Icons.Default.Description,
-                    label = "Extract Text",
-                    isSelected = false,
-                    onClick = onExtractTextClicked
-                )
-
-                // 3. CamScanner Magic Color Filters
-                ToolDockButton(
-                    icon = Icons.Default.AutoFixHigh,
-                    label = "Magic Filters",
-                    isSelected = showFiltersRow,
-                    onClick = {
-                        onModeSelected(EditorToolMode.FILTERS)
+                when (selectedCategory) {
+                    BottomBarCategory.EDIT_OCR -> {
+                        ToolDockButton(
+                            icon = Icons.Default.Edit,
+                            label = "Edit Text",
+                            isSelected = activeMode == EditorToolMode.TEXT_EDIT,
+                            onClick = { onModeSelected(EditorToolMode.TEXT_EDIT) }
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Description,
+                            label = "Extract OCR",
+                            isSelected = false,
+                            onClick = onExtractTextClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Check,
+                            label = "Add Text",
+                            isSelected = activeMode == EditorToolMode.ADD_TEXT,
+                            onClick = { onModeSelected(EditorToolMode.ADD_TEXT) }
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Clear,
+                            label = "Whiteout",
+                            isSelected = activeMode == EditorToolMode.WHITEOUT,
+                            onClick = { onModeSelected(EditorToolMode.WHITEOUT) }
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.SelectAll,
+                            label = "Lasso",
+                            isSelected = activeMode == EditorToolMode.LASSO_SELECT,
+                            onClick = { onModeSelected(EditorToolMode.LASSO_SELECT) }
+                        )
                     }
-                )
-
-                // 4. Sign & Stamp (CamScanner Signature)
-                ToolDockButton(
-                    icon = Icons.Default.Draw,
-                    label = "Sign & Stamp",
-                    isSelected = false,
-                    onClick = onSignatureClicked
-                )
-
-                // 5. Crop & Deskew (8-Point Loupe Crop)
-                ToolDockButton(
-                    icon = Icons.Default.Crop,
-                    label = "Crop / Deskew",
-                    isSelected = false,
-                    onClick = onInteractiveCropClicked
-                )
-
-                // 6. Lasso Select
-                ToolDockButton(
-                    icon = Icons.Default.SelectAll,
-                    label = "Lasso Select",
-                    isSelected = activeMode == EditorToolMode.LASSO_SELECT,
-                    onClick = { onModeSelected(EditorToolMode.LASSO_SELECT) }
-                )
-
-                // 7. Add Text Box
-                ToolDockButton(
-                    icon = Icons.Default.Check,
-                    label = "Add Text",
-                    isSelected = activeMode == EditorToolMode.ADD_TEXT,
-                    onClick = { onModeSelected(EditorToolMode.ADD_TEXT) }
-                )
-
-                // 8. Whiteout / Eraser
-                ToolDockButton(
-                    icon = Icons.Default.Clear,
-                    label = "Whiteout",
-                    isSelected = activeMode == EditorToolMode.WHITEOUT,
-                    onClick = { onModeSelected(EditorToolMode.WHITEOUT) }
-                )
-
-                // 9. Watermark
-                ToolDockButton(
-                    icon = Icons.Default.Security,
-                    label = "Watermark",
-                    isSelected = false,
-                    onClick = onWatermarkClicked
-                )
-
-                // 10. Rotate 90°
-                ToolDockButton(
-                    icon = Icons.AutoMirrored.Filled.RotateRight,
-                    label = "Rotate 90°",
-                    isSelected = false,
-                    onClick = onRotateClicked
-                )
-
-                // 11. Multi-Page Overview
-                ToolDockButton(
-                    icon = Icons.Default.Layers,
-                    label = "Pages",
-                    isSelected = false,
-                    onClick = onPagesOverviewClicked
-                )
-
-                // 12. Book Curve Dewarp
-                ToolDockButton(
-                    icon = Icons.AutoMirrored.Filled.MenuBook,
-                    label = "Book Dewarp",
-                    isSelected = false,
-                    onClick = onBookDewarpClicked
-                )
-
-                // 13. PDF Toolbox & Compression
-                ToolDockButton(
-                    icon = Icons.Default.Compress,
-                    label = "Compress",
-                    isSelected = false,
-                    onClick = onCompressClicked
-                )
-
-                // 14. Save / Share
-                ToolDockButton(
-                    icon = Icons.Default.Share,
-                    label = "Save / Share",
-                    isSelected = false,
-                    onClick = onExportClicked
-                )
+                    BottomBarCategory.ENHANCE_FILTER -> {
+                        ToolDockButton(
+                            icon = Icons.Default.AutoFixHigh,
+                            label = "Magic Filters",
+                            isSelected = showFiltersRow,
+                            onClick = { onModeSelected(EditorToolMode.FILTERS) }
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Crop,
+                            label = "Crop / Deskew",
+                            isSelected = false,
+                            onClick = onInteractiveCropClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.AutoMirrored.Filled.RotateRight,
+                            label = "Rotate 90°",
+                            isSelected = false,
+                            onClick = onRotateClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.AutoMirrored.Filled.MenuBook,
+                            label = "Book Dewarp",
+                            isSelected = false,
+                            onClick = onBookDewarpClicked
+                        )
+                    }
+                    BottomBarCategory.SIGN_PROTECT -> {
+                        ToolDockButton(
+                            icon = Icons.Default.Draw,
+                            label = "Sign & Stamp",
+                            isSelected = false,
+                            onClick = onSignatureClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Security,
+                            label = "Watermark",
+                            isSelected = false,
+                            onClick = onWatermarkClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Compress,
+                            label = "Compress PDF",
+                            isSelected = false,
+                            onClick = onCompressClicked
+                        )
+                    }
+                    BottomBarCategory.PAGES_SHARE -> {
+                        ToolDockButton(
+                            icon = Icons.Default.Layers,
+                            label = "Pages (${selectedLassoCount.let { "" }})",
+                            isSelected = false,
+                            onClick = onPagesOverviewClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Share,
+                            label = "Save & Share",
+                            isSelected = false,
+                            onClick = onExportClicked
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+enum class BottomBarCategory(val title: String) {
+    EDIT_OCR("✏️ Edit & OCR"),
+    ENHANCE_FILTER("✨ Enhance"),
+    SIGN_PROTECT("🖋️ Sign/Protect"),
+    PAGES_SHARE("📑 Pages/Share")
 }
 
 @Composable

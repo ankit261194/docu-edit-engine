@@ -586,6 +586,9 @@ class MainActivity : ComponentActivity() {
                                 onDeletePage = { index ->
                                     viewModel.deletePage(index)
                                 },
+                                onMovePage = { from, to ->
+                                    viewModel.movePage(from, to)
+                                },
                                 onDismiss = { viewModel.showPagesOverview(false) }
                             )
                         }
@@ -722,6 +725,26 @@ class MainActivity : ComponentActivity() {
                                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                         }
                                         startActivity(Intent.createChooser(shareIntent, "Share Extracted Text"))
+                                    }
+                                },
+                                onShareCsv = { csvContent ->
+                                    val csvFile = File(cacheDir, "table_export_${System.currentTimeMillis()}.csv")
+                                    try {
+                                        csvFile.writeText(csvContent)
+                                        val shareUri = FileProvider.getUriForFile(
+                                            this@MainActivity,
+                                            "${applicationContext.packageName}.fileprovider",
+                                            csvFile
+                                        )
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/csv"
+                                            putExtra(Intent.EXTRA_STREAM, shareUri)
+                                            putExtra(Intent.EXTRA_SUBJECT, "Document Table Export (.csv)")
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        startActivity(Intent.createChooser(shareIntent, "Open in Excel / Sheets"))
+                                    } catch (e: Exception) {
+                                        Toast.makeText(this@MainActivity, "Export CSV error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                                     }
                                 },
                                 onDismiss = { viewModel.showOcrTextExtractDialog(false) }

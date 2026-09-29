@@ -500,6 +500,67 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun movePage(fromIndex: Int, toIndex: Int) {
+        val state = _uiState.value
+        if (state.pdfPageCount <= 1) return
+        if (fromIndex !in 0 until state.pdfPageCount || toIndex !in 0 until state.pdfPageCount) return
+        if (fromIndex == toIndex) return
+
+        saveCurrentPageToCache()
+
+        val indices = (0 until state.pdfPageCount).toMutableList()
+        val movedIdx = indices.removeAt(fromIndex)
+        indices.add(toIndex, movedIdx)
+
+        val newEdited = mutableMapOf<Int, Bitmap>()
+        val newDetected = mutableMapOf<Int, List<DetectedTextItem>>()
+        val newUndos = mutableMapOf<Int, java.util.Stack<UndoStep>>()
+        val newRedos = mutableMapOf<Int, java.util.Stack<UndoStep>>()
+
+        for ((newPos, oldPos) in indices.withIndex()) {
+            editedPagesMap[oldPos]?.let { newEdited[newPos] = it }
+            pageDetectedItemsMap[oldPos]?.let { newDetected[newPos] = it }
+            pageUndoStacks[oldPos]?.let { newUndos[newPos] = it }
+            pageRedoStacks[oldPos]?.let { newRedos[newPos] = it }
+        }
+
+        editedPagesMap.clear()
+        editedPagesMap.putAll(newEdited)
+        pageDetectedItemsMap.clear()
+        pageDetectedItemsMap.putAll(newDetected)
+        pageUndoStacks.clear()
+        pageUndoStacks.putAll(newUndos)
+        pageRedoStacks.clear()
+        pageRedoStacks.putAll(newRedos)
+
+        val newBatch = if (state.batchScannedPaths.isNotEmpty()) {
+            val b = state.batchScannedPaths.toMutableList()
+            if (fromIndex in b.indices && toIndex in b.indices) {
+                val p = b.removeAt(fromIndex)
+                b.add(toIndex, p)
+            }
+            b
+        } else {
+            emptyList()
+        }
+
+        _uiState.update {
+            it.copy(
+                batchScannedPaths = newBatch,
+                currentPdfPageIndex = toIndex,
+                currentBatchIndex = toIndex,
+                hasUnsavedChanges = true,
+                successMessage = "Page moved to position ${toIndex + 1}"
+            )
+        }
+
+        if (state.activePdfUri != null) {
+            loadPdfPage(state.activePdfUri, toIndex)
+        } else if (newBatch.isNotEmpty()) {
+            loadBatchPage(toIndex)
+        }
+    }
+
     fun showPagesOverview(show: Boolean) {
         saveCurrentPageToCache()
         _uiState.update { it.copy(showPagesOverviewDialog = show) }
@@ -734,12 +795,33 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                                 colorHex = String.format("#%06X", (0xFFFFFF and effectiveInkColor))
                             )
                             if (cloudResult != null) {
-                                effectiveBold = cloudResult.optBoolean("is_bold", effectiveBold ?: false)
-                                val cloudInk = cloudResult.optString("ink_color_hex")
-                                if (!cloudInk.isNullOrEmpty()) {
-                                    try {
-                                        effectiveInkColor = Color.parseColor(cloudInk)
-                                    } catch (_: Exception) {}
+                                // 1. Direct Server-Side Inpainted Patch Stamp
+                                val serverPatchBase64 = cloudResult.optString("edited_patch_base64")
+                                if (!serverPatchBase64.isNullOrEmpty()) {
+                                    val patchBytes = Base64.decode(serverPatchBase64, Base64.DEFAULT)
+                                    val serverPatchBmp = BitmapFactory.decodeByteArray(patchBytes, 0, patchBytes.size)
+                                    if (serverPatchBmp != null) {
+                                        val resultBmp = currentBitmap.copy(Bitmap.Config.ARGB_8888, true)
+                                        val canvas = Canvas(resultBmp)
+                                        val pad = 40
+                                        val patchL = max(0, targetItem.boundingBox.left - pad)
+                                        val patchT = max(0, targetItem.boundingBox.top - pad)
+                                        canvas.drawBitmap(serverPatchBmp, patchL.toFloat(), patchT.toFloat(), null)
+                                        serverPatchBmp.recycle()
+                                        return@withContext resultBmp
+                                    }
+                                }
+
+                                // 2. Advisory Typography Metadata
+                                val typo = cloudResult.optJSONObject("typography")
+                                if (typo != null) {
+                                    effectiveBold = typo.optBoolean("is_bold", effectiveBold ?: false)
+                                    val cloudInk = typo.optString("ink_color_hex")
+                                    if (!cloudInk.isNullOrEmpty()) {
+                                        try {
+                                            effectiveInkColor = Color.parseColor(cloudInk)
+                                        } catch (_: Exception) {}
+                                    }
                                 }
                             }
                         } catch (_: Exception) {
@@ -925,7 +1007,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             val responseText = conn.inputStream.bufferedReader().use { it.readText() }
             val json = JSONObject(responseText)
             if (json.optBoolean("success")) {
-                return json.optJSONObject("typography")
+                return json
             }
         }
         return null

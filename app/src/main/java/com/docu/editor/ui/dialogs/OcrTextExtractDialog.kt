@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
@@ -52,13 +53,14 @@ import com.docu.editor.core.ocr.model.DetectedTextItem
 /**
  * Enterprise CamScanner-Grade OCR Text Extraction & Recognition Dialog.
  * Aggregates all recognized text in reading order, provides instant 1-tap "Copy All",
- * text search, and document export as plain text (.txt).
+ * text search, document export as plain text (.txt), and Table-to-Excel (.csv) structure export.
  */
 @Composable
 fun OcrTextExtractDialog(
     detectedItems: List<DetectedTextItem>,
     onCopyAll: (String) -> Unit,
     onShareTxt: (String) -> Unit,
+    onShareCsv: (String) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     // Reconstruct full text in natural reading order (line by line)
@@ -226,7 +228,7 @@ fun OcrTextExtractDialog(
                 // Bottom Action Buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Copy All to Clipboard
@@ -240,11 +242,11 @@ fun OcrTextExtractDialog(
                             .weight(1f)
                             .height(46.dp)
                     ) {
-                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "Copy All Text",
-                            fontSize = 13.sp,
+                            text = "Copy Text",
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White
                         )
@@ -260,16 +262,78 @@ fun OcrTextExtractDialog(
                             .weight(1f)
                             .height(46.dp)
                     ) {
-                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "Export as TXT",
-                            fontSize = 13.sp,
+                            text = "TXT File",
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // Export Table to Excel (CSV)
+                    Button(
+                        onClick = {
+                            val csv = convertDetectedItemsToCsv(detectedItems)
+                            onShareCsv(csv)
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                        modifier = Modifier
+                            .weight(1.15f)
+                            .height(46.dp)
+                    ) {
+                        Icon(Icons.Default.GridOn, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Excel (CSV)",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
                         )
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * CamScanner-Grade Table to Excel (CSV) tabular reconstruction algorithm.
+ * Groups detected OCR text items by their vertical row coordinates,
+ * sorts each row from left to right into columns, and generates standard CSV.
+ */
+private fun convertDetectedItemsToCsv(items: List<DetectedTextItem>): String {
+    if (items.isEmpty()) return ""
+    val sortedY = items.sortedBy { it.boundingBox.top }
+    val rows = mutableListOf<MutableList<DetectedTextItem>>()
+
+    for (item in sortedY) {
+        val matchingRow = rows.find { row ->
+            val avgCenterY = row.map { it.boundingBox.centerY() }.average()
+            val height = item.boundingBox.height().coerceAtLeast(18)
+            kotlin.math.abs(item.boundingBox.centerY() - avgCenterY) <= height * 0.65f
+        }
+        if (matchingRow != null) {
+            matchingRow.add(item)
+        } else {
+            rows.add(mutableListOf(item))
+        }
+    }
+
+    rows.sortBy { row -> row.minOf { it.boundingBox.top } }
+    val sb = StringBuilder()
+    for (row in rows) {
+        row.sortBy { it.boundingBox.left }
+        val line = row.joinToString(",") { item ->
+            val escaped = item.text.replace("\"", "\"\"")
+            if (escaped.contains(",") || escaped.contains("\"") || escaped.contains("\n")) {
+                "\"$escaped\""
+            } else {
+                escaped
+            }
+        }
+        sb.append(line).append("\n")
+    }
+    return sb.toString()
 }

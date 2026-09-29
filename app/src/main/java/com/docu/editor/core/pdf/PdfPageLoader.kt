@@ -13,7 +13,7 @@ object PdfPageLoader {
         context: Context,
         pdfUri: Uri,
         pageIndex: Int = 0,
-        renderScale: Float = 2.5f
+        renderScale: Float = 4.167f // 300 DPI Ultra-HD Commercial Print Quality (72 * 4.167 = 300)
     ): Bitmap = withContext(Dispatchers.IO) {
         val contentResolver = context.contentResolver
         val fileDescriptor = contentResolver.openFileDescriptor(pdfUri, "r")
@@ -22,13 +22,21 @@ object PdfPageLoader {
         val pdfRenderer = PdfRenderer(fileDescriptor)
         val page = pdfRenderer.openPage(pageIndex.coerceIn(0, pdfRenderer.pageCount - 1))
 
-        val width = (page.width * renderScale).toInt()
-        val height = (page.height * renderScale).toInt()
+        // Ensure max bounds fit within memory guard
+        val maxDim = 3200
+        val rawW = (page.width * renderScale).toInt()
+        val rawH = (page.height * renderScale).toInt()
+        val scale = if (rawW > maxDim || rawH > maxDim) {
+            minOf(maxDim.toFloat() / rawW, maxDim.toFloat() / rawH)
+        } else 1.0f
+
+        val width = (rawW * scale).toInt().coerceAtLeast(100)
+        val height = (rawH * scale).toInt().coerceAtLeast(100)
 
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         bitmap.eraseColor(android.graphics.Color.WHITE)
 
-        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
 
         page.close()
         pdfRenderer.close()

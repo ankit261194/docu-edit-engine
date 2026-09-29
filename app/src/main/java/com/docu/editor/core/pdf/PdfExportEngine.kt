@@ -41,9 +41,9 @@ object PdfExportEngine {
                     Pair(A4_WIDTH_PT, A4_HEIGHT_PT)
                 }
             } else {
-                // Scale at 72 DPI points based on bitmap dimensions
-                val w = (bitmap.width * 72f / 150f).toInt().coerceAtLeast(100)
-                val h = (bitmap.height * 72f / 150f).toInt().coerceAtLeast(100)
+                // Scale at 72 DPI points based on 300 DPI bitmap dimensions
+                val w = (bitmap.width * 72f / 300f).toInt().coerceAtLeast(100)
+                val h = (bitmap.height * 72f / 300f).toInt().coerceAtLeast(100)
                 Pair(w, h)
             }
 
