@@ -108,7 +108,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         if (OpenCVLoader.initLocal()) {
-            Log.i("MainActivity", "OpenCV loaded successfully.")
+            Log.i("MainActivity", "OpenCV loaded successfully via initLocal.")
+        } else if (OpenCVLoader.initDebug()) {
+            Log.i("MainActivity", "OpenCV loaded successfully via initDebug.")
         } else {
             Log.e("MainActivity", "OpenCV failed to load.")
         }

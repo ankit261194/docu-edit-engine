@@ -113,17 +113,8 @@ object AutoFitFontCondenser {
             fontMetrics.descent - fontMetrics.ascent
         }
 
-        val baselineY = if (lineCount == 1) {
-            // Re-measure full text ink bounds to get exact baseline placement
-            val textInkBounds = Rect()
-            paint.getTextBounds(text, 0, text.length, textInkBounds)
-            // Align glyph ink bottom directly with targetBounds.bottom with 1px margin
-            (targetBounds.bottom.toFloat() - textInkBounds.bottom - 1f)
-                .coerceIn(targetBounds.top.toFloat() - fontMetrics.ascent, targetBounds.bottom.toFloat() - 1f)
-        } else {
-            val topY = targetBounds.centerY().toFloat() - totalTextHeight / 2f
-            topY - fontMetrics.ascent
-        }
+        val topY = targetBounds.centerY().toFloat() - totalTextHeight / 2f
+        val baselineY = topY - fontMetrics.ascent
 
         return AdjustedTypography(
             fontSize = fontSize,

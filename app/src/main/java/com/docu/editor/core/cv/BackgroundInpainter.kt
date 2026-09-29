@@ -39,12 +39,10 @@ class BackgroundInpainter {
             return@withContext sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
         }
 
-        // 1. Primary Inpainter: High-precision OpenCV Telea Fast Marching.
-        // Erases strictly the ink strokes, preserving 100% of underlying paper texture, lines, and gradients without rectangular whiteout boxes!
-        try {
-            return@withContext WatermarkPreservingInpainter.inpaintWatermarkBackground(sourceBitmap, safeTarget)
-        } catch (_: Throwable) {
-            // Fallback to ambient paper reconstruction below
+        if (WatermarkPreservingInpainter.hasComplexBackground(sourceBitmap, safeTarget)) {
+            try {
+                return@withContext WatermarkPreservingInpainter.inpaintWatermarkBackground(sourceBitmap, safeTarget)
+            } catch (_: Throwable) {}
         }
 
         // 1. Sample ambient paper color from the perimeter of the target box (excluding ink)
