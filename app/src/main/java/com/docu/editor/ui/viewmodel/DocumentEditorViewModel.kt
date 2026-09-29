@@ -169,8 +169,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             try {
                 val context = getApplication<Application>()
                 val mimeType = context.contentResolver.getType(uri)
+                val isPdf = mimeType == "application/pdf" ||
+                    uri.toString().endsWith(".pdf", ignoreCase = true) ||
+                    uri.path?.endsWith(".pdf", ignoreCase = true) == true
 
-                if (mimeType == "application/pdf") {
+                if (isPdf) {
                     val pageCount = PdfPageLoader.getPageCount(context, uri)
                     _uiState.update {
                         it.copy(
@@ -269,25 +272,52 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     fun passwordProtectAndExport(password: String) {
         val context = getApplication<Application>()
+        saveCurrentPageToCache()
+
         viewModelScope.launch {
             _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Encrypting PDF with AES-128...", showPdfToolboxDialog = false) }
             try {
                 val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 val time = System.currentTimeMillis()
                 val outFile = File(downloadsDir, "DocuEdit_Protected_$time.pdf")
+                val current = _uiState.value.currentBitmap ?: throw IllegalStateException("No active document")
+                val tempSource = File(context.cacheDir, "temp_to_protect_$time.pdf")
+                val state = _uiState.value
 
-                val sourceUri = _uiState.value.activePdfUri ?: run {
-                    val current = _uiState.value.currentBitmap ?: throw IllegalStateException("No active document")
-                    val tempSource = File(context.cacheDir, "temp_to_protect_$time.pdf")
-                    PdfExportEngine.exportBitmapToPdf(current, tempSource, true, _uiState.value.detectedItems)
-                    Uri.fromFile(tempSource)
+                if (state.pdfPageCount > 1) {
+                    val allPages = mutableListOf<Bitmap>()
+                    val allItems = mutableMapOf<Int, List<DetectedTextItem>>()
+
+                    for (i in 0 until state.pdfPageCount) {
+                        val pageBmp = editedPagesMap[i] ?: run {
+                            if (state.activePdfUri != null) {
+                                PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, i)
+                            } else if (state.batchScannedPaths.size > i) {
+                                BitmapFactory.decodeFile(state.batchScannedPaths[i])
+                            } else {
+                                current
+                            }
+                        } ?: current
+                        allPages.add(pageBmp)
+                        allItems[i] = pageDetectedItemsMap[i] ?: emptyList()
+                    }
+
+                    PdfExportEngine.exportBitmapsToMultiPagePdf(
+                        bitmaps = allPages,
+                        outputFile = tempSource,
+                        fitToA4 = true,
+                        pagesDetectedItems = allItems
+                    )
+                } else {
+                    PdfExportEngine.exportBitmapToPdf(current, tempSource, true, state.detectedItems)
                 }
 
                 PdfToolbox(context).passwordProtectPdf(
-                    sourceUri = sourceUri,
+                    sourceUri = Uri.fromFile(tempSource),
                     userPassword = password,
                     outputFile = outFile
                 )
+                tempSource.delete()
 
                 _uiState.update {
                     it.copy(

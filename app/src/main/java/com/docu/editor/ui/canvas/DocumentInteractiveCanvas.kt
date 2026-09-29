@@ -25,8 +25,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.RotateLeft
-import androidx.compose.material.icons.filled.RotateRight
+import androidx.compose.material.icons.automirrored.filled.RotateLeft
+import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -597,7 +597,7 @@ fun DocumentInteractiveCanvas(
                         modifier = Modifier.size(34.dp)
                     ) {
                         IconButton(onClick = { onOverlayRotateChanged(overlayRotation - 5f) }) {
-                            Icon(Icons.Default.RotateLeft, contentDescription = "Tilt Left", tint = Color(0xFF0F172A), modifier = Modifier.size(16.dp))
+                            Icon(Icons.AutoMirrored.Filled.RotateLeft, contentDescription = "Tilt Left", tint = Color(0xFF0F172A), modifier = Modifier.size(16.dp))
                         }
                     }
 
@@ -610,7 +610,7 @@ fun DocumentInteractiveCanvas(
                         modifier = Modifier.size(34.dp)
                     ) {
                         IconButton(onClick = { onOverlayRotateChanged(overlayRotation + 5f) }) {
-                            Icon(Icons.Default.RotateRight, contentDescription = "Tilt Right", tint = Color(0xFF0F172A), modifier = Modifier.size(16.dp))
+                            Icon(Icons.AutoMirrored.Filled.RotateRight, contentDescription = "Tilt Right", tint = Color(0xFF0F172A), modifier = Modifier.size(16.dp))
                         }
                     }
 

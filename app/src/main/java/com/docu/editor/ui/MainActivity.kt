@@ -427,7 +427,7 @@ class MainActivity : ComponentActivity() {
                                 overlayRotation = uiState.overlayRotation,
                                 onOverlayDragged = { dx, dy -> viewModel.updateOverlayPosition(dx, dy) },
                                 onOverlayScaleChanged = { sm -> viewModel.updateOverlayScale(sm) },
-                                onOverlayRotateChanged = { delta -> viewModel.rotateOverlayBy(delta) },
+                                onOverlayRotateChanged = { newRot -> viewModel.updateOverlayRotation(newRot) },
                                 onCommitOverlay = { viewModel.commitOverlayToDocument() },
                                 onCancelOverlay = { viewModel.cancelOverlay() },
                                 searchMatchingIndices = uiState.searchMatchingIndices,
