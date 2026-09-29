@@ -86,9 +86,9 @@ fun TextEditBottomSheet(
         FontMatcher.classifyFromMetrics(item.text, item.typography, item.boundingBox)
     }
     val autoDetectedBold = remember(item.id) {
-        item.typography.estimatedFontWeight == FontWeightEstimate.BOLD ||
-        item.typography.estimatedFontWeight == FontWeightEstimate.EXTRA_BOLD ||
-        item.typography.strokeWidthRatio >= 0.14f
+        item.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM) ||
+        item.typography.strokeWidthRatio >= 0.11f ||
+        item.typography.glyphDensity >= 0.22f
     }
 
     var editedText by remember(item.id) { mutableStateOf(item.text) }

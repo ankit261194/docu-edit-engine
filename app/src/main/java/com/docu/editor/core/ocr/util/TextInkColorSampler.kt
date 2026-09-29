@@ -51,35 +51,43 @@ object TextInkColorSampler {
         val textIsDarker = countBelow <= countAbove
 
         val mask = BooleanArray(pixels.size)
-        var sumR = 0L
-        var sumG = 0L
-        var sumB = 0L
-        var foregroundCount = 0
-
+        val foregroundColors = mutableListOf<Int>()
         for (i in pixels.indices) {
             val isForeground = if (textIsDarker) luminances[i] <= threshold else luminances[i] > threshold
             mask[i] = isForeground
 
             if (isForeground) {
-                val c = pixels[i]
-                sumR += (c shr 16) and 0xFF
-                sumG += (c shr 8) and 0xFF
-                sumB += c and 0xFF
-                foregroundCount++
+                foregroundColors.add(pixels[i])
             }
         }
 
-        val dominantColor = if (foregroundCount > 0) {
+        val dominantColor = if (foregroundColors.isNotEmpty()) {
+            val sortedByLuma = foregroundColors.sortedBy { c ->
+                val r = (c shr 16) and 0xFF
+                val g = (c shr 8) and 0xFF
+                val b = c and 0xFF
+                (0.299 * r + 0.587 * g + 0.114 * b).toInt()
+            }
+            val coreCount = (sortedByLuma.size * 0.50f).toInt().coerceAtLeast(1)
+            val coreSamples = sortedByLuma.take(coreCount)
+            var sumR = 0L
+            var sumG = 0L
+            var sumB = 0L
+            for (c in coreSamples) {
+                sumR += (c shr 16) and 0xFF
+                sumG += (c shr 8) and 0xFF
+                sumB += c and 0xFF
+            }
             Color.rgb(
-                (sumR / foregroundCount).toInt(),
-                (sumG / foregroundCount).toInt(),
-                (sumB / foregroundCount).toInt()
+                (sumR / coreSamples.size).toInt(),
+                (sumG / coreSamples.size).toInt(),
+                (sumB / coreSamples.size).toInt()
             )
         } else {
             Color.BLACK
         }
 
-        val foregroundRatio = foregroundCount.toFloat() / max(1, pixels.size)
+        val foregroundRatio = foregroundColors.size.toFloat() / max(1, pixels.size)
 
         return InkSampleResult(
             dominantRgb = dominantColor,

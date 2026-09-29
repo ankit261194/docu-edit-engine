@@ -25,10 +25,10 @@ object TypographyEstimator {
 
         val density = foregroundResult.foregroundRatio
         val weight = when {
-            strokeRatio > 0.22f || density > 0.38f -> FontWeightEstimate.EXTRA_BOLD
-            strokeRatio > 0.16f || density > 0.30f -> FontWeightEstimate.BOLD
-            strokeRatio > 0.12f || density > 0.22f -> FontWeightEstimate.MEDIUM
-            strokeRatio < 0.08f && density < 0.14f -> FontWeightEstimate.LIGHT
+            strokeRatio > 0.20f || density > 0.35f -> FontWeightEstimate.EXTRA_BOLD
+            strokeRatio > 0.13f || density > 0.23f -> FontWeightEstimate.BOLD
+            strokeRatio > 0.09f || density > 0.17f -> FontWeightEstimate.MEDIUM
+            strokeRatio < 0.07f && density < 0.13f -> FontWeightEstimate.LIGHT
             else -> FontWeightEstimate.REGULAR
         }
 
@@ -49,7 +49,7 @@ object TypographyEstimator {
             strokeWidthRatio = strokeRatio,
             glyphDensity = density,
             letterSpacingEm = trackingEm,
-            estimatedFontSizePx = height * 0.85f
+            estimatedFontSizePx = height * 1.35f
         )
     }
 

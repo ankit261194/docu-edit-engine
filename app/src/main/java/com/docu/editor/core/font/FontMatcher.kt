@@ -58,7 +58,9 @@ class FontMatcher(private val context: Context) {
         val isBold = forceBold ?: (
             metrics.estimatedFontWeight == FontWeightEstimate.BOLD ||
             metrics.estimatedFontWeight == FontWeightEstimate.EXTRA_BOLD ||
-            metrics.strokeWidthRatio >= 0.14f
+            metrics.estimatedFontWeight == FontWeightEstimate.MEDIUM ||
+            metrics.strokeWidthRatio >= 0.11f ||
+            metrics.glyphDensity >= 0.22f
         )
 
         val typeface = getDocumentTypeface(classification, isBold)
@@ -161,15 +163,11 @@ class FontMatcher(private val context: Context) {
                 (text.all { it.isDigit() || it == '-' || it == '/' || it == '.' } && charAspectRatio > 0.58f) -> {
                     FontClassification.MONOSPACE
                 }
-                // 2. Serif: certificates, formal letters, high density / stroke modulation
-                metrics.glyphDensity > 0.32f -> {
-                    FontClassification.SERIF
-                }
-                // 3. Calibri: compact modern office font (narrower proportions)
-                charAspectRatio < 0.48f -> {
+                // 2. Calibri: compact modern office font (narrower proportions)
+                charAspectRatio < 0.44f -> {
                     FontClassification.CALIBRI
                 }
-                // 4. Arial: standard 80% business invoices and forms
+                // 3. Sans-serif: standard Arial (default for 95%+ of business invoices, forms, and documents)
                 else -> {
                     FontClassification.SANS_SERIF
                 }

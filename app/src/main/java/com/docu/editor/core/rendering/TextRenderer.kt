@@ -50,7 +50,7 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
             color = solidInk
             typeface = matchedFont.typeface
-            isFakeBoldText = false // Never double-bold; matchedFont already has genuine typographer's bold TTF
+            isFakeBoldText = matchedFont.isBold && !matchedFont.typeface.isBold
             style = Paint.Style.FILL
         }
 

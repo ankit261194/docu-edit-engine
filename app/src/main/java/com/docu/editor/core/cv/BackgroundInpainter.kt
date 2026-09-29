@@ -39,11 +39,12 @@ class BackgroundInpainter {
             return@withContext sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
         }
 
-        // Automatic Watermark & Security Background Protection:
-        // If the area contains watermark lines, guilloche waves, or colored stamps,
-        // use Telea Fast Marching inpainting on ink strokes to keep watermark unbroken!
-        if (WatermarkPreservingInpainter.hasComplexBackground(sourceBitmap, safeTarget)) {
+        // 1. Primary Inpainter: High-precision OpenCV Telea Fast Marching.
+        // Erases strictly the ink strokes, preserving 100% of underlying paper texture, lines, and gradients without rectangular whiteout boxes!
+        try {
             return@withContext WatermarkPreservingInpainter.inpaintWatermarkBackground(sourceBitmap, safeTarget)
+        } catch (_: Throwable) {
+            // Fallback to ambient paper reconstruction below
         }
 
         // 1. Sample ambient paper color from the perimeter of the target box (excluding ink)
@@ -161,12 +162,7 @@ class BackgroundInpainter {
             cleanVertical ?: Color.WHITE
         }
 
-        // If the paper is generally white/light (luma > 200), clamp to pure clean paper white so ZERO gray smudge appears!
-        val finalColor = if (getLuminance(baseColor) > 205) {
-            Color.rgb(255, 255, 255)
-        } else {
-            baseColor
-        }
+        val finalColor = baseColor
 
         return PaperSampleResult(
             topColor = finalColor,
