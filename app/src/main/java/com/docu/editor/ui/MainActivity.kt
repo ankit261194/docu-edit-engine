@@ -157,8 +157,9 @@ class MainActivity : ComponentActivity() {
                             viewModel.loadBatchScannedPages(batchPaths)
                         } else {
                             val path = result.data?.getStringExtra(LiveCameraScannerActivity.EXTRA_SCANNED_PATH)
+                            val autoMagic = result.data?.getBooleanExtra(LiveCameraScannerActivity.EXTRA_AUTO_MAGIC_COLOR, true) ?: true
                             if (!path.isNullOrBlank()) {
-                                viewModel.loadScannedDocument(path)
+                                viewModel.loadScannedDocument(path, autoApplyMagicColor = autoMagic)
                             }
                         }
                     }
@@ -169,7 +170,7 @@ class MainActivity : ComponentActivity() {
                     contract = ActivityResultContracts.TakePicture()
                 ) { success ->
                     if (success) {
-                        tempCameraUri?.let { viewModel.loadDocumentUri(it) }
+                        tempCameraUri?.let { viewModel.loadDocumentUri(it, autoApplyMagicColor = true) }
                     }
                 }
 
@@ -885,9 +886,7 @@ class MainActivity : ComponentActivity() {
 
     private fun loadBitmapDirect(uri: Uri): android.graphics.Bitmap? {
         return try {
-            contentResolver.openInputStream(uri)?.use { stream ->
-                android.graphics.BitmapFactory.decodeStream(stream)
-            }
+            com.docu.editor.core.util.ExifBitmapUtil.decodeUriWithExif(this, uri, 2880)
         } catch (e: Exception) {
             null
         }

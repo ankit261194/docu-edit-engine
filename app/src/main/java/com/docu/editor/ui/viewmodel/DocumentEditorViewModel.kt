@@ -161,7 +161,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     // --- Loading Documents & Images ---
 
-    fun loadDocumentUri(uri: Uri) {
+    fun loadDocumentUri(uri: Uri, autoApplyMagicColor: Boolean = false) {
         editedPagesMap.clear()
         pageDetectedItemsMap.clear()
         pageUndoStacks.clear()
@@ -189,7 +189,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     val bitmap = withContext(Dispatchers.IO) {
                         PdfPageLoader.renderPageToBitmap(context, uri, 0)
                     }
-                    setDocumentBitmap(bitmap)
+                    setDocumentBitmap(bitmap, autoApplyMagicColor = false)
                 } else {
                     _uiState.update {
                         it.copy(
@@ -202,7 +202,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     val bitmap = withContext(Dispatchers.IO) {
                         loadOptimizedBitmapFromUri(uri)
                     }
-                    setDocumentBitmap(bitmap)
+                    setDocumentBitmap(bitmap, autoApplyMagicColor = autoApplyMagicColor)
                 }
             } catch (e: SecurityException) {
                 _uiState.update {
@@ -296,7 +296,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             if (state.activePdfUri != null) {
                                 PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, i)
                             } else if (state.batchScannedPaths.size > i) {
-                                BitmapFactory.decodeFile(state.batchScannedPaths[i])
+                                com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[i], 2880)
                             } else {
                                 current
                             }
@@ -419,11 +419,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 )
             }
             val bmp = withContext(Dispatchers.IO) {
-                BitmapFactory.decodeFile(paths[index])
+                com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(paths[index], 2880)
             }
             if (bmp != null) {
                 _uiState.update { it.copy(currentBatchIndex = index, currentPdfPageIndex = index) }
-                setDocumentBitmap(bmp)
+                setDocumentBitmap(bmp, autoApplyMagicColor = false)
             }
         }
     }
@@ -578,15 +578,15 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun loadScannedDocument(filePath: String) {
+    fun loadScannedDocument(filePath: String, autoApplyMagicColor: Boolean = true) {
         viewModelScope.launch {
             _uiState.update { it.copy(isScanning = true, processingMessage = "Loading scanned document...") }
             try {
                 val bitmap = withContext(Dispatchers.IO) {
-                    BitmapFactory.decodeFile(filePath)
+                    com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(filePath, 2880)
                 }
                 if (bitmap != null) {
-                    setDocumentBitmap(bitmap)
+                    setDocumentBitmap(bitmap, autoApplyMagicColor = autoApplyMagicColor)
                 } else {
                     _uiState.update { it.copy(isScanning = false, errorMessage = "Failed to open scanned document.") }
                 }
@@ -596,18 +596,27 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    private suspend fun setDocumentBitmap(bitmap: Bitmap) {
+    private suspend fun setDocumentBitmap(bitmap: Bitmap, autoApplyMagicColor: Boolean = false) {
         val optimized = withContext(Dispatchers.Default) {
             scaleDownIfNeeded(bitmap, maxDimension = 1920)
         }
 
+        val effectiveBitmap = if (autoApplyMagicColor) {
+            withContext(Dispatchers.Default) {
+                com.docu.editor.core.scanner.DocumentFilters.applyFilter(optimized, com.docu.editor.core.scanner.DocumentFilters.FilterType.MAGIC_COLOR)
+            }
+        } else {
+            optimized
+        }
+        val activeFilterMode = if (autoApplyMagicColor) DocumentFilterMode.MAGIC_COLOR else DocumentFilterMode.ORIGINAL
+
         _uiState.update {
             it.copy(
                 originalBitmap = optimized,
-                currentBitmap = optimized,
+                currentBitmap = effectiveBitmap,
                 isScanning = true,
                 processingMessage = "Analyzing text geometry...",
-                activeFilter = DocumentFilterMode.ORIGINAL,
+                activeFilter = activeFilterMode,
                 canUndo = false,
                 canRedo = false
             )
@@ -615,11 +624,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         clearUndoRedo()
 
         val items = withContext(Dispatchers.Default) {
-            ocrAnalyzer.detectTextBlocks(optimized, TextHierarchyLevel.LINE)
+            ocrAnalyzer.detectTextBlocks(effectiveBitmap, TextHierarchyLevel.LINE)
         }
 
         val pageIdx = _uiState.value.currentPdfPageIndex
-        editedPagesMap[pageIdx] = optimized
+        editedPagesMap[pageIdx] = effectiveBitmap
         pageDetectedItemsMap[pageIdx] = items
 
         _uiState.update {
@@ -636,7 +645,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             try {
                 val saved = DocumentHistoryManager.saveDocument(
                     context = context,
-                    bitmap = optimized,
+                    bitmap = effectiveBitmap,
                     pageCount = _uiState.value.pdfPageCount
                 )
                 _uiState.update { it.copy(currentDocHistoryId = saved.id) }
@@ -1336,7 +1345,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                                         if (state.activePdfUri != null) {
                                             PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, i)
                                         } else if (state.batchScannedPaths.size > i) {
-                                            BitmapFactory.decodeFile(state.batchScannedPaths[i])
+                                            com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[i], 2880)
                                         } else {
                                             current
                                         }
@@ -1915,7 +1924,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                                 if (state.activePdfUri != null) {
                                     PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, i)
                                 } else if (state.batchScannedPaths.size > i) {
-                                    BitmapFactory.decodeFile(state.batchScannedPaths[i])
+                                    com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[i], 2880)
                                 } else {
                                     current
                                 }
@@ -2300,29 +2309,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     private fun loadOptimizedBitmapFromUri(uri: Uri): Bitmap {
         val context = getApplication<Application>()
-        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use { stream ->
-            BitmapFactory.decodeStream(stream, null, options)
-        }
-
-        val maxDim = max(options.outWidth, options.outHeight)
-        var sampleSize = 1
-        val targetMax = 1920
-        while (maxDim / (sampleSize * 2) >= targetMax) {
-            sampleSize *= 2
-        }
-
-        val decodeOptions = BitmapFactory.Options().apply {
-            inSampleSize = sampleSize
-            inMutable = true
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
-
-        val bitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
-            BitmapFactory.decodeStream(stream, null, decodeOptions)
-        } ?: throw IllegalStateException("Could not read image bytes from $uri")
-
-        return bitmap
+        return com.docu.editor.core.util.ExifBitmapUtil.decodeUriWithExif(context, uri, 1920)
+            ?: throw IllegalStateException("Could not read image bytes from $uri")
     }
 
     private fun scaleDownIfNeeded(bitmap: Bitmap, maxDimension: Int): Bitmap {

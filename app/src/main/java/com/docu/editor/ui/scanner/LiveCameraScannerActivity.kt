@@ -617,7 +617,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
     private fun processCapturedPhotoAndReturn(photoFile: File, corners: DocumentCorners?) {
         CoroutineScope(Dispatchers.Default).launch {
             try {
-                val fullBitmap = decodeSampledBitmapFromFile(photoFile.absolutePath)
+                val fullBitmap = com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(photoFile.absolutePath, 2880)
                 photoFile.delete()
                 if (fullBitmap != null) {
                     val initialCorners = if (corners != null && analysisFrameW > 0 && analysisFrameH > 0) {
@@ -740,8 +740,27 @@ class LiveCameraScannerActivity : ComponentActivity() {
                             vibrate()
                         }
                     } else {
-                        withContext(Dispatchers.Main) {
-                            showCropLoupeReview(fullBitmap, initialCorners)
+                        if (corners != null && analysisFrameW > 0 && analysisFrameH > 0) {
+                            val warped = PerspectiveTransformer.warpPerspective(fullBitmap, initialCorners)
+                            val outFile = File(cacheDir, "scanned_doc_${System.currentTimeMillis()}.jpg")
+                            FileOutputStream(outFile).use { fos ->
+                                warped.compress(Bitmap.CompressFormat.JPEG, 94, fos)
+                            }
+                            if (warped != fullBitmap) warped.recycle()
+                            fullBitmap.recycle()
+
+                            withContext(Dispatchers.Main) {
+                                val resultIntent = Intent().apply {
+                                    putExtra(EXTRA_SCANNED_PATH, outFile.absolutePath)
+                                    putExtra(EXTRA_AUTO_MAGIC_COLOR, true)
+                                }
+                                setResult(Activity.RESULT_OK, resultIntent)
+                                finish()
+                            }
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                showCropLoupeReview(fullBitmap, initialCorners)
+                            }
                         }
                     }
                 }
@@ -809,6 +828,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 withContext(Dispatchers.Main) {
                     val resultIntent = Intent().apply {
                         putExtra(EXTRA_SCANNED_PATH, outFile.absolutePath)
+                        putExtra(EXTRA_AUTO_MAGIC_COLOR, true)
                     }
                     setResult(Activity.RESULT_OK, resultIntent)
                     finish()
@@ -941,5 +961,6 @@ class LiveCameraScannerActivity : ComponentActivity() {
     companion object {
         const val EXTRA_SCANNED_PATH = "extra_scanned_path"
         const val EXTRA_BATCH_PATHS = "extra_batch_paths"
+        const val EXTRA_AUTO_MAGIC_COLOR = "extra_auto_magic_color"
     }
 }
