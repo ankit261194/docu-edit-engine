@@ -71,6 +71,8 @@ import java.util.Stack
 import kotlin.math.max
 import kotlin.math.min
 
+private const val DOCU_CLOUD_TOKEN = "balaji_docu_secure_token_8971f92a3b4c"
+
 class DocumentEditorViewModel(application: Application) : AndroidViewModel(application) {
 
     private val ocrAnalyzer = OcrAnalyzer()
@@ -1361,28 +1363,29 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             val state = _uiState.value
 
                             if (state.pdfPageCount > 1) {
-                                val allPages = mutableListOf<Bitmap>()
                                 val allItems = mutableMapOf<Int, List<DetectedTextItem>>()
-
                                 for (i in 0 until state.pdfPageCount) {
-                                    val pageBmp = editedPagesMap[i] ?: run {
-                                        if (state.activePdfUri != null) {
-                                            PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, i)
-                                        } else if (state.batchScannedPaths.size > i) {
-                                            com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[i], 2880)
-                                        } else {
-                                            current
-                                        }
-                                    } ?: current
-                                    allPages.add(pageBmp)
                                     allItems[i] = pageDetectedItemsMap[i] ?: emptyList()
                                 }
 
-                                PdfExportEngine.exportBitmapsToMultiPagePdf(
-                                    bitmaps = allPages,
+                                PdfExportEngine.exportPagesStreamingToPdf(
+                                    pageCount = state.pdfPageCount,
+                                    pageBitmapProvider = { idx ->
+                                        val cached = editedPagesMap[idx]
+                                        if (cached != null) {
+                                            cached.copy(cached.config ?: Bitmap.Config.ARGB_8888, false)
+                                        } else if (state.activePdfUri != null) {
+                                            PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, idx)
+                                        } else if (state.batchScannedPaths.size > idx) {
+                                            com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[idx], 2880)
+                                        } else {
+                                            current.copy(current.config ?: Bitmap.Config.ARGB_8888, false)
+                                        }
+                                    },
                                     outputFile = outFile,
                                     fitToA4 = fitToA4,
-                                    pagesDetectedItems = allItems
+                                    pagesDetectedItems = allItems,
+                                    autoRecycleBitmaps = true
                                 )
                             } else {
                                 PdfExportEngine.exportBitmapToPdf(current, outFile, fitToA4, _uiState.value.detectedItems)
@@ -1957,6 +1960,32 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    /**
+     * Non-destructive markup reset: Restores current page back to clean base bitmap without losing document state.
+     * Can also be undone via undo button.
+     */
+    fun clearAllMarkupsOnCurrentPage() {
+        val original = _uiState.value.originalBitmap ?: return
+        val current = _uiState.value.currentBitmap ?: return
+        val pageIdx = _uiState.value.currentPdfPageIndex
+
+        // Push full patch so this reset can also be undone if desired!
+        val patchBmp = current.copy(current.config ?: Bitmap.Config.ARGB_8888, true)
+        pushUndoStep(UndoStep.PixelPatch(patchBmp, 0, 0))
+
+        val restored = original.copy(Bitmap.Config.ARGB_8888, true)
+        _uiState.update {
+            it.copy(
+                currentBitmap = restored,
+                canUndo = true,
+                canvasRevision = it.canvasRevision + 1,
+                successMessage = "🧹 Page markup cleared to base document."
+            )
+        }
+        editedPagesMap[pageIdx] = restored
+        updateRecentDocumentThumbnail(restored)
+    }
+
     // --- Gemini Custom API Key Configuration ---
 
     fun getGeminiApiKey(): String {
@@ -2046,25 +2075,32 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 val title = customTitle?.ifBlank { null } ?: "Document_$time"
 
                 val syncResult = withContext(Dispatchers.IO) {
-                    // 1. Export document to PDF in cache
+                    // 1. Export document to PDF in cache using O(1) memory streaming
                     val tempPdf = File(context.cacheDir, "cloud_sync_temp_$time.pdf")
                     if (state.pdfPageCount > 1) {
-                        val allPages = mutableListOf<Bitmap>()
                         val allItems = mutableMapOf<Int, List<DetectedTextItem>>()
                         for (i in 0 until state.pdfPageCount) {
-                            val pageBmp = editedPagesMap[i] ?: run {
-                                if (state.activePdfUri != null) {
-                                    PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, i)
-                                } else if (state.batchScannedPaths.size > i) {
-                                    com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[i], 2880)
-                                } else {
-                                    current
-                                }
-                            } ?: current
-                            allPages.add(pageBmp)
                             allItems[i] = pageDetectedItemsMap[i] ?: emptyList()
                         }
-                        PdfExportEngine.exportBitmapsToMultiPagePdf(allPages, tempPdf, true, allItems)
+                        PdfExportEngine.exportPagesStreamingToPdf(
+                            pageCount = state.pdfPageCount,
+                            pageBitmapProvider = { idx ->
+                                val cached = editedPagesMap[idx]
+                                if (cached != null) {
+                                    cached.copy(cached.config ?: Bitmap.Config.ARGB_8888, false)
+                                } else if (state.activePdfUri != null) {
+                                    PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, idx)
+                                } else if (state.batchScannedPaths.size > idx) {
+                                    com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[idx], 2880)
+                                } else {
+                                    current.copy(current.config ?: Bitmap.Config.ARGB_8888, false)
+                                }
+                            },
+                            outputFile = tempPdf,
+                            fitToA4 = true,
+                            pagesDetectedItems = allItems,
+                            autoRecycleBitmaps = true
+                        )
                     } else {
                         PdfExportEngine.exportBitmapToPdf(current, tempPdf, true, state.detectedItems)
                     }
@@ -2076,6 +2112,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     // 2. Call shribalajikripadham.online/api/docu_ai.php
                     val payload = JSONObject().apply {
                         put("action", "cloud_upload")
+                        put("token", DOCU_CLOUD_TOKEN)
                         put("file_base64", base64Data)
                         put("file_type", "pdf")
                         put("title", title)
@@ -2086,8 +2123,9 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     val conn = url.openConnection() as HttpURLConnection
                     conn.requestMethod = "POST"
                     conn.setRequestProperty("Content-Type", "application/json")
+                    conn.setRequestProperty("X-Docu-Token", DOCU_CLOUD_TOKEN)
                     conn.connectTimeout = 15000
-                    conn.readTimeout = 25000
+                    conn.readTimeout = 45000
                     conn.doOutput = true
 
                     conn.outputStream.use { os ->
@@ -2156,6 +2194,158 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         val context = getApplication<Application>()
         CloudBackupStore.deleteBackup(context, docId)
         _uiState.update { it.copy(canvasRevision = it.canvasRevision + 1) }
+
+        // Also delete from Hostinger server
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val payload = JSONObject().apply {
+                    put("action", "cloud_delete")
+                    put("token", DOCU_CLOUD_TOKEN)
+                    put("doc_id", docId)
+                }
+                val url = URL("https://shribalajikripadham.online/api/docu_ai.php")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.setRequestProperty("X-Docu-Token", DOCU_CLOUD_TOKEN)
+                conn.connectTimeout = 10000
+                conn.readTimeout = 15000
+                conn.doOutput = true
+                conn.outputStream.use { os ->
+                    os.write(payload.toString().toByteArray(Charsets.UTF_8))
+                }
+                conn.responseCode
+            } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * True Two-Way Cloud Sync: Restores a document from Hostinger Web Cloud back to the local device library.
+     */
+    fun restoreCloudDocumentToLibrary(
+        context: Context,
+        backupItem: CloudBackupItem,
+        onComplete: (Boolean, String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = true,
+                    processingMessage = "Restoring '${backupItem.title}' from Cloud..."
+                )
+            }
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val savedDir = File(context.filesDir, "saved_documents").apply { mkdirs() }
+                    val cleanDocId = backupItem.docId.replace(Regex("[^a-zA-Z0-9_-]"), "")
+                    val targetPdf = File(savedDir, "Doc_${cleanDocId}.pdf")
+
+                    // 1. Download file from server download_url
+                    val url = URL(backupItem.downloadUrl)
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 30000
+                    if (conn.responseCode != 200) {
+                        return@withContext Pair(false, "Download failed with HTTP ${conn.responseCode}")
+                    }
+
+                    conn.inputStream.use { input ->
+                        FileOutputStream(targetPdf).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+
+                    // 2. Generate thumbnail bitmap and register in DocumentHistoryManager
+                    val thumbBmp = try {
+                        PdfPageLoader.renderPageToBitmap(context, Uri.fromFile(targetPdf), 0)
+                    } catch (_: Exception) {
+                        null
+                    }
+
+                    DocumentHistoryManager.saveExistingDocumentFile(
+                        context = context,
+                        title = backupItem.title,
+                        filePath = targetPdf.absolutePath,
+                        thumbnailBitmap = thumbBmp,
+                        pageCount = maxOf(1, backupItem.pagesCount)
+                    )
+
+                    Pair(true, null)
+                } catch (e: Exception) {
+                    Pair(false, e.localizedMessage)
+                }
+            }
+
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = false,
+                    processingMessage = null,
+                    successMessage = if (result.first) "📥 Document '${backupItem.title}' restored to local library!" else null,
+                    errorMessage = if (!result.first) "Restore error: ${result.second}" else null
+                )
+            }
+            if (result.first) {
+                refreshRecentDocuments()
+            }
+            onComplete(result.first, result.second)
+        }
+    }
+
+    /**
+     * Synchronizes full document backup registry from Hostinger server to local phone storage.
+     */
+    fun fetchCloudBackupsFromServer(onComplete: (Int) -> Unit) {
+        viewModelScope.launch {
+            val count = withContext(Dispatchers.IO) {
+                try {
+                    val payload = JSONObject().apply {
+                        put("action", "cloud_list")
+                        put("token", DOCU_CLOUD_TOKEN)
+                    }
+                    val url = URL("https://shribalajikripadham.online/api/docu_ai.php")
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.requestMethod = "POST"
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.setRequestProperty("X-Docu-Token", DOCU_CLOUD_TOKEN)
+                    conn.connectTimeout = 12000
+                    conn.readTimeout = 15000
+                    conn.doOutput = true
+                    conn.outputStream.use { os ->
+                        os.write(payload.toString().toByteArray(Charsets.UTF_8))
+                    }
+                    if (conn.responseCode == 200) {
+                        val resp = conn.inputStream.bufferedReader().use { it.readText() }
+                        val json = JSONObject(resp)
+                        if (json.optBoolean("success")) {
+                            val docsArr = json.optJSONArray("documents")
+                            if (docsArr != null) {
+                                val context = getApplication<Application>()
+                                for (i in 0 until docsArr.length()) {
+                                    val obj = docsArr.getJSONObject(i)
+                                    val backupItem = CloudBackupItem(
+                                        docId = obj.optString("doc_id"),
+                                        title = obj.optString("title", "Document"),
+                                        shareUrl = obj.optString("share_url"),
+                                        downloadUrl = obj.optString("download_url"),
+                                        qrUrl = obj.optString("qr_url"),
+                                        fileSizeFormatted = obj.optString("file_size_formatted", ""),
+                                        pagesCount = obj.optInt("pages_count", 1),
+                                        timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+                                    )
+                                    CloudBackupStore.saveBackupItem(context, backupItem)
+                                }
+                                return@withContext docsArr.length()
+                            }
+                        }
+                    }
+                    0
+                } catch (_: Exception) {
+                    0
+                }
+            }
+            _uiState.update { it.copy(canvasRevision = it.canvasRevision + 1) }
+            onComplete(count)
+        }
     }
 
     /**
@@ -2195,22 +2385,29 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             val cleanName = if (rawName.endsWith(".pdf", ignoreCase = true)) rawName else "$rawName.pdf"
                             val outFile = File(cacheDir, cleanName)
                             if (state.pdfPageCount > 1) {
-                                val allPages = mutableListOf<Bitmap>()
                                 val allItems = mutableMapOf<Int, List<DetectedTextItem>>()
                                 for (i in 0 until state.pdfPageCount) {
-                                    val pageBmp = editedPagesMap[i] ?: run {
-                                        if (state.activePdfUri != null) {
-                                            PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, i)
-                                        } else if (state.batchScannedPaths.size > i) {
-                                            com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[i], 2880)
-                                        } else {
-                                            current
-                                        }
-                                    } ?: current
-                                    allPages.add(pageBmp)
                                     allItems[i] = pageDetectedItemsMap[i] ?: emptyList()
                                 }
-                                PdfExportEngine.exportBitmapsToMultiPagePdf(allPages, outFile, fitToA4, allItems)
+                                PdfExportEngine.exportPagesStreamingToPdf(
+                                    pageCount = state.pdfPageCount,
+                                    pageBitmapProvider = { idx ->
+                                        val cached = editedPagesMap[idx]
+                                        if (cached != null) {
+                                            cached.copy(cached.config ?: Bitmap.Config.ARGB_8888, false)
+                                        } else if (state.activePdfUri != null) {
+                                            PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, idx)
+                                        } else if (state.batchScannedPaths.size > idx) {
+                                            com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[idx], 2880)
+                                        } else {
+                                            current.copy(current.config ?: Bitmap.Config.ARGB_8888, false)
+                                        }
+                                    },
+                                    outputFile = outFile,
+                                    fitToA4 = fitToA4,
+                                    pagesDetectedItems = allItems,
+                                    autoRecycleBitmaps = true
+                                )
                             } else {
                                 PdfExportEngine.exportBitmapToPdf(current, outFile, fitToA4, state.detectedItems)
                             }
@@ -2324,6 +2521,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
                     val payload = JSONObject().apply {
                         put("action", "cloud_upload")
+                        put("token", DOCU_CLOUD_TOKEN)
                         put("file_base64", base64Data)
                         put("file_type", if (isPdf) "pdf" else "jpg")
                         put("title", doc.title)
@@ -2334,8 +2532,9 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     val conn = url.openConnection() as HttpURLConnection
                     conn.requestMethod = "POST"
                     conn.setRequestProperty("Content-Type", "application/json")
+                    conn.setRequestProperty("X-Docu-Token", DOCU_CLOUD_TOKEN)
                     conn.connectTimeout = 15000
-                    conn.readTimeout = 25000
+                    conn.readTimeout = 45000
                     conn.doOutput = true
 
                     conn.outputStream.use { os ->

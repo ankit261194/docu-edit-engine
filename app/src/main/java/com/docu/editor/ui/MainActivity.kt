@@ -907,7 +907,21 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onDeleteBackup = { docId ->
                                     viewModel.deleteCloudBackup(docId)
-                                    Toast.makeText(this@MainActivity, "Backup removed from list", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(this@MainActivity, "Backup deleted from cloud and list", Toast.LENGTH_SHORT).show()
+                                },
+                                onRestoreBackup = { item ->
+                                    viewModel.restoreCloudDocumentToLibrary(this@MainActivity, item) { success, err ->
+                                        if (success) {
+                                            Toast.makeText(this@MainActivity, "📥 '${item.title}' restored to Library!", Toast.LENGTH_LONG).show()
+                                        } else {
+                                            Toast.makeText(this@MainActivity, "Restore failed: $err", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                onRefreshCloud = {
+                                    viewModel.fetchCloudBackupsFromServer { count ->
+                                        Toast.makeText(this@MainActivity, "Cloud synchronized ($count documents)", Toast.LENGTH_SHORT).show()
+                                    }
                                 },
                                 onDismiss = { viewModel.showCloudBackupsListDialog(false) }
                             )

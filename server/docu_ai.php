@@ -5,9 +5,16 @@
  * Location: /public_html/api/docu_ai.php
  */
 
+@ini_set('upload_max_filesize', '128M');
+@ini_set('post_max_size', '128M');
+@ini_set('memory_limit', '256M');
+@ini_set('max_execution_time', '300');
+
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Docu-Token');
+
+define('DOCU_SEC_TOKEN', 'balaji_docu_secure_token_8971f92a3b4c');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
@@ -162,8 +169,19 @@ if (empty($action) || $action === 'ping') {
     exit;
 }
 
+function isAuthorizedRequest($data) {
+    $headerToken = $_SERVER['HTTP_X_DOCU_TOKEN'] ?? '';
+    $payloadToken = $data['token'] ?? '';
+    return ($headerToken === DOCU_SEC_TOKEN || $payloadToken === DOCU_SEC_TOKEN);
+}
+
 // Document Cloud Upload
 if ($action === 'cloud_upload') {
+    if (!isAuthorizedRequest($data)) {
+        http_response_code(401);
+        echo json_encode(['success' => false, 'error' => 'Unauthorized: Invalid access token']);
+        exit;
+    }
     $base64 = $data['file_base64'] ?? '';
     $fileType = strtolower($data['file_type'] ?? 'pdf');
     $title = trim($data['title'] ?? 'Document_' . time());
@@ -231,6 +249,11 @@ if ($action === 'cloud_upload') {
 
 // List Cloud Documents
 if ($action === 'cloud_list') {
+    if (!isAuthorizedRequest($data)) {
+        http_response_code(401);
+        echo json_encode(['success' => false, 'error' => 'Unauthorized: Invalid access token']);
+        exit;
+    }
     $registry = [];
     if (file_exists($metaFile)) {
         $registry = json_decode(file_get_contents($metaFile), true) ?: [];
@@ -248,6 +271,11 @@ if ($action === 'cloud_list') {
 
 // Delete Cloud Document
 if ($action === 'cloud_delete') {
+    if (!isAuthorizedRequest($data)) {
+        http_response_code(401);
+        echo json_encode(['success' => false, 'error' => 'Unauthorized: Invalid access token']);
+        exit;
+    }
     $docId = preg_replace('/[^a-zA-Z0-9_-]/', '', $data['doc_id'] ?? '');
     if (!empty($docId)) {
         $files = glob($storageDir . $docId . '.*');

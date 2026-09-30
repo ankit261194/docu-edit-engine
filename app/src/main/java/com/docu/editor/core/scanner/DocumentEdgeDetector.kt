@@ -65,6 +65,9 @@ object DocumentEdgeDetector {
         val closedMat = Mat()
         val blurredMat = Mat()
         val cannedMat = Mat()
+        val gradMat = Mat()
+        val otsuMat = Mat()
+        val combinedEdges = Mat()
         val dilatedMat = Mat()
 
         try {
@@ -82,12 +85,21 @@ object DocumentEdgeDetector {
             // 2. Gaussian blur to remove any remaining background high frequencies
             Imgproc.GaussianBlur(closedMat, blurredMat, Size(7.0, 7.0), 0.0)
 
-            // 3. Canny edge detection focused on strong paper borders
-            Imgproc.Canny(blurredMat, cannedMat, 30.0, 100.0)
+            // 3A. Canny edge detection focused on strong paper borders
+            Imgproc.Canny(blurredMat, cannedMat, 25.0, 90.0)
+
+            // 3B. Morphological Gradient + Otsu Thresholding (Guarantees detection on white paper on white/light desks)
+            val gradKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
+            Imgproc.morphologyEx(blurredMat, gradMat, Imgproc.MORPH_GRADIENT, gradKernel)
+            gradKernel.release()
+            Imgproc.threshold(gradMat, otsuMat, 0.0, 255.0, Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU)
+
+            // 3C. Bitwise OR: Combine Canny edges with shadow step boundary edges
+            org.opencv.core.Core.bitwise_or(cannedMat, otsuMat, combinedEdges)
 
             // 4. Dilate to seal any slight gaps on the paper edge
             val edgeKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
-            Imgproc.dilate(cannedMat, dilatedMat, edgeKernel)
+            Imgproc.dilate(combinedEdges, dilatedMat, edgeKernel)
             edgeKernel.release()
 
             // 5. Find outer contours
@@ -103,7 +115,7 @@ object DocumentEdgeDetector {
             hierarchy.release()
 
             val frameArea = procWidth * procHeight
-            val minArea = frameArea * 0.15 // Paper must occupy at least 15% of frame
+            val minArea = frameArea * 0.12 // Paper must occupy at least 12% of frame
             val maxAllowedArea = frameArea * 0.98
 
             var maxArea = 0.0
@@ -125,25 +137,33 @@ object DocumentEdgeDetector {
 
                 val hullMat = MatOfPoint2f(*hullPoints)
                 val peri = Imgproc.arcLength(hullMat, true)
-                val approx = MatOfPoint2f()
+                var foundQuad: Array<Point>? = null
 
-                // Approximate polygon
-                Imgproc.approxPolyDP(hullMat, approx, 0.025 * peri, true)
-                val approxCount = approx.total()
-
-                if (approxCount == 4L) {
-                    val mop = MatOfPoint(*approx.toArray())
-                    if (Imgproc.isContourConvex(mop) && contourArea > maxArea) {
-                        val pts = approx.toArray()
-                        if (isValidDocumentQuad(pts, procWidth, procHeight)) {
-                            maxArea = contourArea
-                            bestQuad = pts
+                // Adaptive multi-scale approximation: 0.02, 0.03, 0.045
+                for (eps in doubleArrayOf(0.02, 0.03, 0.045)) {
+                    val approx = MatOfPoint2f()
+                    Imgproc.approxPolyDP(hullMat, approx, eps * peri, true)
+                    if (approx.total() == 4L) {
+                        val mop = MatOfPoint(*approx.toArray())
+                        if (Imgproc.isContourConvex(mop)) {
+                            val pts = approx.toArray()
+                            if (isValidDocumentQuad(pts, procWidth, procHeight)) {
+                                foundQuad = pts
+                                mop.release()
+                                approx.release()
+                                break
+                            }
                         }
+                        mop.release()
                     }
-                    mop.release()
+                    approx.release()
                 }
 
-                approx.release()
+                if (foundQuad != null && contourArea > maxArea) {
+                    maxArea = contourArea
+                    bestQuad = foundQuad
+                }
+
                 hullMat.release()
                 contour.release()
             }
@@ -162,6 +182,9 @@ object DocumentEdgeDetector {
             closedMat.release()
             blurredMat.release()
             cannedMat.release()
+            gradMat.release()
+            otsuMat.release()
+            combinedEdges.release()
             dilatedMat.release()
         }
     }

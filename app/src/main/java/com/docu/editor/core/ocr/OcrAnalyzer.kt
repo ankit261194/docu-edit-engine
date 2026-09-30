@@ -47,6 +47,30 @@ class OcrAnalyzer {
             }
         }
 
+        // Secondary Pass: If raw image had poor lighting or faint ink, boost contrast and retry
+        if (visionText == null || visionText.textBlocks.isEmpty()) {
+            try {
+                val enhancedBmp = enhanceContrastForOcr(bitmap)
+                val enhancedImage = InputImage.fromBitmap(enhancedBmp, 0)
+                try {
+                    val secondPass = devanagariRecognizer.process(enhancedImage).await()
+                    if (secondPass.textBlocks.isNotEmpty()) {
+                        visionText = secondPass
+                    }
+                } catch (_: Exception) {
+                    try {
+                        val secondPassLatin = latinRecognizer.process(enhancedImage).await()
+                        if (secondPassLatin.textBlocks.isNotEmpty()) {
+                            visionText = secondPassLatin
+                        }
+                    } catch (_: Exception) {}
+                }
+                if (enhancedBmp != bitmap && !enhancedBmp.isRecycled) {
+                    enhancedBmp.recycle()
+                }
+            } catch (_: Exception) {}
+        }
+
         val results = mutableListOf<DetectedTextItem>()
 
         if (visionText != null && visionText.textBlocks.isNotEmpty()) {
@@ -227,6 +251,24 @@ class OcrAnalyzer {
     }
 
     private fun max(a: Int, b: Int): Int = if (a > b) a else b
+
+    private fun enhanceContrastForOcr(src: Bitmap): Bitmap {
+        val bmp = Bitmap.createBitmap(src.width, src.height, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bmp)
+        val paint = android.graphics.Paint()
+        val cm = android.graphics.ColorMatrix()
+        val contrast = 1.4f
+        val translate = (-0.5f * contrast + 0.5f) * 255f
+        cm.set(floatArrayOf(
+            contrast, 0f, 0f, 0f, translate,
+            0f, contrast, 0f, 0f, translate,
+            0f, 0f, contrast, 0f, translate,
+            0f, 0f, 0f, 1f, 0f
+        ))
+        paint.colorFilter = android.graphics.ColorMatrixColorFilter(cm)
+        canvas.drawBitmap(src, 0f, 0f, paint)
+        return bmp
+    }
 
     fun close() {
         devanagariRecognizer.close()

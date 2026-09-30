@@ -61,6 +61,28 @@ object CloudBackupStore {
         getPrefs(context).edit().putString(KEY_BACKUPS, array.toString()).apply()
     }
 
+    fun saveBackupItem(context: Context, item: CloudBackupItem) {
+        val existing = getBackups(context).toMutableList()
+        existing.removeAll { it.docId == item.docId }
+        existing.add(0, item)
+
+        val array = JSONArray()
+        existing.take(100).forEach { itm ->
+            val obj = JSONObject().apply {
+                put("docId", itm.docId)
+                put("title", itm.title)
+                put("shareUrl", itm.shareUrl)
+                put("downloadUrl", itm.downloadUrl)
+                put("qrUrl", itm.qrUrl)
+                put("fileSizeFormatted", itm.fileSizeFormatted)
+                put("pagesCount", itm.pagesCount)
+                put("timestamp", itm.timestamp)
+            }
+            array.put(obj)
+        }
+        getPrefs(context).edit().putString(KEY_BACKUPS, array.toString()).apply()
+    }
+
     fun getBackups(context: Context): List<CloudBackupItem> {
         val jsonStr = getPrefs(context).getString(KEY_BACKUPS, null) ?: return emptyList()
         val list = mutableListOf<CloudBackupItem>()

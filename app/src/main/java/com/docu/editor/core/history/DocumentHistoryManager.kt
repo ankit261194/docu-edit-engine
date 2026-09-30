@@ -121,6 +121,48 @@ object DocumentHistoryManager {
         item
     }
 
+    suspend fun saveExistingDocumentFile(
+        context: Context,
+        title: String,
+        filePath: String,
+        thumbnailBitmap: Bitmap?,
+        pageCount: Int = 1,
+        category: String = "All"
+    ): SavedDocumentItem = withContext(Dispatchers.IO) {
+        val thumbsDir = File(context.filesDir, THUMBS_DIR_NAME).apply { mkdirs() }
+        val id = UUID.randomUUID().toString()
+        val thumbFile = File(thumbsDir, "thumb_${id}.jpg")
+
+        if (thumbnailBitmap != null && !thumbnailBitmap.isRecycled) {
+            val thumbScale = 240f / thumbnailBitmap.width.coerceAtLeast(1)
+            val thumbH = (thumbnailBitmap.height * thumbScale).toInt().coerceAtLeast(1)
+            val thumbBmp = Bitmap.createScaledBitmap(thumbnailBitmap, 240, thumbH, true)
+            FileOutputStream(thumbFile).use { fos ->
+                thumbBmp.compress(Bitmap.CompressFormat.JPEG, 85, fos)
+            }
+            if (thumbBmp != thumbnailBitmap) thumbBmp.recycle()
+        }
+
+        val item = SavedDocumentItem(
+            id = id,
+            title = title,
+            filePath = filePath,
+            thumbnailPath = if (thumbFile.exists()) thumbFile.absolutePath else "",
+            pageCount = pageCount,
+            timestamp = System.currentTimeMillis(),
+            fileSizeBytes = File(filePath).length(),
+            category = category,
+            extractedOcrText = ""
+        )
+
+        val currentList = getSavedDocuments(context).toMutableList()
+        currentList.removeAll { it.id == id }
+        currentList.add(0, item)
+        saveIndex(context, currentList)
+
+        item
+    }
+
     suspend fun updateDocument(
         context: Context,
         id: String,
