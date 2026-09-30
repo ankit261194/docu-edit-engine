@@ -18,6 +18,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -63,6 +65,7 @@ fun BookDewarpDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(20.dp)
             ) {
                 // Header
@@ -88,7 +91,7 @@ fun BookDewarpDialog(
                         }
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            "AI Book Flattening",
+                            "AI Book & Fold Flattening",
                             fontWeight = FontWeight.Bold,
                             fontSize = 18.sp,
                             color = Color(0xFF0F172A)
@@ -102,7 +105,7 @@ fun BookDewarpDialog(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    "Flattens curved book bindings & cylindrical distortion using OpenCV coordinate remapping.",
+                    "Flattens curved book gutters, binding distortion & crumpled paper wrinkles using OpenCV coordinate remapping.",
                     fontSize = 12.sp,
                     color = Color(0xFF64748B),
                     lineHeight = 16.sp
@@ -111,7 +114,7 @@ fun BookDewarpDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    "Book Spine Position",
+                    "Flattening Mode & Geometry",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color(0xFF334155)
@@ -124,7 +127,8 @@ fun BookDewarpDialog(
                     val spineOptions = listOf(
                         Triple(BookCurveDewarper.SpinePosition.LEFT_SPINE, "📖 Left Spine (Left Page)", "Flatten curvature on left gutter"),
                         Triple(BookCurveDewarper.SpinePosition.RIGHT_SPINE, "📘 Right Spine (Right Page)", "Flatten curvature on right gutter"),
-                        Triple(BookCurveDewarper.SpinePosition.CENTER_GUTTER, "👐 Center Fold (Open Spread)", "Flatten center gutter between facing pages")
+                        Triple(BookCurveDewarper.SpinePosition.CENTER_GUTTER, "👐 Center Fold (Open Spread)", "Flatten center gutter between facing pages"),
+                        Triple(BookCurveDewarper.SpinePosition.CRUMPLED_PAPER, "📄 Crumpled Paper & Heavy Folds", "Multi-zone adaptive mesh unrolling & fold shadow elimination")
                     )
 
                     spineOptions.forEach { (spine, title, subtitle) ->

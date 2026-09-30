@@ -28,6 +28,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -55,6 +57,7 @@ fun PagesOverviewDialog(
     onSelectPage: (Int) -> Unit,
     onDeletePage: (Int) -> Unit,
     onMovePage: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
+    onRotatePage: (pageIndex: Int) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     Dialog(
@@ -198,6 +201,17 @@ fun PagesOverviewDialog(
                                     )
 
                                     Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(
+                                            onClick = { onRotatePage(index) },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.RotateRight,
+                                                contentDescription = "Rotate 90°",
+                                                tint = Color(0xFF2563EB),
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
                                         if (index > 0) {
                                             IconButton(
                                                 onClick = { onMovePage(index, index - 1) },

@@ -58,7 +58,7 @@ import androidx.compose.material.icons.filled.DriveFolderUpload
 
 @Composable
 fun ExportDialog(
-    onExportConfirmed: (format: String, fitToA4: Boolean, customFileName: String) -> Unit,
+    onExportConfirmed: (format: String, fitToA4: Boolean, customFileName: String, password: String) -> Unit,
     onSaveToGoogleDriveClicked: (format: String, fitToA4: Boolean, customFileName: String) -> Unit = { _, _, _ -> },
     onSaveToHostingCloudClicked: (customFileName: String) -> Unit = {},
     onPrintClicked: () -> Unit = {},
@@ -67,6 +67,8 @@ fun ExportDialog(
     var selectedFormat by remember { mutableStateOf("PDF") }
     var fitToA4 by remember { mutableStateOf(true) }
     var customFileName by remember { mutableStateOf("") }
+    var isPasswordProtected by remember { mutableStateOf(false) }
+    var pdfPassword by remember { mutableStateOf("") }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -216,13 +218,69 @@ fun ExportDialog(
                             }
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Optional PDF Password Protection (AES-128)
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isPasswordProtected) Color(0xFFFEF2F2) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        border = BorderStroke(1.dp, if (isPasswordProtected) Color(0xFFFCA5A5) else MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { isPasswordProtected = !isPasswordProtected }
+                            ) {
+                                Checkbox(
+                                    checked = isPasswordProtected,
+                                    onCheckedChange = { isPasswordProtected = it },
+                                    colors = CheckboxDefaults.colors(checkedColor = Color(0xFFDC2626))
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Column {
+                                    Text(
+                                        text = "🔒 Set PDF Password Protection",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isPasswordProtected) Color(0xFFB91C1C) else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "Encrypt with AES-128 (Requires PIN to open)",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            if (isPasswordProtected) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                OutlinedTextField(
+                                    value = pdfPassword,
+                                    onValueChange = { pdfPassword = it },
+                                    placeholder = { Text("Enter Document Password / PIN", fontSize = 12.sp) },
+                                    singleLine = true,
+                                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFFDC2626),
+                                        unfocusedBorderColor = Color(0xFFFCA5A5)
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 4.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Confirm Action Button
                 Button(
-                    onClick = { onExportConfirmed(selectedFormat, fitToA4, customFileName) },
+                    onClick = { onExportConfirmed(selectedFormat, fitToA4, customFileName, if (isPasswordProtected) pdfPassword else "") },
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
                     modifier = Modifier

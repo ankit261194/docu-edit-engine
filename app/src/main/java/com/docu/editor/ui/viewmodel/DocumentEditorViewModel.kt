@@ -571,6 +571,87 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun rotatePageAt(pageIndex: Int, degrees: Float = 90f) {
+        val state = _uiState.value
+        if (pageIndex !in 0 until state.pdfPageCount) return
+        saveCurrentPageToCache()
+
+        viewModelScope.launch {
+            val context = getApplication<Application>()
+            val currentBmp = editedPagesMap[pageIndex] ?: withContext(Dispatchers.IO) {
+                if (state.activePdfUri != null) {
+                    PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, pageIndex)
+                } else if (state.batchScannedPaths.size > pageIndex) {
+                    com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[pageIndex], 2880)
+                } else {
+                    state.currentBitmap
+                }
+            } ?: return@launch
+
+            val matrix = android.graphics.Matrix().apply { postRotate(degrees) }
+            val rotated = Bitmap.createBitmap(currentBmp, 0, 0, currentBmp.width, currentBmp.height, matrix, true)
+            editedPagesMap[pageIndex] = rotated
+
+            if (pageIndex == state.currentPdfPageIndex) {
+                _uiState.update {
+                    it.copy(
+                        originalBitmap = rotated,
+                        currentBitmap = rotated,
+                        canvasRevision = it.canvasRevision + 1,
+                        hasUnsavedChanges = true,
+                        successMessage = "Page ${pageIndex + 1} rotated ${degrees.toInt()}°"
+                    )
+                }
+            } else {
+                _uiState.update {
+                    it.copy(
+                        canvasRevision = it.canvasRevision + 1,
+                        hasUnsavedChanges = true,
+                        successMessage = "Page ${pageIndex + 1} rotated ${degrees.toInt()}°"
+                    )
+                }
+            }
+        }
+    }
+
+    fun appendPageFromBitmap(newBmp: Bitmap) {
+        saveCurrentPageToCache()
+        val state = _uiState.value
+        val newIndex = state.pdfPageCount
+        editedPagesMap[newIndex] = newBmp
+
+        val newBatch = if (state.batchScannedPaths.isNotEmpty()) {
+            val list = state.batchScannedPaths.toMutableList()
+            val file = File(getApplication<Application>().cacheDir, "page_append_${System.currentTimeMillis()}.jpg")
+            try {
+                java.io.FileOutputStream(file).use { out ->
+                    newBmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                }
+                list.add(file.absolutePath)
+            } catch (_: Exception) {}
+            list
+        } else {
+            emptyList()
+        }
+
+        _uiState.update {
+            it.copy(
+                pdfPageCount = newIndex + 1,
+                currentPdfPageIndex = newIndex,
+                currentBatchIndex = newIndex,
+                batchScannedPaths = newBatch,
+                currentBitmap = newBmp,
+                originalBitmap = newBmp,
+                detectedItems = emptyList(),
+                selectedItem = null,
+                selectedItems = emptyList(),
+                canvasRevision = it.canvasRevision + 1,
+                hasUnsavedChanges = true,
+                successMessage = "Added Page ${newIndex + 1}"
+            )
+        }
+    }
+
     fun showPagesOverview(show: Boolean) {
         saveCurrentPageToCache()
         _uiState.update { it.copy(showPagesOverviewDialog = show) }
@@ -1334,7 +1415,12 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(showExportDialog = show) }
     }
 
-    fun exportCurrentDocument(format: String = "PDF", fitToA4: Boolean = true, customFileName: String = "") {
+    fun exportCurrentDocument(
+        format: String = "PDF",
+        fitToA4: Boolean = true,
+        customFileName: String = "",
+        password: String = ""
+    ) {
         val current = _uiState.value.currentBitmap ?: return
         saveCurrentPageToCache()
 
@@ -1390,6 +1476,20 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             } else {
                                 PdfExportEngine.exportBitmapToPdf(current, outFile, fitToA4, _uiState.value.detectedItems)
                             }
+
+                            // AES-128 Password Protection
+                            if (password.isNotBlank()) {
+                                val unencrypted = File(downloadsDir, "raw_${System.currentTimeMillis()}_$cleanName")
+                                if (outFile.renameTo(unencrypted)) {
+                                    PdfExportEngine.encryptPdfWithPassword(
+                                        inputFile = unencrypted,
+                                        outputFile = outFile,
+                                        userPassword = password
+                                    )
+                                    unencrypted.delete()
+                                }
+                            }
+
                             outFile
                         }
                         "PNG" -> {
@@ -1674,9 +1774,14 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     fun applyBookDewarp(spine: BookCurveDewarper.SpinePosition, intensity: Float) {
         val current = _uiState.value.currentBitmap ?: return
         pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
-
         viewModelScope.launch {
-            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "AI flattening curved book gutter...") }
+            val isCrumpled = spine == BookCurveDewarper.SpinePosition.CRUMPLED_PAPER
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = true,
+                    processingMessage = if (isCrumpled) "AI flattening crumpled paper & fold creases..." else "AI flattening curved book gutter..."
+                )
+            }
             try {
                 val flattened = withContext(Dispatchers.Default) {
                     BookCurveDewarper.flattenBookCurvature(current, spine, intensity)
@@ -1690,7 +1795,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         detectedItems = reOcrItems,
                         isApplyingEdit = false,
                         processingMessage = null,
-                        successMessage = "Book curve flattened & deskewed",
+                        successMessage = if (isCrumpled) "Crumpled paper flattened & creases removed" else "Book curve flattened & deskewed",
                         canUndo = true,
                         canRedo = false,
                         canvasRevision = it.canvasRevision + 1
@@ -2110,9 +2215,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     tempPdf.delete()
 
                     // 2. Call shribalajikripadham.online/api/docu_ai.php
+                    val devId = CloudBackupStore.getDeviceId(context)
                     val payload = JSONObject().apply {
                         put("action", "cloud_upload")
                         put("token", DOCU_CLOUD_TOKEN)
+                        put("device_id", devId)
                         put("file_base64", base64Data)
                         put("file_type", "pdf")
                         put("title", title)
@@ -2124,6 +2231,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     conn.requestMethod = "POST"
                     conn.setRequestProperty("Content-Type", "application/json")
                     conn.setRequestProperty("X-Docu-Token", DOCU_CLOUD_TOKEN)
+                    conn.setRequestProperty("X-Docu-Device-Id", devId)
                     conn.connectTimeout = 15000
                     conn.readTimeout = 45000
                     conn.doOutput = true
@@ -2198,9 +2306,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         // Also delete from Hostinger server
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                val devId = CloudBackupStore.getDeviceId(context)
                 val payload = JSONObject().apply {
                     put("action", "cloud_delete")
                     put("token", DOCU_CLOUD_TOKEN)
+                    put("device_id", devId)
                     put("doc_id", docId)
                 }
                 val url = URL("https://shribalajikripadham.online/api/docu_ai.php")
@@ -2208,6 +2318,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 conn.requestMethod = "POST"
                 conn.setRequestProperty("Content-Type", "application/json")
                 conn.setRequestProperty("X-Docu-Token", DOCU_CLOUD_TOKEN)
+                conn.setRequestProperty("X-Docu-Device-Id", devId)
                 conn.connectTimeout = 10000
                 conn.readTimeout = 15000
                 conn.doOutput = true
@@ -2298,15 +2409,19 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             val count = withContext(Dispatchers.IO) {
                 try {
+                    val context = getApplication<Application>()
+                    val devId = CloudBackupStore.getDeviceId(context)
                     val payload = JSONObject().apply {
                         put("action", "cloud_list")
                         put("token", DOCU_CLOUD_TOKEN)
+                        put("device_id", devId)
                     }
                     val url = URL("https://shribalajikripadham.online/api/docu_ai.php")
                     val conn = url.openConnection() as HttpURLConnection
                     conn.requestMethod = "POST"
                     conn.setRequestProperty("Content-Type", "application/json")
                     conn.setRequestProperty("X-Docu-Token", DOCU_CLOUD_TOKEN)
+                    conn.setRequestProperty("X-Docu-Device-Id", devId)
                     conn.connectTimeout = 12000
                     conn.readTimeout = 15000
                     conn.doOutput = true
@@ -2519,9 +2634,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     val base64Data = Base64.encodeToString(fileBytes, Base64.NO_WRAP)
                     val isPdf = file.name.endsWith(".pdf", ignoreCase = true)
 
+                    val devId = CloudBackupStore.getDeviceId(context)
                     val payload = JSONObject().apply {
                         put("action", "cloud_upload")
                         put("token", DOCU_CLOUD_TOKEN)
+                        put("device_id", devId)
                         put("file_base64", base64Data)
                         put("file_type", if (isPdf) "pdf" else "jpg")
                         put("title", doc.title)
@@ -2533,6 +2650,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     conn.requestMethod = "POST"
                     conn.setRequestProperty("Content-Type", "application/json")
                     conn.setRequestProperty("X-Docu-Token", DOCU_CLOUD_TOKEN)
+                    conn.setRequestProperty("X-Docu-Device-Id", devId)
                     conn.connectTimeout = 15000
                     conn.readTimeout = 45000
                     conn.doOutput = true

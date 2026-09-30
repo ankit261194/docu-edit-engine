@@ -9,6 +9,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
+import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
 
 /**
  * Enterprise PDF Export Engine.
@@ -212,5 +215,30 @@ object PdfExportEngine {
             pagesDetectedItems = pagesDetectedItems,
             autoRecycleBitmaps = false // Caller holds list of bitmaps, do not recycle externally owned bitmaps
         )
+    }
+
+    /**
+     * Standard AES-128 PDF Encryption Handler.
+     * Locks the exported PDF with a user-defined password.
+     * Prevents unauthorized opening in Adobe Acrobat, Google Drive, WhatsApp, or any viewer without the password.
+     */
+    suspend fun encryptPdfWithPassword(
+        inputFile: File,
+        outputFile: File,
+        userPassword: String,
+        ownerPassword: String = userPassword
+    ): File = withContext(Dispatchers.IO) {
+        val document = PDDocument.load(inputFile)
+        try {
+            val ap = AccessPermission()
+            val spp = StandardProtectionPolicy(ownerPassword, userPassword, ap)
+            spp.encryptionKeyLength = 128
+            spp.permissions = ap
+            document.protect(spp)
+            document.save(outputFile)
+        } finally {
+            document.close()
+        }
+        outputFile
     }
 }

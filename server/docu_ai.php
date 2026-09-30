@@ -175,6 +175,42 @@ function isAuthorizedRequest($data) {
     return ($headerToken === DOCU_SEC_TOKEN || $payloadToken === DOCU_SEC_TOKEN);
 }
 
+function getDeviceId($data) {
+    $headerDev = $_SERVER['HTTP_X_DOCU_DEVICE_ID'] ?? '';
+    $payloadDev = $data['device_id'] ?? '';
+    $dev = !empty($headerDev) ? $headerDev : $payloadDev;
+    $sanitized = preg_replace('/[^a-zA-Z0-9_-]/', '', $dev);
+    return !empty($sanitized) ? substr($sanitized, 0, 64) : 'default_device';
+}
+
+function atomicSaveRegistry($filePath, $data) {
+    $fp = fopen($filePath, 'c+');
+    if ($fp) {
+        if (flock($fp, LOCK_EX)) {
+            ftruncate($fp, 0);
+            rewind($fp);
+            fwrite($fp, json_encode($data, JSON_PRETTY_PRINT));
+            fflush($fp);
+            flock($fp, LOCK_UN);
+        }
+        fclose($fp);
+    }
+}
+
+function atomicReadRegistry($filePath) {
+    if (!file_exists($filePath)) return [];
+    $fp = fopen($filePath, 'r');
+    $content = '';
+    if ($fp) {
+        if (flock($fp, LOCK_SH)) {
+            $content = stream_get_contents($fp);
+            flock($fp, LOCK_UN);
+        }
+        fclose($fp);
+    }
+    return json_decode($content, true) ?: [];
+}
+
 // Document Cloud Upload
 if ($action === 'cloud_upload') {
     if (!isAuthorizedRequest($data)) {
@@ -182,6 +218,7 @@ if ($action === 'cloud_upload') {
         echo json_encode(['success' => false, 'error' => 'Unauthorized: Invalid access token']);
         exit;
     }
+    $deviceId = getDeviceId($data);
     $base64 = $data['file_base64'] ?? '';
     $fileType = strtolower($data['file_type'] ?? 'pdf');
     $title = trim($data['title'] ?? 'Document_' . time());
@@ -219,20 +256,26 @@ if ($action === 'cloud_upload') {
     $downloadUrl = $host . '/api/docu_ai.php?download=' . urlencode($docId);
     $qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' . urlencode($shareUrl);
 
-    // Save to metadata registry
-    $registry = [];
-    if (file_exists($metaFile)) {
-        $registry = json_decode(file_get_contents($metaFile), true) ?: [];
-    }
-    $registry[$docId] = [
+    $metaItem = [
         'doc_id' => $docId,
+        'device_id' => $deviceId,
         'title' => $title,
         'file_name' => $fileName,
         'file_size' => $sizeFormatted,
         'pages_count' => $pagesCount,
         'uploaded_at' => time()
     ];
-    @file_put_contents($metaFile, json_encode($registry, JSON_PRETTY_PRINT));
+
+    // 1. Save to Device-Private Metadata Registry (Zero-Leak Tenant Isolation)
+    $userMetaFile = $storageDir . 'meta_' . $deviceId . '.json';
+    $userRegistry = atomicReadRegistry($userMetaFile);
+    $userRegistry[$docId] = $metaItem;
+    atomicSaveRegistry($userMetaFile, $userRegistry);
+
+    // 2. Save to Master Global Index for fast public view/download resolution
+    $globalRegistry = atomicReadRegistry($metaFile);
+    $globalRegistry[$docId] = $metaItem;
+    atomicSaveRegistry($metaFile, $globalRegistry);
 
     echo json_encode([
         'success' => true,
@@ -247,17 +290,18 @@ if ($action === 'cloud_upload') {
     exit;
 }
 
-// List Cloud Documents
+// List Cloud Documents (Private Per-Device Isolation)
 if ($action === 'cloud_list') {
     if (!isAuthorizedRequest($data)) {
         http_response_code(401);
         echo json_encode(['success' => false, 'error' => 'Unauthorized: Invalid access token']);
         exit;
     }
-    $registry = [];
-    if (file_exists($metaFile)) {
-        $registry = json_decode(file_get_contents($metaFile), true) ?: [];
-    }
+    $deviceId = getDeviceId($data);
+    $userMetaFile = $storageDir . 'meta_' . $deviceId . '.json';
+    
+    // Read only this device's private cloud documents
+    $registry = atomicReadRegistry($userMetaFile);
     $host = getHostUrl();
     $list = [];
     foreach ($registry as $docId => $meta) {
@@ -269,24 +313,36 @@ if ($action === 'cloud_list') {
     exit;
 }
 
-// Delete Cloud Document
+// Delete Cloud Document (Private to Device Owner)
 if ($action === 'cloud_delete') {
     if (!isAuthorizedRequest($data)) {
         http_response_code(401);
         echo json_encode(['success' => false, 'error' => 'Unauthorized: Invalid access token']);
         exit;
     }
+    $deviceId = getDeviceId($data);
     $docId = preg_replace('/[^a-zA-Z0-9_-]/', '', $data['doc_id'] ?? '');
     if (!empty($docId)) {
         $files = glob($storageDir . $docId . '.*');
         foreach ($files as $f) {
             @unlink($f);
         }
-        if (file_exists($metaFile)) {
-            $registry = json_decode(file_get_contents($metaFile), true) ?: [];
-            unset($registry[$docId]);
-            @file_put_contents($metaFile, json_encode($registry, JSON_PRETTY_PRINT));
+        
+        // Remove from user private registry
+        $userMetaFile = $storageDir . 'meta_' . $deviceId . '.json';
+        $userRegistry = atomicReadRegistry($userMetaFile);
+        if (isset($userRegistry[$docId])) {
+            unset($userRegistry[$docId]);
+            atomicSaveRegistry($userMetaFile, $userRegistry);
         }
+
+        // Remove from global registry
+        $globalRegistry = atomicReadRegistry($metaFile);
+        if (isset($globalRegistry[$docId])) {
+            unset($globalRegistry[$docId]);
+            atomicSaveRegistry($metaFile, $globalRegistry);
+        }
+
         echo json_encode(['success' => true, 'message' => 'Deleted document']);
         exit;
     }

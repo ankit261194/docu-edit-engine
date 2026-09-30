@@ -24,9 +24,20 @@ data class CloudBackupItem(
 object CloudBackupStore {
     private const val PREFS_NAME = "docu_cloud_backups"
     private const val KEY_BACKUPS = "backup_list"
+    private const val KEY_DEVICE_ID = "docu_device_uuid"
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    fun getDeviceId(context: Context): String {
+        val prefs = getPrefs(context)
+        var devId = prefs.getString(KEY_DEVICE_ID, null)
+        if (devId.isNullOrBlank()) {
+            devId = "dev_" + java.util.UUID.randomUUID().toString().replace("-", "").take(16)
+            prefs.edit().putString(KEY_DEVICE_ID, devId).apply()
+        }
+        return devId
     }
 
     fun saveBackup(context: Context, result: CloudSyncResult) {

@@ -655,6 +655,9 @@ class MainActivity : ComponentActivity() {
                                 onMovePage = { from, to ->
                                     viewModel.movePage(from, to)
                                 },
+                                onRotatePage = { index ->
+                                    viewModel.rotatePageAt(index, 90f)
+                                },
                                 onDismiss = { viewModel.showPagesOverview(false) }
                             )
                         }
@@ -700,8 +703,8 @@ class MainActivity : ComponentActivity() {
                         // Export Format Dialog (Real PDF / JPG / PNG / Print / Google Drive / Hosting Cloud)
                         if (uiState.showExportDialog) {
                             ExportDialog(
-                                onExportConfirmed = { format, fitToA4, customFileName ->
-                                    viewModel.exportCurrentDocument(format, fitToA4, customFileName)
+                                onExportConfirmed = { format, fitToA4, customFileName, password ->
+                                    viewModel.exportCurrentDocument(format, fitToA4, customFileName, password)
                                 },
                                 onSaveToGoogleDriveClicked = { format, fitToA4, customFileName ->
                                     viewModel.exportAndSaveToGoogleDrive(this@MainActivity, format, fitToA4, customFileName)
