@@ -51,6 +51,9 @@ import com.docu.editor.core.dewarp.BookCurveDewarper
 import com.docu.editor.core.signature.SignatureExtractor
 import com.docu.editor.core.signature.StampExtractor
 import com.docu.editor.core.export.DocxExportEngine
+import com.docu.editor.core.export.GoogleDriveExportHelper
+import com.docu.editor.core.cloud.CloudBackupStore
+import com.docu.editor.core.cloud.CloudBackupItem
 import com.docu.editor.ui.dialogs.CloudSyncResult
 import com.docu.editor.domain.model.DocumentEditorUiState
 import com.docu.editor.domain.model.DocumentFilterMode
@@ -2109,6 +2112,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 }
 
                 if (syncResult != null) {
+                    CloudBackupStore.saveBackup(context, syncResult)
                     _uiState.update {
                         it.copy(
                             isApplyingEdit = false,
@@ -2133,6 +2137,254 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         isApplyingEdit = false,
                         processingMessage = null,
                         errorMessage = "Cloud sync error: ${e.localizedMessage}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun showCloudBackupsListDialog(show: Boolean) {
+        _uiState.update { it.copy(showCloudBackupsListDialog = show) }
+    }
+
+    fun getCloudBackups(): List<CloudBackupItem> {
+        val context = getApplication<Application>()
+        return CloudBackupStore.getBackups(context)
+    }
+
+    fun deleteCloudBackup(docId: String) {
+        val context = getApplication<Application>()
+        CloudBackupStore.deleteBackup(context, docId)
+        _uiState.update { it.copy(canvasRevision = it.canvasRevision + 1) }
+    }
+
+    /**
+     * 1-Tap Direct Google Drive Upload (Zero GCP/OAuth Setup required).
+     * Renders document, wraps in FileProvider content URI, and launches official Google Drive.
+     */
+    fun exportAndSaveToGoogleDrive(
+        activityContext: Context,
+        format: String = "PDF",
+        fitToA4: Boolean = true,
+        customFileName: String = ""
+    ) {
+        val current = _uiState.value.currentBitmap ?: return
+        saveCurrentPageToCache()
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = true,
+                    processingMessage = "Preparing document for Google Drive..."
+                )
+            }
+            try {
+                val context = getApplication<Application>()
+                val state = _uiState.value
+                val time = System.currentTimeMillis()
+                val rawName = if (customFileName.isNotBlank()) {
+                    customFileName.trim().replace(Regex("[^a-zA-Z0-9._-]"), "_")
+                } else {
+                    "DocuEdit_Export_$time"
+                }
+
+                val (file, mimeType) = withContext(Dispatchers.IO) {
+                    val cacheDir = File(context.cacheDir, "gdrive_exports").apply { mkdirs() }
+                    when (format.uppercase()) {
+                        "PDF" -> {
+                            val cleanName = if (rawName.endsWith(".pdf", ignoreCase = true)) rawName else "$rawName.pdf"
+                            val outFile = File(cacheDir, cleanName)
+                            if (state.pdfPageCount > 1) {
+                                val allPages = mutableListOf<Bitmap>()
+                                val allItems = mutableMapOf<Int, List<DetectedTextItem>>()
+                                for (i in 0 until state.pdfPageCount) {
+                                    val pageBmp = editedPagesMap[i] ?: run {
+                                        if (state.activePdfUri != null) {
+                                            PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, i)
+                                        } else if (state.batchScannedPaths.size > i) {
+                                            com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[i], 2880)
+                                        } else {
+                                            current
+                                        }
+                                    } ?: current
+                                    allPages.add(pageBmp)
+                                    allItems[i] = pageDetectedItemsMap[i] ?: emptyList()
+                                }
+                                PdfExportEngine.exportBitmapsToMultiPagePdf(allPages, outFile, fitToA4, allItems)
+                            } else {
+                                PdfExportEngine.exportBitmapToPdf(current, outFile, fitToA4, state.detectedItems)
+                            }
+                            Pair(outFile, "application/pdf")
+                        }
+                        "PNG" -> {
+                            val cleanName = if (rawName.endsWith(".png", ignoreCase = true)) rawName else "$rawName.png"
+                            val outFile = File(cacheDir, cleanName)
+                            java.io.FileOutputStream(outFile).use { out -> current.compress(Bitmap.CompressFormat.PNG, 100, out) }
+                            Pair(outFile, "image/png")
+                        }
+                        "DOCX" -> {
+                            val cleanName = if (rawName.endsWith(".docx", ignoreCase = true)) rawName else "$rawName.docx"
+                            val outFile = File(cacheDir, cleanName)
+                            val sb = StringBuilder()
+                            if (state.pdfPageCount > 1) {
+                                for (pIdx in 0 until state.pdfPageCount) {
+                                    sb.append("## Page ${pIdx + 1}\n\n")
+                                    val items = pageDetectedItemsMap[pIdx] ?: if (pIdx == state.currentPdfPageIndex) state.detectedItems else emptyList()
+                                    val pText = items.sortedWith(
+                                        compareBy<DetectedTextItem> { it.boundingBox.top / 20 }.thenBy { it.boundingBox.left }
+                                    ).joinToString(" ") { it.text }
+                                    sb.append(pText).append("\n\n")
+                                }
+                            } else {
+                                val pText = state.detectedItems.sortedWith(
+                                    compareBy<DetectedTextItem> { it.boundingBox.top / 20 }.thenBy { it.boundingBox.left }
+                                ).joinToString(" ") { it.text }
+                                sb.append(pText)
+                            }
+                            DocxExportEngine.generateDocx(rawName, sb.toString().ifBlank { "Scanned Document" }, outFile)
+                            Pair(outFile, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                        }
+                        else -> {
+                            val cleanName = if (rawName.endsWith(".jpg", ignoreCase = true) || rawName.endsWith(".jpeg", ignoreCase = true)) rawName else "$rawName.jpg"
+                            val outFile = File(cacheDir, cleanName)
+                            java.io.FileOutputStream(outFile).use { out -> current.compress(Bitmap.CompressFormat.JPEG, 95, out) }
+                            Pair(outFile, "image/jpeg")
+                        }
+                    }
+                }
+
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        showExportDialog = false,
+                        successMessage = "Opening Google Drive..."
+                    )
+                }
+
+                GoogleDriveExportHelper.saveToGoogleDrive(
+                    context = activityContext,
+                    file = file,
+                    mimeType = mimeType,
+                    documentTitle = file.nameWithoutExtension
+                )
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Google Drive export failed: ${e.localizedMessage}"
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Upload an existing saved document from Document Library directly to Google Drive.
+     */
+    fun saveSavedDocumentToGoogleDrive(activityContext: Context, doc: SavedDocumentItem) {
+        val file = java.io.File(doc.filePath)
+        if (!file.exists()) {
+            _uiState.update { it.copy(errorMessage = "File not found: ${doc.title}") }
+            return
+        }
+        val mimeType = if (file.name.endsWith(".pdf", ignoreCase = true)) {
+            "application/pdf"
+        } else if (file.name.endsWith(".png", ignoreCase = true)) {
+            "image/png"
+        } else {
+            "image/jpeg"
+        }
+        GoogleDriveExportHelper.saveToGoogleDrive(activityContext, file, mimeType, doc.title)
+    }
+
+    /**
+     * Back up an existing saved document from Document Library to Hosting Server (shribalajikripadham.online).
+     */
+    fun backupSavedDocumentToCloud(doc: SavedDocumentItem) {
+        val file = java.io.File(doc.filePath)
+        if (!file.exists()) {
+            _uiState.update { it.copy(errorMessage = "File not found: ${doc.title}") }
+            return
+        }
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = true,
+                    processingMessage = "Backing up ${doc.title} to Hosting Cloud..."
+                )
+            }
+            try {
+                val context = getApplication<Application>()
+                val syncResult = withContext(Dispatchers.IO) {
+                    val fileBytes = file.readBytes()
+                    val base64Data = Base64.encodeToString(fileBytes, Base64.NO_WRAP)
+                    val isPdf = file.name.endsWith(".pdf", ignoreCase = true)
+
+                    val payload = JSONObject().apply {
+                        put("action", "cloud_upload")
+                        put("file_base64", base64Data)
+                        put("file_type", if (isPdf) "pdf" else "jpg")
+                        put("title", doc.title)
+                        put("pages_count", doc.pageCount)
+                    }
+
+                    val url = URL("https://shribalajikripadham.online/api/docu_ai.php")
+                    val conn = url.openConnection() as HttpURLConnection
+                    conn.requestMethod = "POST"
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 25000
+                    conn.doOutput = true
+
+                    conn.outputStream.use { os ->
+                        os.write(payload.toString().toByteArray(Charsets.UTF_8))
+                    }
+
+                    if (conn.responseCode == 200) {
+                        val resp = conn.inputStream.bufferedReader().use { it.readText() }
+                        val json = JSONObject(resp)
+                        if (json.optBoolean("success")) {
+                            CloudSyncResult(
+                                docId = json.optString("doc_id"),
+                                title = json.optString("title", doc.title),
+                                shareUrl = json.optString("share_url"),
+                                downloadUrl = json.optString("download_url"),
+                                qrUrl = json.optString("qr_url"),
+                                fileSizeFormatted = json.optString("file_size_formatted", doc.formattedSize),
+                                pagesCount = json.optInt("pages_count", doc.pageCount)
+                            )
+                        } else null
+                    } else null
+                }
+
+                if (syncResult != null) {
+                    CloudBackupStore.saveBackup(context, syncResult)
+                    _uiState.update {
+                        it.copy(
+                            isApplyingEdit = false,
+                            processingMessage = null,
+                            cloudSyncResult = syncResult,
+                            showCloudSyncDialog = true,
+                            successMessage = "☁️ Backed up ${doc.title} to Web Cloud!"
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isApplyingEdit = false,
+                            processingMessage = null,
+                            errorMessage = "Backup failed. Server unreachable or invalid response."
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Cloud backup error: ${e.localizedMessage}"
                     )
                 }
             }

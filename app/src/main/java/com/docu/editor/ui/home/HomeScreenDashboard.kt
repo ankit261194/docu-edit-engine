@@ -75,16 +75,23 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudUpload
+import com.docu.editor.core.cloud.CloudBackupItem
 import com.docu.editor.core.history.SavedDocumentItem
 
 @Composable
 fun HomeScreenDashboard(
     recentDocuments: List<SavedDocumentItem> = emptyList(),
+    cloudBackups: List<CloudBackupItem> = emptyList(),
     onOpenSavedDocument: (filePath: String) -> Unit = {},
     onDeleteRecentDocument: (String) -> Unit = {},
     onClearAllRecentDocuments: () -> Unit = {},
     onUpdateCategory: (String, String) -> Unit = { _, _ -> },
     onRenameDocument: (String, String) -> Unit = { _, _ -> },
+    onSaveToGoogleDrive: (SavedDocumentItem) -> Unit = {},
+    onBackupToCloud: (SavedDocumentItem) -> Unit = {},
+    onViewCloudBackupsClicked: () -> Unit = {},
     onCameraScanClicked: () -> Unit,
     onOpenFileClicked: () -> Unit,
     onIdCardClicked: () -> Unit,
@@ -111,8 +118,8 @@ fun HomeScreenDashboard(
         }
     }
 
-    if (docToRename != null) {
-        val doc = docToRename!!
+    val activeDocToRename = docToRename
+    if (activeDocToRename != null) {
         AlertDialog(
             onDismissRequest = { docToRename = null },
             title = { Text("Rename Document", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
@@ -129,7 +136,7 @@ fun HomeScreenDashboard(
                 Button(
                     onClick = {
                         if (renameInput.isNotBlank()) {
-                            onRenameDocument(doc.id, renameInput.trim())
+                            onRenameDocument(activeDocToRename.id, renameInput.trim())
                         }
                         docToRename = null
                     },
@@ -465,12 +472,35 @@ fun HomeScreenDashboard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Document Library (${recentDocuments.size})",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Document Library (${recentDocuments.size})",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFEFF6FF),
+                                border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                                modifier = Modifier.clickable { onViewCloudBackupsClicked() }
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Icon(Icons.Default.CloudDone, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(12.dp))
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                    Text(
+                                        text = "Cloud: ${cloudBackups.size}",
+                                        color = Color(0xFF1D4ED8),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
                         if (recentDocuments.isNotEmpty()) {
                             TextButton(
                                 onClick = onClearAllRecentDocuments,
@@ -580,7 +610,7 @@ fun HomeScreenDashboard(
                                 .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            filteredDocs.forEach { doc ->
+                            for (doc in filteredDocs) {
                                 RecentDocumentCard(
                                     document = doc,
                                     onClick = { onOpenSavedDocument(doc.filePath) },
@@ -589,7 +619,9 @@ fun HomeScreenDashboard(
                                     onRename = {
                                         renameInput = doc.title
                                         docToRename = doc
-                                    }
+                                    },
+                                    onSaveToGoogleDrive = { onSaveToGoogleDrive(doc) },
+                                    onBackupToCloud = { onBackupToCloud(doc) }
                                 )
                             }
                         }
@@ -689,7 +721,9 @@ private fun RecentDocumentCard(
     onClick: () -> Unit,
     onDelete: () -> Unit,
     onUpdateCategory: (String) -> Unit = {},
-    onRename: () -> Unit = {}
+    onRename: () -> Unit = {},
+    onSaveToGoogleDrive: () -> Unit = {},
+    onBackupToCloud: () -> Unit = {}
 ) {
     var showCategoryMenu by remember { mutableStateOf(false) }
     val categoryList = listOf("ID Cards", "Invoices", "Office", "Personal")
@@ -708,7 +742,7 @@ private fun RecentDocumentCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier
-            .width(135.dp)
+            .width(145.dp)
             .clickable { onClick() }
     ) {
         Column {
@@ -735,16 +769,48 @@ private fun RecentDocumentCard(
                     )
                 }
 
-                // Top Actions: Rename & Delete
+                // Top Actions: Drive, Cloud, Rename, Delete
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(5.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF15803D).copy(alpha = 0.85f))
+                            .clickable { onSaveToGoogleDrive() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudUpload,
+                            contentDescription = "Save to Google Drive",
+                            tint = Color.White,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFF1D4ED8).copy(alpha = 0.85f))
+                            .clickable { onBackupToCloud() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudDone,
+                            contentDescription = "Backup to Hosting Cloud",
+                            tint = Color.White,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
                             .clip(CircleShape)
                             .background(Color.Black.copy(alpha = 0.60f))
                             .clickable { onRename() },
@@ -754,13 +820,13 @@ private fun RecentDocumentCard(
                             imageVector = Icons.Default.Edit,
                             contentDescription = "Rename",
                             tint = Color.White,
-                            modifier = Modifier.size(13.dp)
+                            modifier = Modifier.size(12.dp)
                         )
                     }
 
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(22.dp)
                             .clip(CircleShape)
                             .background(Color.Black.copy(alpha = 0.60f))
                             .clickable { onDelete() },
@@ -770,7 +836,7 @@ private fun RecentDocumentCard(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Delete",
                             tint = Color.White,
-                            modifier = Modifier.size(13.dp)
+                            modifier = Modifier.size(12.dp)
                         )
                     }
                 }
@@ -805,11 +871,11 @@ private fun RecentDocumentCard(
                         expanded = showCategoryMenu,
                         onDismissRequest = { showCategoryMenu = false }
                     ) {
-                        categoryList.forEach { cat ->
+                        for (categoryName in categoryList) {
                             DropdownMenuItem(
-                                text = { Text(cat, fontSize = 12.sp, fontWeight = if (cat == document.category) FontWeight.Bold else FontWeight.Normal) },
+                                text = { Text(categoryName, fontSize = 12.sp, fontWeight = if (categoryName == document.category) FontWeight.Bold else FontWeight.Normal) },
                                 onClick = {
-                                    onUpdateCategory(cat)
+                                    onUpdateCategory(categoryName)
                                     showCategoryMenu = false
                                 }
                             )

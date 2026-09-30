@@ -88,9 +88,12 @@ import com.docu.editor.ui.dialogs.PdfToolboxDialog
 import com.docu.editor.ui.dialogs.SignatureDialog
 import com.docu.editor.ui.dialogs.WatermarkDialog
 import com.docu.editor.ui.dialogs.BookDewarpDialog
+import com.docu.editor.ui.dialogs.CloudBackupsListDialog
 import com.docu.editor.ui.home.HomeScreenDashboard
 import android.widget.Toast
 import android.content.Context
+import android.content.ClipData
+import android.content.ClipboardManager
 import com.docu.editor.ui.theme.DocuEditTheme
 import com.docu.editor.ui.update.UpdateDialog
 import com.docu.editor.ui.viewmodel.DocumentEditorViewModel
@@ -511,13 +514,18 @@ class MainActivity : ComponentActivity() {
                             }
                         } else {
                             // Premium CamScanner Home Dashboard
+                            val cloudBackupsList = remember(uiState.canvasRevision) { viewModel.getCloudBackups() }
                             HomeScreenDashboard(
                                 recentDocuments = recentDocs,
+                                cloudBackups = cloudBackupsList,
                                 onOpenSavedDocument = { path -> viewModel.loadScannedDocument(path) },
                                 onDeleteRecentDocument = { id -> viewModel.deleteRecentDocument(id) },
                                 onClearAllRecentDocuments = { viewModel.clearRecentDocuments() },
                                 onUpdateCategory = { id, cat -> viewModel.updateDocumentCategory(id, cat) },
                                 onRenameDocument = { id, title -> viewModel.renameDocument(id, title) },
+                                onSaveToGoogleDrive = { doc -> viewModel.saveSavedDocumentToGoogleDrive(this@MainActivity, doc) },
+                                onBackupToCloud = { doc -> viewModel.backupSavedDocumentToCloud(doc) },
+                                onViewCloudBackupsClicked = { viewModel.showCloudBackupsListDialog(true) },
                                 onCameraScanClicked = {
                                     if (ContextCompat.checkSelfPermission(
                                             this@MainActivity,
@@ -689,11 +697,17 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // Export Format Dialog (Real PDF / JPG / PNG / Print)
+                        // Export Format Dialog (Real PDF / JPG / PNG / Print / Google Drive / Hosting Cloud)
                         if (uiState.showExportDialog) {
                             ExportDialog(
                                 onExportConfirmed = { format, fitToA4, customFileName ->
                                     viewModel.exportCurrentDocument(format, fitToA4, customFileName)
+                                },
+                                onSaveToGoogleDriveClicked = { format, fitToA4, customFileName ->
+                                    viewModel.exportAndSaveToGoogleDrive(this@MainActivity, format, fitToA4, customFileName)
+                                },
+                                onSaveToHostingCloudClicked = { customFileName ->
+                                    viewModel.syncDocumentToCloud(customFileName)
                                 },
                                 onPrintClicked = {
                                     val bmp = uiState.currentBitmap
@@ -871,6 +885,31 @@ class MainActivity : ComponentActivity() {
                                     Toast.makeText(this@MainActivity, "Cloud AI settings updated!", Toast.LENGTH_SHORT).show()
                                 },
                                 onDismiss = { viewModel.showCloudAiSettingsDialog(false) }
+                            )
+                        }
+
+                        // Hosting Cloud Backups List Dialog
+                        if (uiState.showCloudBackupsListDialog) {
+                            val backups = remember(uiState.canvasRevision) { viewModel.getCloudBackups() }
+                            CloudBackupsListDialog(
+                                backups = backups,
+                                onOpenUrl = { url ->
+                                    try {
+                                        startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                                    } catch (_: Exception) {
+                                        Toast.makeText(this@MainActivity, "Could not open browser", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                onCopyUrl = { url ->
+                                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText("Share Link", url))
+                                    Toast.makeText(this@MainActivity, "Link copied to clipboard", Toast.LENGTH_SHORT).show()
+                                },
+                                onDeleteBackup = { docId ->
+                                    viewModel.deleteCloudBackup(docId)
+                                    Toast.makeText(this@MainActivity, "Backup removed from list", Toast.LENGTH_SHORT).show()
+                                },
+                                onDismiss = { viewModel.showCloudBackupsListDialog(false) }
                             )
                         }
 

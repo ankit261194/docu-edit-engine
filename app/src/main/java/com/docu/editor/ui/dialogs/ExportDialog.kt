@@ -52,9 +52,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.DriveFolderUpload
+
 @Composable
 fun ExportDialog(
     onExportConfirmed: (format: String, fitToA4: Boolean, customFileName: String) -> Unit,
+    onSaveToGoogleDriveClicked: (format: String, fitToA4: Boolean, customFileName: String) -> Unit = { _, _, _ -> },
+    onSaveToHostingCloudClicked: (customFileName: String) -> Unit = {},
     onPrintClicked: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
@@ -231,6 +237,64 @@ fun ExportDialog(
                     )
                 }
 
+                // 1-Tap Direct Google Drive Upload (Zero Setup / Native Intent)
+                OutlinedButton(
+                    onClick = {
+                        onSaveToGoogleDriveClicked(selectedFormat, fitToA4, customFileName)
+                        onDismiss()
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFFF0FDF4)),
+                    border = BorderStroke(1.5.dp, Color(0xFF16A34A)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudUpload,
+                        contentDescription = "Save to Google Drive",
+                        tint = Color(0xFF16A34A),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "📁 Google Drive me Save Karein",
+                        color = Color(0xFF15803D),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Hosting Web Cloud Backup (shribalajikripadham.online)
+                OutlinedButton(
+                    onClick = {
+                        onSaveToHostingCloudClicked(customFileName)
+                        onDismiss()
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFFEFF6FF)),
+                    border = BorderStroke(1.5.dp, Color(0xFF2563EB)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudDone,
+                        contentDescription = "Hostinger Cloud Backup",
+                        tint = Color(0xFF2563EB),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "☁️ Hosting Cloud Backup (Web Link & QR)",
+                        color = Color(0xFF1D4ED8),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // Direct Wi-Fi Printing Button
@@ -240,23 +304,23 @@ fun ExportDialog(
                         onDismiss()
                     },
                     shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.5.dp, Color(0xFF2563EB)),
+                    border = BorderStroke(1.5.dp, Color(0xFF64748B)),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(44.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Print,
                         contentDescription = "Direct Print",
-                        tint = Color(0xFF2563EB),
-                        modifier = Modifier.size(20.dp)
+                        tint = Color(0xFF475569),
+                        modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "🖨️ Direct Wi-Fi Print",
-                        color = Color(0xFF2563EB),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
+                        color = Color(0xFF475569),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp
                     )
                 }
             }

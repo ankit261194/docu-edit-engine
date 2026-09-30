@@ -79,6 +79,7 @@ data class DocumentEditorUiState(
     val batchScannedPaths: List<String> = emptyList(),
     val currentBatchIndex: Int = 0,
     val showCloudSyncDialog: Boolean = false,
+    val showCloudBackupsListDialog: Boolean = false,
     val cloudSyncResult: com.docu.editor.ui.dialogs.CloudSyncResult? = null,
     val isPerformingHandwritingOcr: Boolean = false,
     val markupColorRgb: Int = android.graphics.Color.rgb(255, 235, 59),
