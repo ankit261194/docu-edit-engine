@@ -31,7 +31,8 @@ object PdfExportEngine {
         bitmap: Bitmap,
         outputFile: File,
         fitToA4: Boolean = true,
-        detectedItems: List<DetectedTextItem> = emptyList()
+        detectedItems: List<DetectedTextItem> = emptyList(),
+        ocrFallbackProvider: (suspend (Bitmap) -> List<DetectedTextItem>)? = null
     ): File = withContext(Dispatchers.IO) {
         val pdfDocument = PdfDocument()
 
@@ -74,12 +75,20 @@ object PdfExportEngine {
             canvas.drawBitmap(bitmap, srcRect, dstRect, paint)
 
             // #4 Searchable PDF: Embed invisible OCR text layer matching exact visual coordinates
-            if (detectedItems.isNotEmpty()) {
+            val effectiveItems = if (detectedItems.isNotEmpty()) {
+                detectedItems
+            } else if (ocrFallbackProvider != null) {
+                try { ocrFallbackProvider(bitmap) } catch (_: Exception) { emptyList() }
+            } else {
+                emptyList()
+            }
+
+            if (effectiveItems.isNotEmpty()) {
                 val textPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
                     color = android.graphics.Color.argb(1, 255, 255, 255) // Near-invisible yet indexed by all PDF viewers
                     style = Paint.Style.FILL
                 }
-                for (item in detectedItems) {
+                for (item in effectiveItems) {
                     val box = item.boundingBox
                     val text = item.text
                     if (text.isBlank()) continue
@@ -118,7 +127,8 @@ object PdfExportEngine {
         outputFile: File,
         fitToA4: Boolean = true,
         pagesDetectedItems: Map<Int, List<DetectedTextItem>> = emptyMap(),
-        autoRecycleBitmaps: Boolean = true
+        autoRecycleBitmaps: Boolean = true,
+        ocrFallbackProvider: (suspend (Bitmap) -> List<DetectedTextItem>)? = null
     ): File = withContext(Dispatchers.IO) {
         val pdfDocument = PdfDocument()
 
@@ -160,12 +170,20 @@ object PdfExportEngine {
                     canvas.drawBitmap(bmp, srcRect, dstRect, paint)
 
                     val detectedItems = pagesDetectedItems[index] ?: emptyList()
-                    if (detectedItems.isNotEmpty()) {
+                    val effectiveItems = if (detectedItems.isNotEmpty()) {
+                        detectedItems
+                    } else if (ocrFallbackProvider != null) {
+                        try { ocrFallbackProvider(bmp) } catch (_: Exception) { emptyList() }
+                    } else {
+                        emptyList()
+                    }
+
+                    if (effectiveItems.isNotEmpty()) {
                         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
                             color = android.graphics.Color.argb(1, 255, 255, 255)
                             style = Paint.Style.FILL
                         }
-                        for (item in detectedItems) {
+                        for (item in effectiveItems) {
                             val box = item.boundingBox
                             val text = item.text
                             if (text.isBlank()) continue
@@ -205,7 +223,8 @@ object PdfExportEngine {
         bitmaps: List<Bitmap>,
         outputFile: File,
         fitToA4: Boolean = true,
-        pagesDetectedItems: Map<Int, List<DetectedTextItem>> = emptyMap()
+        pagesDetectedItems: Map<Int, List<DetectedTextItem>> = emptyMap(),
+        ocrFallbackProvider: (suspend (Bitmap) -> List<DetectedTextItem>)? = null
     ): File {
         return exportPagesStreamingToPdf(
             pageCount = bitmaps.size,
@@ -213,7 +232,8 @@ object PdfExportEngine {
             outputFile = outputFile,
             fitToA4 = fitToA4,
             pagesDetectedItems = pagesDetectedItems,
-            autoRecycleBitmaps = false // Caller holds list of bitmaps, do not recycle externally owned bitmaps
+            autoRecycleBitmaps = false, // Caller holds list of bitmaps, do not recycle externally owned bitmaps
+            ocrFallbackProvider = ocrFallbackProvider
         )
     }
 

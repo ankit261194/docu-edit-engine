@@ -317,10 +317,17 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         bitmaps = allPages,
                         outputFile = tempSource,
                         fitToA4 = true,
-                        pagesDetectedItems = allItems
+                        pagesDetectedItems = allItems,
+                        ocrFallbackProvider = { bmp -> ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE) }
                     )
                 } else {
-                    PdfExportEngine.exportBitmapToPdf(current, tempSource, true, state.detectedItems)
+                    PdfExportEngine.exportBitmapToPdf(
+                        bitmap = current,
+                        outputFile = tempSource,
+                        fitToA4 = true,
+                        detectedItems = state.detectedItems,
+                        ocrFallbackProvider = { bmp -> ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE) }
+                    )
                 }
 
                 PdfToolbox(context).passwordProtectPdf(
@@ -1471,10 +1478,17 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                                     outputFile = outFile,
                                     fitToA4 = fitToA4,
                                     pagesDetectedItems = allItems,
-                                    autoRecycleBitmaps = true
+                                    autoRecycleBitmaps = true,
+                                    ocrFallbackProvider = { bmp -> ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE) }
                                 )
                             } else {
-                                PdfExportEngine.exportBitmapToPdf(current, outFile, fitToA4, _uiState.value.detectedItems)
+                                PdfExportEngine.exportBitmapToPdf(
+                                    bitmap = current,
+                                    outputFile = outFile,
+                                    fitToA4 = fitToA4,
+                                    detectedItems = _uiState.value.detectedItems,
+                                    ocrFallbackProvider = { bmp -> ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE) }
+                                )
                             }
 
                             // AES-128 Password Protection
@@ -2204,10 +2218,17 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             outputFile = tempPdf,
                             fitToA4 = true,
                             pagesDetectedItems = allItems,
-                            autoRecycleBitmaps = true
+                            autoRecycleBitmaps = true,
+                            ocrFallbackProvider = { bmp -> ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE) }
                         )
                     } else {
-                        PdfExportEngine.exportBitmapToPdf(current, tempPdf, true, state.detectedItems)
+                        PdfExportEngine.exportBitmapToPdf(
+                            bitmap = current,
+                            outputFile = tempPdf,
+                            fitToA4 = true,
+                            detectedItems = state.detectedItems,
+                            ocrFallbackProvider = { bmp -> ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE) }
+                        )
                     }
 
                     val pdfBytes = tempPdf.readBytes()
@@ -2215,7 +2236,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     tempPdf.delete()
 
                     // 2. Call shribalajikripadham.online/api/docu_ai.php
-                    val devId = CloudBackupStore.getDeviceId(context)
+                    val devId = CloudBackupStore.getSyncKey(context)
                     val payload = JSONObject().apply {
                         put("action", "cloud_upload")
                         put("token", DOCU_CLOUD_TOKEN)
@@ -2306,7 +2327,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         // Also delete from Hostinger server
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val devId = CloudBackupStore.getDeviceId(context)
+                val devId = CloudBackupStore.getSyncKey(context)
                 val payload = JSONObject().apply {
                     put("action", "cloud_delete")
                     put("token", DOCU_CLOUD_TOKEN)
@@ -2405,12 +2426,12 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     /**
      * Synchronizes full document backup registry from Hostinger server to local phone storage.
      */
-    fun fetchCloudBackupsFromServer(onComplete: (Int) -> Unit) {
+    fun fetchCloudBackupsFromServer(onComplete: (Int) -> Unit = {}) {
         viewModelScope.launch {
             val count = withContext(Dispatchers.IO) {
                 try {
                     val context = getApplication<Application>()
-                    val devId = CloudBackupStore.getDeviceId(context)
+                    val devId = CloudBackupStore.getSyncKey(context)
                     val payload = JSONObject().apply {
                         put("action", "cloud_list")
                         put("token", DOCU_CLOUD_TOKEN)
@@ -2461,6 +2482,24 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             _uiState.update { it.copy(canvasRevision = it.canvasRevision + 1) }
             onComplete(count)
         }
+    }
+
+    fun setCustomSyncKey(key: String): Boolean {
+        val ok = CloudBackupStore.setSyncKey(getApplication(), key)
+        if (ok) {
+            fetchCloudBackupsFromServer()
+            _uiState.update {
+                it.copy(
+                    canvasRevision = it.canvasRevision + 1,
+                    successMessage = "Cloud Sync Key updated: $key"
+                )
+            }
+        }
+        return ok
+    }
+
+    fun getCurrentSyncKey(): String {
+        return CloudBackupStore.getSyncKey(getApplication())
     }
 
     /**
@@ -2521,10 +2560,17 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                                     outputFile = outFile,
                                     fitToA4 = fitToA4,
                                     pagesDetectedItems = allItems,
-                                    autoRecycleBitmaps = true
+                                    autoRecycleBitmaps = true,
+                                    ocrFallbackProvider = { bmp -> ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE) }
                                 )
                             } else {
-                                PdfExportEngine.exportBitmapToPdf(current, outFile, fitToA4, state.detectedItems)
+                                PdfExportEngine.exportBitmapToPdf(
+                                    bitmap = current,
+                                    outputFile = outFile,
+                                    fitToA4 = fitToA4,
+                                    detectedItems = state.detectedItems,
+                                    ocrFallbackProvider = { bmp -> ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE) }
+                                )
                             }
                             Pair(outFile, "application/pdf")
                         }
@@ -2634,7 +2680,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     val base64Data = Base64.encodeToString(fileBytes, Base64.NO_WRAP)
                     val isPdf = file.name.endsWith(".pdf", ignoreCase = true)
 
-                    val devId = CloudBackupStore.getDeviceId(context)
+                    val devId = CloudBackupStore.getSyncKey(context)
                     val payload = JSONObject().apply {
                         put("action", "cloud_upload")
                         put("token", DOCU_CLOUD_TOKEN)

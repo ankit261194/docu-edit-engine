@@ -73,6 +73,17 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val fontMetrics = paint.fontMetrics
         val lineHeight = fontMetrics.descent - fontMetrics.ascent + fontMetrics.leading
 
+        val isHandwritten = matchedFont.classification.category == "Handwriting" ||
+            matchedFont.classification.category == "Signature" ||
+            matchedFont.classification == FontClassification.KALAM ||
+            matchedFont.classification == FontClassification.CAVEAT ||
+            matchedFont.classification == FontClassification.DANCING_SCRIPT
+
+        if (isHandwritten && paint.textSkewX == 0f) {
+            // Natural human pen slant
+            paint.textSkewX = -0.10f
+        }
+
         if (abs(params.rotationAngle) > 0.5f) {
             masterCanvas.save()
             masterCanvas.rotate(params.rotationAngle, pivotX, pivotY)
@@ -91,7 +102,11 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
                     }
                 }
                 val lineY = fitResult.baselineY + (i * lineHeight)
-                masterCanvas.drawText(line, lineStartX, lineY, paint)
+                if (isHandwritten && line.length > 1) {
+                    drawHandwrittenLineWithJitter(masterCanvas, line, lineStartX, lineY, paint, fitResult.fontSize)
+                } else {
+                    masterCanvas.drawText(line, lineStartX, lineY, paint)
+                }
             }
             masterCanvas.restore()
         } else {
@@ -110,7 +125,11 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
                     }
                 }
                 val lineY = fitResult.baselineY + (i * lineHeight)
-                masterCanvas.drawText(line, lineStartX, lineY, paint)
+                if (isHandwritten && line.length > 1) {
+                    drawHandwrittenLineWithJitter(masterCanvas, line, lineStartX, lineY, paint, fitResult.fontSize)
+                } else {
+                    masterCanvas.drawText(line, lineStartX, lineY, paint)
+                }
             }
         }
 
@@ -145,5 +164,25 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         if (clean.isEmpty()) return false
         val numericOrSymbols = clean.count { it.isDigit() || it in "₹$€£.,%/-+:#" }
         return numericOrSymbols >= (clean.length * 0.70f) && clean.any { it.isDigit() }
+    }
+
+    private fun drawHandwrittenLineWithJitter(
+        canvas: Canvas,
+        text: String,
+        startX: Float,
+        baselineY: Float,
+        paint: Paint,
+        fontSize: Float
+    ) {
+        var currX = startX
+        val maxJitter = (fontSize * 0.045f).coerceIn(0.5f, 2.2f)
+
+        for (i in text.indices) {
+            val charStr = text[i].toString()
+            val wave = kotlin.math.sin(i * 1.6 + (text.hashCode() % 10)) * maxJitter
+            val jitterY = baselineY + wave.toFloat()
+            canvas.drawText(charStr, currX, jitterY, paint)
+            currX += paint.measureText(charStr)
+        }
     }
 }

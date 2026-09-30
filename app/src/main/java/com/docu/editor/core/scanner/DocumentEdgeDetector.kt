@@ -32,19 +32,7 @@ object DocumentEdgeDetector {
             Imgproc.cvtColor(srcMat, grayMat, Imgproc.COLOR_RGBA2GRAY)
 
             val detected = detectCornersFromGrayMat(grayMat, bitmap.width, bitmap.height)
-            if (detected != null) {
-                detected
-            } else {
-                // Fallback: 6% padded rectangle inside the frame
-                val padX = bitmap.width * 0.06f
-                val padY = bitmap.height * 0.06f
-                DocumentCorners(
-                    topLeft = PointF(padX, padY),
-                    topRight = PointF(bitmap.width - padX, padY),
-                    bottomRight = PointF(bitmap.width - padX, bitmap.height - padY),
-                    bottomLeft = PointF(padX, bitmap.height - padY)
-                )
-            }
+            detected ?: computeCenteredA4Corners(bitmap.width.toFloat(), bitmap.height.toFloat())
         } finally {
             srcMat.release()
             grayMat.release()
@@ -62,6 +50,7 @@ object DocumentEdgeDetector {
         val procHeight = (origHeight * scale).toInt()
 
         val smallGray = Mat()
+        val claheMat = Mat()
         val closedMat = Mat()
         val blurredMat = Mat()
         val cannedMat = Mat()
@@ -77,27 +66,31 @@ object DocumentEdgeDetector {
                 grayMat.copyTo(smallGray)
             }
 
-            // 1. Morphological Close with 15x15 kernel to completely blend black text characters into white paper
+            // 1. CLAHE Contrast Equalization (amplifies subtle shadow gradients along paper boundaries on white surfaces)
+            val clahe = Imgproc.createCLAHE(3.5, Size(8.0, 8.0))
+            clahe.apply(smallGray, claheMat)
+
+            // 2. Morphological Close with 15x15 kernel to completely blend black text characters into white paper
             val textEraseKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(15.0, 15.0))
-            Imgproc.morphologyEx(smallGray, closedMat, Imgproc.MORPH_CLOSE, textEraseKernel)
+            Imgproc.morphologyEx(claheMat, closedMat, Imgproc.MORPH_CLOSE, textEraseKernel)
             textEraseKernel.release()
 
-            // 2. Gaussian blur to remove any remaining background high frequencies
+            // 3. Gaussian blur to remove any remaining background high frequencies
             Imgproc.GaussianBlur(closedMat, blurredMat, Size(7.0, 7.0), 0.0)
 
-            // 3A. Canny edge detection focused on strong paper borders
-            Imgproc.Canny(blurredMat, cannedMat, 25.0, 90.0)
+            // 4A. Canny edge detection focused on strong paper borders
+            Imgproc.Canny(blurredMat, cannedMat, 20.0, 80.0)
 
-            // 3B. Morphological Gradient + Otsu Thresholding (Guarantees detection on white paper on white/light desks)
+            // 4B. Morphological Gradient + Otsu Thresholding (Guarantees detection on white paper on white/light desks)
             val gradKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
             Imgproc.morphologyEx(blurredMat, gradMat, Imgproc.MORPH_GRADIENT, gradKernel)
             gradKernel.release()
             Imgproc.threshold(gradMat, otsuMat, 0.0, 255.0, Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU)
 
-            // 3C. Bitwise OR: Combine Canny edges with shadow step boundary edges
+            // 4C. Bitwise OR: Combine Canny edges with shadow step boundary edges
             org.opencv.core.Core.bitwise_or(cannedMat, otsuMat, combinedEdges)
 
-            // 4. Dilate to seal any slight gaps on the paper edge
+            // 5. Dilate to seal any slight gaps on the paper edge
             val edgeKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
             Imgproc.dilate(combinedEdges, dilatedMat, edgeKernel)
             edgeKernel.release()
@@ -179,6 +172,7 @@ object DocumentEdgeDetector {
             return null
         } finally {
             smallGray.release()
+            claheMat.release()
             closedMat.release()
             blurredMat.release()
             cannedMat.release()
@@ -187,6 +181,37 @@ object DocumentEdgeDetector {
             combinedEdges.release()
             dilatedMat.release()
         }
+    }
+
+    /**
+     * Calculates an authentic, centered ISO A4 / Document aspect ratio bounding frame
+     * used when contrast is flat (e.g., white paper on white sheets or glossy surfaces).
+     */
+    fun computeCenteredA4Corners(w: Float, h: Float): DocumentCorners {
+        val isPortrait = h >= w
+        val a4Ratio = 1.414f
+
+        val docW: Float
+        val docH: Float
+        if (isPortrait) {
+            docW = w * 0.85f
+            docH = (docW * a4Ratio).coerceAtMost(h * 0.90f)
+        } else {
+            docH = h * 0.85f
+            docW = (docH * a4Ratio).coerceAtMost(w * 0.90f)
+        }
+
+        val left = (w - docW) / 2f
+        val top = (h - docH) / 2f
+        val right = left + docW
+        val bottom = top + docH
+
+        return DocumentCorners(
+            topLeft = PointF(left, top),
+            topRight = PointF(right, top),
+            bottomRight = PointF(right, bottom),
+            bottomLeft = PointF(left, bottom)
+        )
     }
 
     /**

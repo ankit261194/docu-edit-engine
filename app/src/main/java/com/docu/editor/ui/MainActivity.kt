@@ -894,8 +894,10 @@ class MainActivity : ComponentActivity() {
                         // Hosting Cloud Backups List Dialog
                         if (uiState.showCloudBackupsListDialog) {
                             val backups = remember(uiState.canvasRevision) { viewModel.getCloudBackups() }
+                            val syncKey = remember(uiState.canvasRevision) { viewModel.getCurrentSyncKey() }
                             CloudBackupsListDialog(
                                 backups = backups,
+                                syncKey = syncKey,
                                 onOpenUrl = { url ->
                                     try {
                                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -920,6 +922,9 @@ class MainActivity : ComponentActivity() {
                                             Toast.makeText(this@MainActivity, "Restore failed: $err", Toast.LENGTH_SHORT).show()
                                         }
                                     }
+                                },
+                                onSetSyncKey = { key ->
+                                    viewModel.setCustomSyncKey(key)
                                 },
                                 onRefreshCloud = {
                                     viewModel.fetchCloudBackupsFromServer { count ->

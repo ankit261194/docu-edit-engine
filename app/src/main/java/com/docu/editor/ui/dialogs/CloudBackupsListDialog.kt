@@ -30,6 +30,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.OpenInBrowser
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -37,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -66,14 +69,18 @@ import java.util.Locale
 @Composable
 fun CloudBackupsListDialog(
     backups: List<CloudBackupItem>,
+    syncKey: String = "",
     onOpenUrl: (String) -> Unit,
     onCopyUrl: (String) -> Unit,
     onDeleteBackup: (String) -> Unit,
     onRestoreBackup: (CloudBackupItem) -> Unit,
+    onSetSyncKey: (String) -> Unit = {},
     onRefreshCloud: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     var previewQrItem by remember { mutableStateOf<CloudBackupItem?>(null) }
+    var showKeyEditor by remember { mutableStateOf(false) }
+    var keyInput by remember(syncKey) { mutableStateOf(syncKey) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -156,6 +163,96 @@ fun CloudBackupsListDialog(
                                 contentDescription = "Close",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Master Sync Key Card (Cross-Device Account Sync)
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "🔑 Master Sync Key (Cross-Device)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF2563EB)
+                                )
+                                Text(
+                                    text = if (syncKey.isNotBlank()) syncKey else "Auto-Device Key",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (syncKey.isNotBlank()) {
+                                    IconButton(
+                                        onClick = { onCopyUrl(syncKey) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.ContentCopy,
+                                            contentDescription = "Copy Sync Key",
+                                            tint = Color(0xFF2563EB),
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                }
+                                OutlinedButton(
+                                    onClick = { showKeyEditor = !showKeyEditor },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(28.dp)
+                                ) {
+                                    Text(
+                                        if (showKeyEditor) "Cancel" else "Link Device",
+                                        fontSize = 10.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        if (showKeyEditor) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                OutlinedTextField(
+                                    value = keyInput,
+                                    onValueChange = { keyInput = it },
+                                    placeholder = { Text("Enter Old Sync Key to Link", fontSize = 11.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Button(
+                                    onClick = {
+                                        if (keyInput.isNotBlank()) {
+                                            onSetSyncKey(keyInput.trim())
+                                            showKeyEditor = false
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                                ) {
+                                    Text("Link", fontSize = 11.sp)
+                                }
+                            }
                         }
                     }
                 }

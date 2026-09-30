@@ -25,6 +25,7 @@ object CloudBackupStore {
     private const val PREFS_NAME = "docu_cloud_backups"
     private const val KEY_BACKUPS = "backup_list"
     private const val KEY_DEVICE_ID = "docu_device_uuid"
+    private const val KEY_CUSTOM_SYNC_KEY = "docu_custom_sync_key"
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -38,6 +39,26 @@ object CloudBackupStore {
             prefs.edit().putString(KEY_DEVICE_ID, devId).apply()
         }
         return devId
+    }
+
+    fun getSyncKey(context: Context): String {
+        val prefs = getPrefs(context)
+        val customKey = prefs.getString(KEY_CUSTOM_SYNC_KEY, null)
+        if (!customKey.isNullOrBlank()) {
+            return customKey
+        }
+        return getDeviceId(context)
+    }
+
+    fun setSyncKey(context: Context, key: String): Boolean {
+        val cleanKey = key.trim().replace(Regex("[^a-zA-Z0-9_-]"), "")
+        if (cleanKey.length < 4) return false
+        getPrefs(context).edit().putString(KEY_CUSTOM_SYNC_KEY, cleanKey).apply()
+        return true
+    }
+
+    fun clearCustomSyncKey(context: Context) {
+        getPrefs(context).edit().remove(KEY_CUSTOM_SYNC_KEY).apply()
     }
 
     fun saveBackup(context: Context, result: CloudSyncResult) {
