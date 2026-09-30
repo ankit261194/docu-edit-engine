@@ -8,6 +8,8 @@ enum class EditorToolMode {
     LASSO_SELECT,
     ADD_TEXT,
     WHITEOUT,
+    HIGHLIGHTER,
+    MARKUP_PEN,
     FILTERS,
     CROP_DESKEW,
     BOOK_DEWARP,
@@ -78,6 +80,10 @@ data class DocumentEditorUiState(
     val currentBatchIndex: Int = 0,
     val showCloudSyncDialog: Boolean = false,
     val cloudSyncResult: com.docu.editor.ui.dialogs.CloudSyncResult? = null,
-    val isPerformingHandwritingOcr: Boolean = false
+    val isPerformingHandwritingOcr: Boolean = false,
+    val markupColorRgb: Int = android.graphics.Color.rgb(255, 235, 59),
+    val markupStrokeWidth: Float = 28f,
+    val penColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
+    val penStrokeWidth: Float = 6f
 )
 

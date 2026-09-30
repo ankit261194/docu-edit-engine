@@ -20,7 +20,9 @@ data class SavedDocumentItem(
     val thumbnailPath: String,
     val pageCount: Int,
     val timestamp: Long,
-    val fileSizeBytes: Long
+    val fileSizeBytes: Long,
+    val category: String = "All",
+    val extractedOcrText: String = ""
 ) {
     val formattedDate: String
         get() = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(timestamp))
@@ -59,7 +61,9 @@ object DocumentHistoryManager {
                             thumbnailPath = obj.getString("thumbnailPath"),
                             pageCount = obj.optInt("pageCount", 1),
                             timestamp = obj.getLong("timestamp"),
-                            fileSizeBytes = obj.optLong("fileSizeBytes", File(filePath).length())
+                            fileSizeBytes = obj.optLong("fileSizeBytes", File(filePath).length()),
+                            category = obj.optString("category", "All"),
+                            extractedOcrText = obj.optString("extractedOcrText", "")
                         )
                     )
                 }
@@ -74,7 +78,9 @@ object DocumentHistoryManager {
         context: Context,
         bitmap: Bitmap,
         title: String = "Doc_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())}",
-        pageCount: Int = 1
+        pageCount: Int = 1,
+        category: String = "All",
+        extractedOcrText: String = ""
     ): SavedDocumentItem = withContext(Dispatchers.IO) {
         val docsDir = File(context.filesDir, DOCS_DIR_NAME).apply { mkdirs() }
         val thumbsDir = File(context.filesDir, THUMBS_DIR_NAME).apply { mkdirs() }
@@ -102,7 +108,9 @@ object DocumentHistoryManager {
             thumbnailPath = thumbFile.absolutePath,
             pageCount = pageCount,
             timestamp = System.currentTimeMillis(),
-            fileSizeBytes = docFile.length()
+            fileSizeBytes = docFile.length(),
+            category = category,
+            extractedOcrText = extractedOcrText
         )
 
         val currentList = getSavedDocuments(context).toMutableList()
@@ -117,7 +125,9 @@ object DocumentHistoryManager {
         context: Context,
         id: String,
         bitmap: Bitmap,
-        pageCount: Int = 1
+        pageCount: Int = 1,
+        category: String? = null,
+        extractedOcrText: String? = null
     ): SavedDocumentItem? = withContext(Dispatchers.IO) {
         val currentList = getSavedDocuments(context).toMutableList()
         val existingIndex = currentList.indexOfFirst { it.id == id }
@@ -141,12 +151,32 @@ object DocumentHistoryManager {
         val updated = existing.copy(
             timestamp = System.currentTimeMillis(),
             fileSizeBytes = docFile.length(),
-            pageCount = pageCount
+            pageCount = pageCount,
+            category = category ?: existing.category,
+            extractedOcrText = extractedOcrText ?: existing.extractedOcrText
         )
         currentList.removeAt(existingIndex)
         currentList.add(0, updated)
         saveIndex(context, currentList)
         updated
+    }
+
+    suspend fun updateDocumentCategory(context: Context, id: String, newCategory: String) = withContext(Dispatchers.IO) {
+        val currentList = getSavedDocuments(context).toMutableList()
+        val index = currentList.indexOfFirst { it.id == id }
+        if (index != -1) {
+            currentList[index] = currentList[index].copy(category = newCategory)
+            saveIndex(context, currentList)
+        }
+    }
+
+    suspend fun renameDocument(context: Context, id: String, newTitle: String) = withContext(Dispatchers.IO) {
+        val currentList = getSavedDocuments(context).toMutableList()
+        val index = currentList.indexOfFirst { it.id == id }
+        if (index != -1) {
+            currentList[index] = currentList[index].copy(title = newTitle)
+            saveIndex(context, currentList)
+        }
     }
 
     suspend fun deleteDocument(context: Context, id: String) = withContext(Dispatchers.IO) {
@@ -180,6 +210,8 @@ object DocumentHistoryManager {
                 put("pageCount", item.pageCount)
                 put("timestamp", item.timestamp)
                 put("fileSizeBytes", item.fileSizeBytes)
+                put("category", item.category)
+                put("extractedOcrText", item.extractedOcrText)
             }
             array.put(obj)
         }

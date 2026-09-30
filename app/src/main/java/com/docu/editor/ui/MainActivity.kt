@@ -418,7 +418,15 @@ class MainActivity : ComponentActivity() {
                                 onWatermarkClicked = { viewModel.showWatermarkDialog(true) },
                                 onBookDewarpClicked = { viewModel.showBookDewarpDialog(true) },
                                 whiteoutBrushRadius = uiState.whiteoutBrushRadius,
-                                onWhiteoutBrushRadiusChanged = { r -> viewModel.setWhiteoutBrushRadius(r) }
+                                onWhiteoutBrushRadiusChanged = { r -> viewModel.setWhiteoutBrushRadius(r) },
+                                markupColorRgb = uiState.markupColorRgb,
+                                markupStrokeWidth = uiState.markupStrokeWidth,
+                                onMarkupColorChanged = { viewModel.setMarkupColor(it) },
+                                onMarkupStrokeWidthChanged = { viewModel.setMarkupStrokeWidth(it) },
+                                penColorRgb = uiState.penColorRgb,
+                                penStrokeWidth = uiState.penStrokeWidth,
+                                onPenColorChanged = { viewModel.setPenColor(it) },
+                                onPenStrokeWidthChanged = { viewModel.setPenStrokeWidth(it) }
                             )
                         }
                     }
@@ -458,7 +466,16 @@ class MainActivity : ComponentActivity() {
                                 currentPageIndex = uiState.currentPdfPageIndex,
                                 onPreviousPage = { viewModel.previousPdfPage() },
                                 onNextPage = { viewModel.nextPdfPage() },
-                                onOpenPagesOverview = { viewModel.showPagesOverview(true) }
+                                onOpenPagesOverview = { viewModel.showPagesOverview(true) },
+                                markupColorRgb = uiState.markupColorRgb,
+                                markupStrokeWidth = uiState.markupStrokeWidth,
+                                penColorRgb = uiState.penColorRgb,
+                                penStrokeWidth = uiState.penStrokeWidth,
+                                onCommitMarkupStroke = { pts, isHl ->
+                                    val col = if (isHl) uiState.markupColorRgb else uiState.penColorRgb
+                                    val w = if (isHl) uiState.markupStrokeWidth else uiState.penStrokeWidth
+                                    viewModel.commitMarkupStroke(pts, col, w, isHl)
+                                }
                             )
 
                             // CamScanner-Style Floating "Auto-Fetched Text" Badge
@@ -499,6 +516,8 @@ class MainActivity : ComponentActivity() {
                                 onOpenSavedDocument = { path -> viewModel.loadScannedDocument(path) },
                                 onDeleteRecentDocument = { id -> viewModel.deleteRecentDocument(id) },
                                 onClearAllRecentDocuments = { viewModel.clearRecentDocuments() },
+                                onUpdateCategory = { id, cat -> viewModel.updateDocumentCategory(id, cat) },
+                                onRenameDocument = { id, title -> viewModel.renameDocument(id, title) },
                                 onCameraScanClicked = {
                                     if (ContextCompat.checkSelfPermission(
                                             this@MainActivity,

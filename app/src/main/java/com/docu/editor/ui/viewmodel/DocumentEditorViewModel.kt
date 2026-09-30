@@ -10,6 +10,8 @@ import android.graphics.ImageDecoder
 import android.graphics.Paint
 import android.graphics.Rect
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -29,6 +31,7 @@ import com.docu.editor.core.ocr.OcrAnalyzer
 import com.docu.editor.core.ocr.model.DetectedTextItem
 import com.docu.editor.core.ocr.model.TextHierarchyLevel
 import android.graphics.Point
+import android.graphics.PointF
 import com.docu.editor.core.ocr.model.FontWeightEstimate
 import com.docu.editor.core.ocr.model.TypographyMetrics
 import com.docu.editor.core.pdf.PdfCompressionEngine
@@ -643,10 +646,12 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         val context = getApplication<Application>()
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                val ocrSummary = items.joinToString(" ") { it.text }
                 val saved = DocumentHistoryManager.saveDocument(
                     context = context,
                     bitmap = effectiveBitmap,
-                    pageCount = _uiState.value.pdfPageCount
+                    pageCount = _uiState.value.pdfPageCount,
+                    extractedOcrText = ocrSummary
                 )
                 _uiState.update { it.copy(currentDocHistoryId = saved.id) }
                 refreshRecentDocuments()
@@ -747,6 +752,13 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         updateRecentDocumentThumbnail(currentBitmap)
     }
 
+    fun isNetworkConnected(): Boolean {
+        val cm = getApplication<Application>().getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        val activeNet = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(activeNet) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
     fun applyTextReplacement(
         targetItem: DetectedTextItem,
         newText: String,
@@ -757,6 +769,15 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         alignment: Paint.Align = Paint.Align.LEFT,
         useCloudAi: Boolean = false
     ) {
+        if (useCloudAi && !isNetworkConnected()) {
+            _uiState.update {
+                it.copy(
+                    errorMessage = "⚠️ इंटरनेट कनेक्शन आवश्यक है • स्मार्ट AI रिमूवर क्लाउड से चलता है।"
+                )
+            }
+            return
+        }
+
         val currentBitmap = _uiState.value.currentBitmap ?: return
 
         // Save ultra-compact 30KB patch of edited word (99.8% memory savings, 0% crash risk)
@@ -784,7 +805,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             _uiState.update {
                 it.copy(
                     isApplyingEdit = true,
-                    processingMessage = if (useCloudAi) "Gemini Pro: Analyzing document typography..." else "Applying seamless typography..."
+                    processingMessage = if (useCloudAi) "Smart AI: Analyzing document typography..." else "Applying seamless typography..."
                 )
             }
 
@@ -936,7 +957,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         isNewTextInsertion = false,
                         isApplyingEdit = false,
                         processingMessage = null,
-                        successMessage = if (useCloudAi) "Gemini Pro: Replaced seamlessly" else "Replaced text seamlessly",
+                        successMessage = if (useCloudAi) "Smart AI: Replaced seamlessly" else "Replaced text seamlessly",
                         canUndo = true,
                         canRedo = false,
                         hasUnsavedChanges = true,
@@ -1822,6 +1843,114 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch(Dispatchers.IO) {
             DocumentHistoryManager.clearAllDocuments(context)
             refreshRecentDocuments()
+        }
+    }
+
+    fun updateDocumentCategory(id: String, newCategory: String) {
+        val context = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            DocumentHistoryManager.updateDocumentCategory(context, id, newCategory)
+            refreshRecentDocuments()
+        }
+    }
+
+    fun renameDocument(id: String, newTitle: String) {
+        val context = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            DocumentHistoryManager.renameDocument(context, id, newTitle)
+            refreshRecentDocuments()
+        }
+    }
+
+    // --- Highlighter & Pen Markup Engine ---
+
+    fun setMarkupColor(colorRgb: Int) {
+        _uiState.update { it.copy(markupColorRgb = colorRgb) }
+    }
+
+    fun setMarkupStrokeWidth(width: Float) {
+        _uiState.update { it.copy(markupStrokeWidth = width.coerceIn(10f, 60f)) }
+    }
+
+    fun setPenColor(colorRgb: Int) {
+        _uiState.update { it.copy(penColorRgb = colorRgb) }
+    }
+
+    fun setPenStrokeWidth(width: Float) {
+        _uiState.update { it.copy(penStrokeWidth = width.coerceIn(2f, 20f)) }
+    }
+
+    fun commitMarkupStroke(
+        points: List<PointF>,
+        colorRgb: Int,
+        strokeWidth: Float,
+        isHighlighter: Boolean
+    ) {
+        val currentBitmap = _uiState.value.currentBitmap ?: return
+        if (points.size < 2) return
+
+        var minX = Float.MAX_VALUE
+        var maxX = Float.MIN_VALUE
+        var minY = Float.MAX_VALUE
+        var maxY = Float.MIN_VALUE
+        for (p in points) {
+            if (p.x < minX) minX = p.x
+            if (p.x > maxX) maxX = p.x
+            if (p.y < minY) minY = p.y
+            if (p.y > maxY) maxY = p.y
+        }
+        val pad = (strokeWidth + 12f).toInt()
+        val patchL = (minX.toInt() - pad).coerceIn(0, currentBitmap.width - 1)
+        val patchT = (minY.toInt() - pad).coerceIn(0, currentBitmap.height - 1)
+        val patchR = (maxX.toInt() + pad).coerceIn(0, currentBitmap.width)
+        val patchB = (maxY.toInt() + pad).coerceIn(0, currentBitmap.height)
+        val patchW = max(1, patchR - patchL)
+        val patchH = max(1, patchB - patchT)
+
+        val patchBmp = Bitmap.createBitmap(currentBitmap, patchL, patchT, patchW, patchH)
+        pushUndoStep(UndoStep.PixelPatch(patchBmp, patchL, patchT))
+
+        val canvas = Canvas(currentBitmap)
+        val path = android.graphics.Path()
+        path.moveTo(points[0].x, points[0].y)
+        for (i in 1 until points.size) {
+            val pPrev = points[i - 1]
+            val pCurr = points[i]
+            val midX = (pPrev.x + pCurr.x) / 2f
+            val midY = (pPrev.y + pCurr.y) / 2f
+            path.quadTo(pPrev.x, pPrev.y, midX, midY)
+        }
+        path.lineTo(points.last().x, points.last().y)
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            this.strokeWidth = strokeWidth
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            if (isHighlighter) {
+                val alpha = 115
+                val r = Color.red(colorRgb)
+                val g = Color.green(colorRgb)
+                val b = Color.blue(colorRgb)
+                color = Color.argb(alpha, r, g, b)
+                xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.MULTIPLY)
+            } else {
+                color = colorRgb
+            }
+        }
+        canvas.drawPath(path, paint)
+
+        val pageIdx = _uiState.value.currentPdfPageIndex
+        editedPagesMap[pageIdx] = currentBitmap
+        updateRecentDocumentThumbnail(currentBitmap)
+
+        _uiState.update {
+            it.copy(
+                canUndo = true,
+                canRedo = false,
+                hasUnsavedChanges = true,
+                canvasRevision = it.canvasRevision + 1
+            )
         }
     }
 

@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -44,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -87,6 +89,11 @@ fun DocumentInteractiveCanvas(
     onPreviousPage: () -> Unit = {},
     onNextPage: () -> Unit = {},
     onOpenPagesOverview: () -> Unit = {},
+    markupColorRgb: Int = android.graphics.Color.rgb(255, 235, 59),
+    markupStrokeWidth: Float = 28f,
+    penColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
+    penStrokeWidth: Float = 6f,
+    onCommitMarkupStroke: (points: List<android.graphics.PointF>, isHighlighter: Boolean) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
@@ -95,6 +102,7 @@ fun DocumentInteractiveCanvas(
     var isHoldingCompare by remember { mutableStateOf(false) }
     var lassoBoxStart by remember { mutableStateOf<Offset?>(null) }
     var lassoBoxCurrent by remember { mutableStateOf<Offset?>(null) }
+    val liveMarkupPoints = remember { mutableStateListOf<android.graphics.PointF>() }
 
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
         if (activeOverlayBitmap == null) {
@@ -174,6 +182,58 @@ fun DocumentInteractiveCanvas(
                             if (bitmapX in 0f..bitmap.width.toFloat() && bitmapY in 0f..bitmap.height.toFloat()) {
                                 onWhiteoutTouch(bitmapX, bitmapY)
                             }
+                        }
+                    )
+                } else if (activeMode == EditorToolMode.HIGHLIGHTER || activeMode == EditorToolMode.MARKUP_PEN) {
+                    // Continuous smooth drag for Highlighter & Markup Pen
+                    detectDragGestures(
+                        onDragStart = { startOffset ->
+                            val fitScale = min(
+                                containerSize.width.toFloat() / bitmap.width,
+                                containerSize.height.toFloat() / bitmap.height
+                            )
+                            val effectiveScale = fitScale * scale
+                            val drawWidth = bitmap.width * effectiveScale
+                            val drawHeight = bitmap.height * effectiveScale
+                            val baseLeft = (containerSize.width - drawWidth) / 2f + offset.x
+                            val baseTop = (containerSize.height - drawHeight) / 2f + offset.y
+
+                            val bx = (startOffset.x - baseLeft) / effectiveScale
+                            val by = (startOffset.y - baseTop) / effectiveScale
+                            liveMarkupPoints.clear()
+                            if (bx in 0f..bitmap.width.toFloat() && by in 0f..bitmap.height.toFloat()) {
+                                liveMarkupPoints.add(android.graphics.PointF(bx, by))
+                            }
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            val fitScale = min(
+                                containerSize.width.toFloat() / bitmap.width,
+                                containerSize.height.toFloat() / bitmap.height
+                            )
+                            val effectiveScale = fitScale * scale
+                            val drawWidth = bitmap.width * effectiveScale
+                            val drawHeight = bitmap.height * effectiveScale
+                            val baseLeft = (containerSize.width - drawWidth) / 2f + offset.x
+                            val baseTop = (containerSize.height - drawHeight) / 2f + offset.y
+
+                            val bx = (change.position.x - baseLeft) / effectiveScale
+                            val by = (change.position.y - baseTop) / effectiveScale
+                            if (bx in 0f..bitmap.width.toFloat() && by in 0f..bitmap.height.toFloat()) {
+                                liveMarkupPoints.add(android.graphics.PointF(bx, by))
+                            }
+                        },
+                        onDragEnd = {
+                            if (liveMarkupPoints.size >= 2) {
+                                onCommitMarkupStroke(
+                                    liveMarkupPoints.toList(),
+                                    activeMode == EditorToolMode.HIGHLIGHTER
+                                )
+                            }
+                            liveMarkupPoints.clear()
+                        },
+                        onDragCancel = {
+                            liveMarkupPoints.clear()
                         }
                     )
                 } else if (activeMode == EditorToolMode.ADD_TEXT) {
@@ -431,6 +491,26 @@ fun DocumentInteractiveCanvas(
                 )
             }
 
+            // 2.2 Draw active live highlighter / markup pen stroke
+            if (liveMarkupPoints.size > 1) {
+                val isHl = activeMode == EditorToolMode.HIGHLIGHTER
+                val strokeColor = if (isHl) Color(markupColorRgb).copy(alpha = 0.55f) else Color(penColorRgb)
+                val strokeW = (if (isHl) markupStrokeWidth else penStrokeWidth) * effectiveScale
+                for (i in 0 until liveMarkupPoints.size - 1) {
+                    val p1 = liveMarkupPoints[i]
+                    val p2 = liveMarkupPoints[i + 1]
+                    val s1 = Offset(baseLeft + p1.x * effectiveScale, baseTop + p1.y * effectiveScale)
+                    val s2 = Offset(baseLeft + p2.x * effectiveScale, baseTop + p2.y * effectiveScale)
+                    drawLine(
+                        color = strokeColor,
+                        start = s1,
+                        end = s2,
+                        strokeWidth = strokeW,
+                        cap = StrokeCap.Round
+                    )
+                }
+            }
+
             // 3. Draw Signature / Stamp Overlay if active
             if (activeOverlayBitmap != null) {
                 val overlayDrawW = (activeOverlayBitmap.width * overlayScale * effectiveScale).toInt()
@@ -454,6 +534,44 @@ fun DocumentInteractiveCanvas(
                         style = Stroke(width = 2.dp.toPx())
                     )
                 }
+            }
+        }
+
+        // Highlighter Mode Banner
+        if (activeMode == EditorToolMode.HIGHLIGHTER) {
+            Surface(
+                color = Color(0xFFD97706).copy(alpha = 0.95f),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp)
+            ) {
+                Text(
+                    text = "🖍️ Highlighter Active: Drag across text to highlight",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+        }
+
+        // Markup Pen Mode Banner
+        if (activeMode == EditorToolMode.MARKUP_PEN) {
+            Surface(
+                color = Color(0xFFDC2626).copy(alpha = 0.95f),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp)
+            ) {
+                Text(
+                    text = "🖊️ Pen Markup Active: Drag to draw notes or markings",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
             }
         }
 

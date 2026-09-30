@@ -11,8 +11,35 @@ object AutoFitFontCondenser {
         val fontSize: Float,
         val letterSpacingEm: Float,
         val scaleX: Float,
-        val baselineY: Float
+        val baselineY: Float,
+        val wrappedText: String
     )
+
+    fun autoWrapIfTooWide(text: String, targetWidth: Float, paint: Paint): String {
+        if (text.contains("\n")) return text
+        val words = text.split(" ")
+        if (words.size <= 1) return text
+
+        val testWidth = paint.measureText(text)
+        if (testWidth <= targetWidth * 1.25f) return text
+
+        val lines = mutableListOf<String>()
+        var currentLine = StringBuilder()
+
+        for (word in words) {
+            val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
+            if (paint.measureText(testLine) <= targetWidth || currentLine.isEmpty()) {
+                currentLine = StringBuilder(testLine)
+            } else {
+                lines.add(currentLine.toString())
+                currentLine = StringBuilder(word)
+            }
+        }
+        if (currentLine.isNotEmpty()) {
+            lines.add(currentLine.toString())
+        }
+        return if (lines.size > 1) lines.joinToString("\n") else text
+    }
 
     fun condenseToFit(
         text: String,
@@ -21,13 +48,13 @@ object AutoFitFontCondenser {
         originalText: String = "",
         sizeMultiplier: Float = 1.0f
     ): AdjustedTypography {
-        val lines = text.split("\n")
-        val lineCount = max(1, lines.size)
         val targetWidth = max(10, targetBounds.width()).toFloat()
+        val effectiveText = autoWrapIfTooWide(text, targetWidth, paint)
+        val lines = effectiveText.split("\n")
+        val lineCount = max(1, lines.size)
         val targetHeight = (max(8, targetBounds.height()).toFloat() / lineCount)
 
         // 1. Initial font size estimate based on EM box vs visual cap-height.
-        // In standard fonts (Arial, Roboto, etc.), Cap-Height is ~0.71 of textSize.
         var fontSize = (targetHeight * 1.35f) * sizeMultiplier
         paint.textSize = fontSize
         paint.letterSpacing = 0f
@@ -35,10 +62,10 @@ object AutoFitFontCondenser {
 
         // 2. Measure actual glyph ink height using Paint.getTextBounds
         val sampleGlyph = when {
-            text.any { it in '\u0900'..'\u097F' } -> text.filter { it in '\u0900'..'\u097F' }.take(2)
-            text.any { it.isUpperCase() } -> text.filter { it.isUpperCase() }.take(2)
-            text.any { it.isDigit() } -> text.filter { it.isDigit() }.take(2)
-            text.any { it.isLowerCase() } -> text.filter { it.isLowerCase() }.take(2)
+            effectiveText.any { it in '\u0900'..'\u097F' } -> effectiveText.filter { it in '\u0900'..'\u097F' }.take(2)
+            effectiveText.any { it.isUpperCase() } -> effectiveText.filter { it.isUpperCase() }.take(2)
+            effectiveText.any { it.isDigit() } -> effectiveText.filter { it.isDigit() }.take(2)
+            effectiveText.any { it.isLowerCase() } -> effectiveText.filter { it.isLowerCase() }.take(2)
             else -> "H"
         }
 
@@ -47,7 +74,6 @@ object AutoFitFontCondenser {
         val measuredInkH = glyphBounds.height().toFloat()
 
         if (measuredInkH > 2f) {
-            // Target ink height matches original bounding box height with 4% breathing margin
             val desiredInkH = targetHeight * 0.94f * sizeMultiplier
             val calibrationRatio = desiredInkH / measuredInkH
             fontSize = (fontSize * calibrationRatio).coerceIn(6f, targetHeight * 2.5f)
@@ -55,9 +81,9 @@ object AutoFitFontCondenser {
         }
 
         val measuredWidth = if (lineCount > 1) {
-            lines.maxOfOrNull { paint.measureText(it) } ?: paint.measureText(text)
+            lines.maxOfOrNull { paint.measureText(it) } ?: paint.measureText(effectiveText)
         } else {
-            paint.measureText(text)
+            paint.measureText(effectiveText)
         }
 
         var scaleX = 1.0f
@@ -75,7 +101,11 @@ object AutoFitFontCondenser {
                     trackingEm = -0.02f
                     paint.textScaleX = scaleX
                     paint.letterSpacing = trackingEm
-                    val remeasured = paint.measureText(text)
+                    val remeasured = if (lineCount > 1) {
+                        lines.maxOfOrNull { paint.measureText(it) } ?: paint.measureText(effectiveText)
+                    } else {
+                        paint.measureText(effectiveText)
+                    }
                     if (remeasured > targetWidth) {
                         fontSize *= (targetWidth / remeasured).coerceAtLeast(0.68f)
                     }
@@ -85,7 +115,11 @@ object AutoFitFontCondenser {
                     trackingEm = -0.025f
                     paint.textScaleX = scaleX
                     paint.letterSpacing = trackingEm
-                    val remeasured = paint.measureText(text)
+                    val remeasured = if (lineCount > 1) {
+                        lines.maxOfOrNull { paint.measureText(it) } ?: paint.measureText(effectiveText)
+                    } else {
+                        paint.measureText(effectiveText)
+                    }
                     if (remeasured > targetWidth) {
                         fontSize *= (targetWidth / remeasured).coerceAtLeast(0.50f)
                     }
@@ -94,8 +128,7 @@ object AutoFitFontCondenser {
         }
 
         // Indic / Devanagari script protection:
-        // Letter-spacing breaks the continuous top line (shirorekha) in Hindi/Devanagari.
-        val hasIndicScript = text.any { it.code in 0x0900..0x0D7F }
+        val hasIndicScript = effectiveText.any { it.code in 0x0900..0x0D7F }
         if (hasIndicScript) {
             trackingEm = 0f
         }
@@ -120,7 +153,8 @@ object AutoFitFontCondenser {
             fontSize = fontSize,
             letterSpacingEm = trackingEm,
             scaleX = scaleX,
-            baselineY = baselineY
+            baselineY = baselineY,
+            wrappedText = effectiveText
         )
     }
 }

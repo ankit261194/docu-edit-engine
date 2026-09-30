@@ -160,16 +160,16 @@ fun CloudAiSettingsDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Gemini API Key Input
+                // Neural AI API Key Input
                 Text(
-                    text = "Gemini Pro API Key (Optional)",
+                    text = "Neural AI Key (Optional)",
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "Leave blank to use host default or enter custom key from aistudio.google.com",
+                    text = "Leave blank to use host default or enter custom AI key for unlimited high-quota cloud restoration",
                     fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -179,7 +179,7 @@ fun CloudAiSettingsDialog(
                 OutlinedTextField(
                     value = apiKeyInput,
                     onValueChange = { apiKeyInput = it },
-                    placeholder = { Text("Enter Gemini API Key (e.g. AIzaSy...)", fontSize = 12.sp) },
+                    placeholder = { Text("Enter Custom AI Key (Optional)", fontSize = 12.sp) },
                     leadingIcon = {
                         Icon(Icons.Default.VpnKey, contentDescription = null, modifier = Modifier.size(18.dp))
                     },
@@ -214,9 +214,10 @@ fun CloudAiSettingsDialog(
                                         if (code == 200) {
                                             val text = conn.inputStream.bufferedReader().readText()
                                             val json = JSONObject(text)
-                                            val service = json.optString("service", "DocuEdit Cloud AI")
-                                            val model = json.optString("model", "gemini-1.5-flash")
-                                            "Connected: $service ($model)"
+                                            val service = json.optString("service", "DocuEdit Smart AI")
+                                            val model = json.optString("model", "Smart AI Vision")
+                                            val displayModel = if (model.contains("gemini", ignoreCase = true)) "Smart AI Vision" else model
+                                            "Connected: $service ($displayModel)"
                                         } else {
                                             "HTTP $code from server"
                                         }

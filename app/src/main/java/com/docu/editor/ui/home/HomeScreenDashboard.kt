@@ -2,6 +2,7 @@ package com.docu.editor.ui.home
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -37,6 +38,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Label
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -44,8 +48,22 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,6 +83,8 @@ fun HomeScreenDashboard(
     onOpenSavedDocument: (filePath: String) -> Unit = {},
     onDeleteRecentDocument: (String) -> Unit = {},
     onClearAllRecentDocuments: () -> Unit = {},
+    onUpdateCategory: (String, String) -> Unit = { _, _ -> },
+    onRenameDocument: (String, String) -> Unit = { _, _ -> },
     onCameraScanClicked: () -> Unit,
     onOpenFileClicked: () -> Unit,
     onIdCardClicked: () -> Unit,
@@ -73,6 +93,59 @@ fun HomeScreenDashboard(
     onTryDemoClicked: () -> Unit,
     onCloudAiSettingsClicked: () -> Unit = {}
 ) {
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("All") }
+    var docToRename by remember { mutableStateOf<SavedDocumentItem?>(null) }
+    var renameInput by remember { mutableStateOf("") }
+
+    val categories = listOf("All", "ID Cards", "Invoices", "Office", "Personal")
+
+    val filteredDocs = remember(recentDocuments, searchQuery, selectedCategory) {
+        recentDocuments.filter { doc ->
+            val matchesCat = if (selectedCategory == "All") true else doc.category.equals(selectedCategory, ignoreCase = true)
+            val matchesQuery = if (searchQuery.isBlank()) true else {
+                doc.title.contains(searchQuery, ignoreCase = true) ||
+                doc.extractedOcrText.contains(searchQuery, ignoreCase = true)
+            }
+            matchesCat && matchesQuery
+        }
+    }
+
+    if (docToRename != null) {
+        val doc = docToRename!!
+        AlertDialog(
+            onDismissRequest = { docToRename = null },
+            title = { Text("Rename Document", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
+            text = {
+                OutlinedTextField(
+                    value = renameInput,
+                    onValueChange = { renameInput = it },
+                    singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (renameInput.isNotBlank()) {
+                            onRenameDocument(doc.id, renameInput.trim())
+                        }
+                        docToRename = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                ) {
+                    Text("Rename")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { docToRename = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -199,7 +272,7 @@ fun HomeScreenDashboard(
                                 }
                             }
                             Text(
-                                text = "shribalajikripadham.online • Gemini Pro Vision",
+                                text = "shribalajikripadham.online • Smart AI Vision",
                                 fontSize = 11.sp,
                                 color = Color(0xFF7E22CE)
                             )
@@ -380,26 +453,26 @@ fun HomeScreenDashboard(
                 }
             }
 
-            // Recent Documents Section (CamScanner Local Library)
-            if (recentDocuments.isNotEmpty()) {
-                item(span = { GridItemSpan(2) }) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 14.dp, bottom = 4.dp)
+            // Document Library & Categories Section (CamScanner Local Library)
+            item(span = { GridItemSpan(2) }) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp, bottom = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Recent Documents (${recentDocuments.size})",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface
-                            )
-                            androidx.compose.material3.TextButton(
+                        Text(
+                            text = "Document Library (${recentDocuments.size})",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (recentDocuments.isNotEmpty()) {
+                            TextButton(
                                 onClick = onClearAllRecentDocuments,
                                 contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                             ) {
@@ -411,20 +484,112 @@ fun HomeScreenDashboard(
                                 )
                             }
                         }
+                    }
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
+                    // Global Search Bar across title & extracted OCR text
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search documents or OCR text...", fontSize = 12.sp) },
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFF64748B))
+                        },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear search", modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF2563EB),
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Folder & Document Category Filter Chips
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        categories.forEach { cat ->
+                            val isSel = (selectedCategory == cat)
+                            val count = if (cat == "All") recentDocuments.size else recentDocuments.count { it.category.equals(cat, ignoreCase = true) }
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedCategory = cat },
+                                label = {
+                                    Text(
+                                        text = "$cat ($count)",
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF2563EB),
+                                    selectedLabelColor = Color.White,
+                                    containerColor = Color(0xFFF1F5F9),
+                                    labelColor = Color(0xFF475569)
+                                ),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (filteredDocs.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(100.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0xFFF8FAFC))
+                                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = if (searchQuery.isNotBlank()) "🔍 No documents match \"$searchQuery\"" else if (selectedCategory != "All") "📁 No documents in '$selectedCategory' category" else "📭 Document library is empty",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF475569)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Scan or import a document to view it here",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF94A3B8)
+                                )
+                            }
+                        }
+                    } else {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            recentDocuments.take(10).forEach { doc ->
+                            filteredDocs.forEach { doc ->
                                 RecentDocumentCard(
                                     document = doc,
                                     onClick = { onOpenSavedDocument(doc.filePath) },
-                                    onDelete = { onDeleteRecentDocument(doc.id) }
+                                    onDelete = { onDeleteRecentDocument(doc.id) },
+                                    onUpdateCategory = { newCat -> onUpdateCategory(doc.id, newCat) },
+                                    onRename = {
+                                        renameInput = doc.title
+                                        docToRename = doc
+                                    }
                                 )
                             }
                         }
@@ -488,7 +653,7 @@ private fun StudioActionCard(
                 modifier = Modifier
                     .size(42.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Brush.linearGradient(gradient)),
+                .background(Brush.linearGradient(gradient)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -522,8 +687,13 @@ private fun StudioActionCard(
 private fun RecentDocumentCard(
     document: SavedDocumentItem,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onUpdateCategory: (String) -> Unit = {},
+    onRename: () -> Unit = {}
 ) {
+    var showCategoryMenu by remember { mutableStateOf(false) }
+    val categoryList = listOf("ID Cards", "Invoices", "Office", "Personal")
+
     val thumbBmp = remember(document.thumbnailPath) {
         try {
             BitmapFactory.decodeFile(document.thumbnailPath)
@@ -534,11 +704,11 @@ private fun RecentDocumentCard(
 
     Card(
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier
-            .width(130.dp)
+            .width(135.dp)
             .clickable { onClick() }
     ) {
         Column {
@@ -546,7 +716,7 @@ private fun RecentDocumentCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(130.dp)
-                    .background(androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                 contentAlignment = Alignment.Center
             ) {
                 if (thumbBmp != null) {
@@ -565,23 +735,86 @@ private fun RecentDocumentCard(
                     )
                 }
 
-                // Delete Button on Card
-                Box(
+                // Top Actions: Rename & Delete
+                Row(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(5.dp)
-                        .size(24.dp)
-                        .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.60f))
-                        .clickable { onDelete() },
-                    contentAlignment = Alignment.Center
+                        .padding(5.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "Delete Document",
-                        tint = Color.White,
-                        modifier = Modifier.size(14.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.60f))
+                            .clickable { onRename() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Rename",
+                            tint = Color.White,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.60f))
+                            .clickable { onDelete() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Delete",
+                            tint = Color.White,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                }
+
+                // Bottom Start: Category Pill & Dropdown Selector
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(6.dp)
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color.Black.copy(alpha = 0.70f),
+                        modifier = Modifier.clickable { showCategoryMenu = true }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        ) {
+                            Icon(Icons.Default.Label, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(10.dp))
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = document.category.ifBlank { "All" },
+                                color = Color.White,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    DropdownMenu(
+                        expanded = showCategoryMenu,
+                        onDismissRequest = { showCategoryMenu = false }
+                    ) {
+                        categoryList.forEach { cat ->
+                            DropdownMenuItem(
+                                text = { Text(cat, fontSize = 12.sp, fontWeight = if (cat == document.category) FontWeight.Bold else FontWeight.Normal) },
+                                onClick = {
+                                    onUpdateCategory(cat)
+                                    showCategoryMenu = false
+                                }
+                            )
+                        }
+                    }
                 }
 
                 if (document.pageCount > 1) {
@@ -606,7 +839,7 @@ private fun RecentDocumentCard(
             Column(modifier = Modifier.padding(8.dp)) {
                 Text(
                     text = document.title,
-                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1
@@ -614,7 +847,7 @@ private fun RecentDocumentCard(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = document.formattedDate,
-                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 9.sp
                 )
             }

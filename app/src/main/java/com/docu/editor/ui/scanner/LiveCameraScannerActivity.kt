@@ -95,6 +95,8 @@ class LiveCameraScannerActivity : ComponentActivity() {
     private var analysisFrameH: Int = 1
     private var stableFrameCount: Int = 0
     private var capturedBitmap: Bitmap? = null
+    private var waitingForPageTurn: Boolean = false
+    private var lastCapturedCenter: PointF = PointF(0f, 0f)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -522,6 +524,20 @@ class LiveCameraScannerActivity : ComponentActivity() {
         }
 
         if (corners != null) {
+            if (isBatchMode && waitingForPageTurn) {
+                val curCenterX = (corners.topLeft.x + corners.topRight.x + corners.bottomRight.x + corners.bottomLeft.x) / 4f
+                val curCenterY = (corners.topLeft.y + corners.topRight.y + corners.bottomRight.y + corners.bottomLeft.y) / 4f
+                val drift = kotlin.math.hypot((curCenterX - lastCapturedCenter.x).toDouble(), (curCenterY - lastCapturedCenter.y).toDouble()).toFloat()
+                if (drift > 60f) {
+                    waitingForPageTurn = false
+                    stableFrameCount = 0
+                } else {
+                    statusText.text = "✅ Page ${batchCapturedPaths.size} captured • Flip page to scan next 📄"
+                    overlayView.updateCorners(corners, true, frameW, frameH, 1f)
+                    return
+                }
+            }
+
             if (isCornersStable(corners, lastCorners)) {
                 stableFrameCount++
             } else {
@@ -543,10 +559,14 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 statusText.text = "Document detected • Steadying..."
             }
         } else {
+            if (isBatchMode && waitingForPageTurn) {
+                waitingForPageTurn = false
+                stableFrameCount = 0
+            }
             stableFrameCount = max(0, stableFrameCount - 3)
             lastCorners = null
             overlayView.updateCorners(null, false, frameW, frameH, 0f)
-            statusText.text = "Point camera at document..."
+            statusText.text = if (isBatchMode && batchCapturedPaths.isNotEmpty()) "Flip page for next scan..." else "Point camera at document..."
         }
     }
 
@@ -568,6 +588,12 @@ class LiveCameraScannerActivity : ComponentActivity() {
     private fun captureHighResAndFinish(detectedCorners: DocumentCorners?) {
         val capture = imageCapture ?: return
         isCapturing = true
+
+        if (detectedCorners != null) {
+            val cX = (detectedCorners.topLeft.x + detectedCorners.topRight.x + detectedCorners.bottomRight.x + detectedCorners.bottomLeft.x) / 4f
+            val cY = (detectedCorners.topLeft.y + detectedCorners.topRight.y + detectedCorners.bottomRight.y + detectedCorners.bottomLeft.y) / 4f
+            lastCapturedCenter = PointF(cX, cY)
+        }
 
         vibrate()
         statusText.text = "Capturing document..."
@@ -735,8 +761,9 @@ class LiveCameraScannerActivity : ComponentActivity() {
                         withContext(Dispatchers.Main) {
                             finishBatchChip.visibility = View.VISIBLE
                             finishBatchChip.text = "Finish (${batchCapturedPaths.size}) ▶"
-                            statusText.text = "✅ Page ${batchCapturedPaths.size} scanned! Ready for next"
+                            statusText.text = "✅ Page ${batchCapturedPaths.size} scanned! Flip page to scan next 📄"
                             isCapturing = false
+                            waitingForPageTurn = true
                             vibrate()
                         }
                     } else {

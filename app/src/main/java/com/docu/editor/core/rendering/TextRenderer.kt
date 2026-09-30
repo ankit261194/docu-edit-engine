@@ -69,7 +69,7 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val pivotX = params.targetBounds.exactCenterX()
         val pivotY = params.targetBounds.exactCenterY()
 
-        val lines = params.newText.split("\n")
+        val lines = fitResult.wrappedText.split("\n")
         val fontMetrics = paint.fontMetrics
         val lineHeight = fontMetrics.descent - fontMetrics.ascent + fontMetrics.leading
 

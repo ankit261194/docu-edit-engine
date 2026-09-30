@@ -92,7 +92,15 @@ fun DocumentBottomBar(
     onWatermarkClicked: () -> Unit = {},
     onBookDewarpClicked: () -> Unit = {},
     whiteoutBrushRadius: Float = 22f,
-    onWhiteoutBrushRadiusChanged: (Float) -> Unit = {}
+    onWhiteoutBrushRadiusChanged: (Float) -> Unit = {},
+    markupColorRgb: Int = android.graphics.Color.rgb(255, 235, 59),
+    markupStrokeWidth: Float = 28f,
+    onMarkupColorChanged: (Int) -> Unit = {},
+    onMarkupStrokeWidthChanged: (Float) -> Unit = {},
+    penColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
+    penStrokeWidth: Float = 6f,
+    onPenColorChanged: (Int) -> Unit = {},
+    onPenStrokeWidthChanged: (Float) -> Unit = {}
 ) {
     var brightness by remember { mutableFloatStateOf(0f) }
     var contrast by remember { mutableFloatStateOf(1f) }
@@ -239,6 +247,120 @@ fun DocumentBottomBar(
                 }
             }
 
+            // Highlighter Sub-Bar: Color Palette + Width Slider
+            AnimatedVisibility(visible = activeMode == EditorToolMode.HIGHLIGHTER) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🖍️ Highlighter Color:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                val hlColors = listOf(
+                                    Pair("Yellow", android.graphics.Color.rgb(255, 235, 59)),
+                                    Pair("Green", android.graphics.Color.rgb(132, 204, 22)),
+                                    Pair("Pink", android.graphics.Color.rgb(244, 63, 94)),
+                                    Pair("Cyan", android.graphics.Color.rgb(14, 165, 233))
+                                )
+                                hlColors.forEach { (_, rgb) ->
+                                    val isCur = markupColorRgb == rgb
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(rgb))
+                                            .border(if (isCur) 2.5.dp else 1.dp, if (isCur) Color.Black else Color.Gray, CircleShape)
+                                            .clickable { onMarkupColorChanged(rgb) }
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Thickness: ${markupStrokeWidth.toInt()}px", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                            Slider(
+                                value = markupStrokeWidth,
+                                onValueChange = onMarkupStrokeWidthChanged,
+                                valueRange = 14f..54f,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 8.dp),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color(0xFFD97706),
+                                    activeTrackColor = Color(0xFFD97706)
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Markup Pen Sub-Bar: Color Palette + Width Slider
+            AnimatedVisibility(visible = activeMode == EditorToolMode.MARKUP_PEN) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🖊️ Pen Ink Color:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                val penColors = listOf(
+                                    Pair("Red", android.graphics.Color.rgb(220, 38, 38)),
+                                    Pair("Blue", android.graphics.Color.rgb(37, 99, 235)),
+                                    Pair("Black", android.graphics.Color.rgb(15, 23, 42)),
+                                    Pair("Green", android.graphics.Color.rgb(22, 163, 74))
+                                )
+                                penColors.forEach { (_, rgb) ->
+                                    val isCur = penColorRgb == rgb
+                                    Box(
+                                        modifier = Modifier
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(rgb))
+                                            .border(if (isCur) 2.5.dp else 1.dp, if (isCur) Color.White else Color.Gray, CircleShape)
+                                            .clickable { onPenColorChanged(rgb) }
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Pen Size: ${penStrokeWidth.toInt()}px", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                            Slider(
+                                value = penStrokeWidth,
+                                onValueChange = onPenStrokeWidthChanged,
+                                valueRange = 2f..16f,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 8.dp),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color(0xFFDC2626),
+                                    activeTrackColor = Color(0xFFDC2626)
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
             // Lasso Multi-Select Floating Action Strip
             AnimatedVisibility(visible = activeMode == EditorToolMode.LASSO_SELECT && selectedLassoCount > 0) {
                 Surface(
@@ -304,7 +426,7 @@ fun DocumentBottomBar(
             LaunchedEffect(activeMode, showFiltersRow) {
                 if (showFiltersRow) {
                     selectedCategory = BottomBarCategory.ENHANCE_FILTER
-                } else if (activeMode in listOf(EditorToolMode.TEXT_EDIT, EditorToolMode.ADD_TEXT, EditorToolMode.WHITEOUT, EditorToolMode.LASSO_SELECT)) {
+                } else if (activeMode in listOf(EditorToolMode.TEXT_EDIT, EditorToolMode.ADD_TEXT, EditorToolMode.WHITEOUT, EditorToolMode.LASSO_SELECT, EditorToolMode.HIGHLIGHTER, EditorToolMode.MARKUP_PEN)) {
                     selectedCategory = BottomBarCategory.EDIT_OCR
                 }
             }
@@ -359,36 +481,56 @@ fun DocumentBottomBar(
             ) {
                 when (selectedCategory) {
                     BottomBarCategory.EDIT_OCR -> {
-                        ToolDockButton(
-                            icon = Icons.Default.Edit,
-                            label = "Edit Text",
-                            isSelected = activeMode == EditorToolMode.TEXT_EDIT,
-                            onClick = { onModeSelected(EditorToolMode.TEXT_EDIT) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Description,
-                            label = "Extract OCR",
-                            isSelected = false,
-                            onClick = onExtractTextClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Check,
-                            label = "Add Text",
-                            isSelected = activeMode == EditorToolMode.ADD_TEXT,
-                            onClick = { onModeSelected(EditorToolMode.ADD_TEXT) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Clear,
-                            label = "Whiteout",
-                            isSelected = activeMode == EditorToolMode.WHITEOUT,
-                            onClick = { onModeSelected(EditorToolMode.WHITEOUT) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.SelectAll,
-                            label = "Lasso",
-                            isSelected = activeMode == EditorToolMode.LASSO_SELECT,
-                            onClick = { onModeSelected(EditorToolMode.LASSO_SELECT) }
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ToolDockButton(
+                                icon = Icons.Default.Edit,
+                                label = "Edit Text",
+                                isSelected = activeMode == EditorToolMode.TEXT_EDIT,
+                                onClick = { onModeSelected(EditorToolMode.TEXT_EDIT) }
+                            )
+                            ToolDockButton(
+                                icon = Icons.Default.Description,
+                                label = "Extract OCR",
+                                isSelected = false,
+                                onClick = onExtractTextClicked
+                            )
+                            ToolDockButton(
+                                icon = Icons.Default.Check,
+                                label = "Add Text",
+                                isSelected = activeMode == EditorToolMode.ADD_TEXT,
+                                onClick = { onModeSelected(EditorToolMode.ADD_TEXT) }
+                            )
+                            ToolDockButton(
+                                icon = Icons.Default.AutoFixHigh,
+                                label = "Highlighter",
+                                isSelected = activeMode == EditorToolMode.HIGHLIGHTER,
+                                onClick = { onModeSelected(EditorToolMode.HIGHLIGHTER) }
+                            )
+                            ToolDockButton(
+                                icon = Icons.Default.Draw,
+                                label = "Pen Markup",
+                                isSelected = activeMode == EditorToolMode.MARKUP_PEN,
+                                onClick = { onModeSelected(EditorToolMode.MARKUP_PEN) }
+                            )
+                            ToolDockButton(
+                                icon = Icons.Default.Clear,
+                                label = "Whiteout",
+                                isSelected = activeMode == EditorToolMode.WHITEOUT,
+                                onClick = { onModeSelected(EditorToolMode.WHITEOUT) }
+                            )
+                            ToolDockButton(
+                                icon = Icons.Default.SelectAll,
+                                label = "Lasso",
+                                isSelected = activeMode == EditorToolMode.LASSO_SELECT,
+                                onClick = { onModeSelected(EditorToolMode.LASSO_SELECT) }
+                            )
+                        }
                     }
                     BottomBarCategory.ENHANCE_FILTER -> {
                         ToolDockButton(

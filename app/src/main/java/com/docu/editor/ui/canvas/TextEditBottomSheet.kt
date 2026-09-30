@@ -589,7 +589,7 @@ fun TextEditBottomSheet(
                     Text("Auto Apply", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
 
-                // Gemini Pro Cloud AI Apply
+                // Smart Cloud AI Apply
                 Button(
                     onClick = {
                         onApplyEdit(editedText, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, selectedAlignment, true)
@@ -600,7 +600,7 @@ fun TextEditBottomSheet(
                 ) {
                     Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFD700), modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Gemini Pro AI", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Text("Smart AI Magic", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
 
