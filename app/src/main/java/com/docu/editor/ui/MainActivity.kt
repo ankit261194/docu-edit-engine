@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.util.Log
@@ -21,6 +22,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,16 +43,21 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.ui.text.TextStyle
@@ -161,6 +168,28 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // Append Page from Gallery Launcher
+                val appendPageGalleryLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    uri?.let { viewModel.appendPageFromUri(it) }
+                }
+
+                // Append Page from Camera Launcher
+                val appendPageCameraLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.StartActivityForResult()
+                ) { result ->
+                    if (result.resultCode == Activity.RESULT_OK) {
+                        val path = result.data?.getStringExtra(LiveCameraScannerActivity.EXTRA_SCANNED_PATH)
+                        if (!path.isNullOrBlank()) {
+                            val bmp = BitmapFactory.decodeFile(path)
+                            if (bmp != null) {
+                                viewModel.appendPageToDocument(bmp)
+                            }
+                        }
+                    }
+                }
+
                 // Enterprise Real-Time Live Scanner Launcher
                 val liveScannerLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.StartActivityForResult()
@@ -254,8 +283,16 @@ class MainActivity : ComponentActivity() {
                                 "${applicationContext.packageName}.fileprovider",
                                 file
                             )
+                            val mime = when {
+                                file.name.endsWith(".pdf", ignoreCase = true) -> "application/pdf"
+                                file.name.endsWith(".docx", ignoreCase = true) -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                file.name.endsWith(".csv", ignoreCase = true) -> "text/csv"
+                                file.name.endsWith(".png", ignoreCase = true) -> "image/png"
+                                file.name.endsWith(".txt", ignoreCase = true) -> "text/plain"
+                                else -> "image/jpeg"
+                            }
                             val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "image/jpeg"
+                                type = mime
                                 putExtra(Intent.EXTRA_STREAM, shareUri)
                                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             }
@@ -275,35 +312,11 @@ class MainActivity : ComponentActivity() {
                             TopAppBar(
                                 title = {
                                     if (uiState.isSearchActive) {
-                                        BasicTextField(
-                                            value = uiState.searchQuery,
-                                            onValueChange = { viewModel.setSearchQuery(it) },
-                                            singleLine = true,
-                                            textStyle = TextStyle(
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                fontSize = 15.sp,
-                                                fontWeight = FontWeight.Medium
-                                            ),
-                                            decorationBox = { innerTextField ->
-                                                Box(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .background(
-                                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                                                            RoundedCornerShape(8.dp)
-                                                        )
-                                                        .padding(horizontal = 10.dp, vertical = 7.dp)
-                                                ) {
-                                                    if (uiState.searchQuery.isEmpty()) {
-                                                        Text(
-                                                            "Search words in page...",
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                                            fontSize = 14.sp
-                                                        )
-                                                    }
-                                                    innerTextField()
-                                                }
-                                            }
+                                        Text(
+                                            "Find & Replace All",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 17.sp,
+                                            color = Color(0xFF2563EB)
                                         )
                                     } else {
                                         Column {
@@ -476,6 +489,84 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .padding(innerPadding)
                     ) {
+                        // Floating Search & Replace All Bar
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = uiState.isSearchActive,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surface,
+                                shadowElevation = 10.dp,
+                                shape = RoundedCornerShape(16.dp),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                var replaceText by remember { mutableStateOf("") }
+                                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        OutlinedTextField(
+                                            value = uiState.searchQuery,
+                                            onValueChange = { viewModel.setSearchQuery(it) },
+                                            placeholder = { Text("Find text...", fontSize = 13.sp) },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.weight(1f),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = Color(0xFF2563EB)
+                                            )
+                                        )
+                                        OutlinedTextField(
+                                            value = replaceText,
+                                            onValueChange = { replaceText = it },
+                                            placeholder = { Text("Replace with...", fontSize = 13.sp) },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(10.dp),
+                                            modifier = Modifier.weight(1f),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = Color(0xFF16A34A)
+                                            )
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = if (uiState.searchQuery.isNotEmpty()) "${uiState.searchMatchingIndices.size} match(es) highlighted" else "Type word to find",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (uiState.searchMatchingIndices.isNotEmpty()) Color(0xFF2563EB) else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            TextButton(onClick = { viewModel.toggleSearch(false) }) {
+                                                Text("Close", fontSize = 12.sp)
+                                            }
+                                            Button(
+                                                onClick = {
+                                                    viewModel.replaceAllOccurrences(uiState.searchQuery, replaceText)
+                                                    replaceText = ""
+                                                },
+                                                enabled = uiState.searchQuery.isNotBlank() && uiState.searchMatchingIndices.isNotEmpty(),
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                                shape = RoundedCornerShape(8.dp),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                                modifier = Modifier.height(34.dp)
+                                            ) {
+                                                Text("Replace All", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         val bitmap = uiState.currentBitmap
                         if (bitmap != null) {
                             // Active Interactive Document Canvas
@@ -697,6 +788,17 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onRotatePage = { index ->
                                     viewModel.rotatePageAt(index, 90f)
+                                },
+                                onAddPageFromCamera = {
+                                    if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                        val intent = Intent(this@MainActivity, LiveCameraScannerActivity::class.java)
+                                        appendPageCameraLauncher.launch(intent)
+                                    } else {
+                                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                    }
+                                },
+                                onAddPageFromGallery = {
+                                    appendPageGalleryLauncher.launch(arrayOf("image/*", "application/pdf"))
                                 },
                                 onDismiss = { viewModel.showPagesOverview(false) }
                             )

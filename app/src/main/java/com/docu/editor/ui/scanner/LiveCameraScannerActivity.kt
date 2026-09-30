@@ -595,7 +595,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
             lastCapturedCenter = PointF(cX, cY)
         }
 
-        vibrate()
+        playShutterFeedback()
         statusText.text = "Capturing document..."
 
         val tempFile = File(cacheDir, "temp_capture_${System.currentTimeMillis()}.jpg")
@@ -1119,6 +1119,15 @@ class LiveCameraScannerActivity : ComponentActivity() {
         finish()
     }
 
+    private val mediaActionSound by lazy { android.media.MediaActionSound() }
+
+    private fun playShutterFeedback() {
+        try {
+            mediaActionSound.play(android.media.MediaActionSound.SHUTTER_CLICK)
+        } catch (_: Exception) {}
+        vibrate()
+    }
+
     private fun vibrate() {
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
@@ -1134,6 +1143,9 @@ class LiveCameraScannerActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        try {
+            mediaActionSound.release()
+        } catch (_: Exception) {}
         capturedBitmap?.recycle()
         cameraExecutor.shutdown()
     }

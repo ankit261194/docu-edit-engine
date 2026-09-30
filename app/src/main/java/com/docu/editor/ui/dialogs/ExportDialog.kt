@@ -181,6 +181,18 @@ fun ExportDialog(
                     onClick = { selectedFormat = "DOCX" }
                 )
 
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Format Option 5: Excel Spreadsheet (.csv)
+                FormatOptionCard(
+                    title = "Excel Spreadsheet (.csv)",
+                    description = "Extract tabular rows, receipts & numbers into MS Excel & Google Sheets",
+                    icon = Icons.Default.Article,
+                    iconTint = Color(0xFF15803D),
+                    isSelected = selectedFormat == "CSV",
+                    onClick = { selectedFormat = "CSV" }
+                )
+
                 // PDF Specific Option: Fit to A4
                 if (selectedFormat == "PDF") {
                     Spacer(modifier = Modifier.height(10.dp))

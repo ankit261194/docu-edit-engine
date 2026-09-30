@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
@@ -49,6 +50,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ButtonDefaults
+
 @Composable
 fun PagesOverviewDialog(
     pageCount: Int,
@@ -58,6 +64,8 @@ fun PagesOverviewDialog(
     onDeletePage: (Int) -> Unit,
     onMovePage: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
     onRotatePage: (pageIndex: Int) -> Unit = {},
+    onAddPageFromCamera: () -> Unit = {},
+    onAddPageFromGallery: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     Dialog(
@@ -251,6 +259,62 @@ fun PagesOverviewDialog(
                                                 )
                                             }
                                         }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // + Add Page Card
+                    item {
+                        Card(
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.5.dp, Color(0xFF2563EB).copy(alpha = 0.5f)),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(160.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = "+ Add Page",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF1D4ED8)
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            onAddPageFromCamera()
+                                            onDismiss()
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                        modifier = Modifier.height(34.dp)
+                                    ) {
+                                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF2563EB))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Camera", fontSize = 11.sp, color = Color(0xFF2563EB))
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            onAddPageFromGallery()
+                                            onDismiss()
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                        modifier = Modifier.height(34.dp)
+                                    ) {
+                                        Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF2563EB))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Gallery", fontSize = 11.sp, color = Color(0xFF2563EB))
                                     }
                                 }
                             }
