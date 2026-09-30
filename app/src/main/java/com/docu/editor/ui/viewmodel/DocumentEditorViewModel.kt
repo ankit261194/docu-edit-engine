@@ -68,6 +68,9 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Stack
+import com.docu.editor.core.scanner.AutoOrientationEngine
+import com.docu.editor.core.batch.BatchOcrQueueManager
+import com.docu.editor.core.batch.BatchProgressState
 import kotlin.math.max
 import kotlin.math.min
 
@@ -80,6 +83,9 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     private val fontMatcher = FontMatcher(application)
     private val textRenderer = TextRenderer(fontMatcher)
     private val artifactBlendingEngine = ArtifactBlendingEngine()
+    private val batchOcrQueueManager by lazy { BatchOcrQueueManager(application) }
+
+    val batchOcrProgress: StateFlow<BatchProgressState> get() = batchOcrQueueManager.progress
 
     private val _uiState = MutableStateFlow(DocumentEditorUiState())
     val uiState: StateFlow<DocumentEditorUiState> = _uiState.asStateFlow()
@@ -693,8 +699,12 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     }
 
     private suspend fun setDocumentBitmap(bitmap: Bitmap, autoApplyMagicColor: Boolean = false) {
+        val orientedResult = withContext(Dispatchers.Default) {
+            com.docu.editor.core.scanner.AutoOrientationEngine.autoOrientAndDeskew(bitmap)
+        }
+        val sourceBmp = orientedResult.rotatedBitmap
         val optimized = withContext(Dispatchers.Default) {
-            scaleDownIfNeeded(bitmap, maxDimension = 1920)
+            scaleDownIfNeeded(sourceBmp, maxDimension = 1920)
         }
 
         val effectiveBitmap = if (autoApplyMagicColor) {
@@ -1540,16 +1550,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                                 for (pIdx in 0 until state.pdfPageCount) {
                                     sb.append("## Page ${pIdx + 1}\n\n")
                                     val items = pageDetectedItemsMap[pIdx] ?: if (pIdx == state.currentPdfPageIndex) state.detectedItems else emptyList()
-                                    val pText = items.sortedWith(
-                                        compareBy<DetectedTextItem> { it.boundingBox.top / 20 }.thenBy { it.boundingBox.left }
-                                    ).joinToString(" ") { it.text }
-                                    sb.append(pText).append("\n\n")
+                                    sb.append(DocxExportEngine.formatItemsToStructuredDocument(items)).append("\n\n")
                                 }
                             } else {
-                                val pText = state.detectedItems.sortedWith(
-                                    compareBy<DetectedTextItem> { it.boundingBox.top / 20 }.thenBy { it.boundingBox.left }
-                                ).joinToString(" ") { it.text }
-                                sb.append(pText)
+                                sb.append(DocxExportEngine.formatItemsToStructuredDocument(state.detectedItems))
                             }
                             val docText = sb.toString().ifBlank { "Scanned Document Notes" }
                             DocxExportEngine.generateDocx(rawName, docText, outFile)
@@ -1614,6 +1618,56 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 canvasRevision = it.canvasRevision + 1,
                 successMessage = "Rotated 90° Clockwise"
             )
+        }
+    }
+
+    fun autoOrientCurrentDocument() {
+        val current = _uiState.value.currentBitmap ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Detecting orientation & deskewing...") }
+            try {
+                val orientedResult = withContext(Dispatchers.Default) {
+                    AutoOrientationEngine.autoOrientAndDeskew(current)
+                }
+                if (!orientedResult.wasRotated) {
+                    _uiState.update {
+                        it.copy(
+                            isApplyingEdit = false,
+                            processingMessage = null,
+                            successMessage = "Document is already perfectly upright."
+                        )
+                    }
+                    return@launch
+                }
+                pushUndoStep(UndoStep.FullBitmap(current))
+                val newBitmap = orientedResult.rotatedBitmap
+                val newItems = withContext(Dispatchers.Default) {
+                    ocrAnalyzer.detectTextBlocks(newBitmap, TextHierarchyLevel.LINE)
+                }
+                _uiState.update {
+                    it.copy(
+                        originalBitmap = newBitmap,
+                        currentBitmap = newBitmap,
+                        detectedItems = newItems,
+                        selectedItem = null,
+                        selectedItems = emptyList(),
+                        canUndo = true,
+                        canRedo = false,
+                        canvasRevision = it.canvasRevision + 1,
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        successMessage = "Auto-oriented: rotated ${orientedResult.rotationAngleApplied.toInt()}° upright"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Auto-orientation failed: ${e.localizedMessage}"
+                    )
+                }
+            }
         }
     }
 
@@ -2723,16 +2777,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                                 for (pIdx in 0 until state.pdfPageCount) {
                                     sb.append("## Page ${pIdx + 1}\n\n")
                                     val items = pageDetectedItemsMap[pIdx] ?: if (pIdx == state.currentPdfPageIndex) state.detectedItems else emptyList()
-                                    val pText = items.sortedWith(
-                                        compareBy<DetectedTextItem> { it.boundingBox.top / 20 }.thenBy { it.boundingBox.left }
-                                    ).joinToString(" ") { it.text }
-                                    sb.append(pText).append("\n\n")
+                                    sb.append(DocxExportEngine.formatItemsToStructuredDocument(items)).append("\n\n")
                                 }
                             } else {
-                                val pText = state.detectedItems.sortedWith(
-                                    compareBy<DetectedTextItem> { it.boundingBox.top / 20 }.thenBy { it.boundingBox.left }
-                                ).joinToString(" ") { it.text }
-                                sb.append(pText)
+                                sb.append(DocxExportEngine.formatItemsToStructuredDocument(state.detectedItems))
                             }
                             DocxExportEngine.generateDocx(rawName, sb.toString().ifBlank { "Scanned Document" }, outFile)
                             Pair(outFile, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
@@ -3202,6 +3250,45 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         val targetWidth = (width * scale).toInt()
         val targetHeight = (height * scale).toInt()
         return Bitmap.createScaledBitmap(bitmap, targetWidth, targetHeight, true)
+    }
+
+    fun processBatchOcrDocuments(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isScanning = true,
+                    processingMessage = "Starting Bulk OCR Queue for ${uris.size} files..."
+                )
+            }
+            val progressJob = launch {
+                batchOcrQueueManager.progress.collect { p ->
+                    if (p.isRunning && p.message.isNotEmpty()) {
+                        _uiState.update { it.copy(processingMessage = p.message) }
+                    }
+                }
+            }
+            try {
+                val results = batchOcrQueueManager.processBatch(uris)
+                _uiState.update {
+                    it.copy(
+                        isScanning = false,
+                        processingMessage = null,
+                        successMessage = "Bulk Batch OCR Completed! ${results.size}/${uris.size} PDFs generated and saved in Downloads."
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isScanning = false,
+                        processingMessage = null,
+                        errorMessage = "Batch OCR failed: ${e.localizedMessage}"
+                    )
+                }
+            } finally {
+                progressJob.cancel()
+            }
+        }
     }
 
     override fun onCleared() {

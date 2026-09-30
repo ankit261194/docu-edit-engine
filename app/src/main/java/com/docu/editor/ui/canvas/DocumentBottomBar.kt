@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CloudUpload
@@ -78,6 +79,7 @@ fun DocumentBottomBar(
     onFilterSelected: (DocumentFilterMode) -> Unit,
     onBrightnessContrastChanged: (brightness: Float, contrast: Float) -> Unit = { _, _ -> },
     onRotateClicked: () -> Unit,
+    onAutoOrientClicked: () -> Unit = {},
     onInteractiveCropClicked: () -> Unit,
     onExtractTextClicked: () -> Unit,
     onSignatureClicked: () -> Unit,
@@ -560,6 +562,12 @@ fun DocumentBottomBar(
                             label = "Rotate 90°",
                             isSelected = false,
                             onClick = onRotateClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.AutoAwesome,
+                            label = "Auto-Orient",
+                            isSelected = false,
+                            onClick = onAutoOrientClicked
                         )
                         ToolDockButton(
                             icon = Icons.AutoMirrored.Filled.MenuBook,

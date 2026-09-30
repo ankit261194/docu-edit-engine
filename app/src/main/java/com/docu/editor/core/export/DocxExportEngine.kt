@@ -361,4 +361,74 @@ object DocxExportEngine {
             sb.append("<w:t>${escapeXml(part)}</w:t></w:r>\n")
         }
     }
+
+    /**
+     * Reconstructs text items into clean paragraphs and authentic multi-column table grids.
+     */
+    fun formatItemsToStructuredDocument(items: List<com.docu.editor.core.ocr.model.DetectedTextItem>): String {
+        if (items.isEmpty()) return ""
+
+        val sorted = items.sortedBy { it.boundingBox.top }
+        val rows = mutableListOf<MutableList<com.docu.editor.core.ocr.model.DetectedTextItem>>()
+
+        for (item in sorted) {
+            val matchedRow = rows.find { row ->
+                val avgTop = row.map { it.boundingBox.top }.average()
+                val avgHeight = row.map { it.boundingBox.height() }.average().coerceAtLeast(10.0)
+                kotlin.math.abs(item.boundingBox.top - avgTop) < (avgHeight * 0.55)
+            }
+            if (matchedRow != null) {
+                matchedRow.add(item)
+            } else {
+                rows.add(mutableListOf(item))
+            }
+        }
+
+        rows.forEach { it.sortBy { item -> item.boundingBox.left } }
+
+        val sb = StringBuilder()
+        val tableBuffer = mutableListOf<List<String>>()
+
+        fun flushTable() {
+            if (tableBuffer.isNotEmpty()) {
+                if (tableBuffer.size >= 2) {
+                    val maxCols = tableBuffer.maxOf { it.size }
+                    for ((rIdx, rowCells) in tableBuffer.withIndex()) {
+                        val padded = rowCells.toMutableList()
+                        while (padded.size < maxCols) padded.add("")
+                        sb.append("| ").append(padded.joinToString(" | ")).append(" |\n")
+                        if (rIdx == 0) {
+                            sb.append("|").append("---|".repeat(maxCols)).append("\n")
+                        }
+                    }
+                    sb.append("\n")
+                } else {
+                    tableBuffer.forEach { cells ->
+                        sb.append(cells.joinToString("   ")).append("\n\n")
+                    }
+                }
+                tableBuffer.clear()
+            }
+        }
+
+        for (row in rows) {
+            val isMultiColumn = row.size >= 2 && row.zipWithNext().any { (a, b) ->
+                (b.boundingBox.left - a.boundingBox.right) >= 24
+            }
+
+            if (isMultiColumn) {
+                val cells = row.map { it.text.trim() }
+                tableBuffer.add(cells)
+            } else {
+                flushTable()
+                val lineText = row.joinToString(" ") { it.text.trim() }
+                if (lineText.isNotBlank()) {
+                    sb.append(lineText).append("\n\n")
+                }
+            }
+        }
+        flushTable()
+
+        return sb.toString()
+    }
 }

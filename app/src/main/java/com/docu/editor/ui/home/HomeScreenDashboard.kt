@@ -97,6 +97,7 @@ fun HomeScreenDashboard(
     onIdCardClicked: () -> Unit,
     onSignatureClicked: () -> Unit,
     onPdfToolsClicked: () -> Unit,
+    onBulkBatchOcrClicked: () -> Unit = {},
     onTryDemoClicked: () -> Unit,
     onCloudAiSettingsClicked: () -> Unit = {}
 ) {
@@ -453,6 +454,68 @@ fun HomeScreenDashboard(
                             Text(
                                 text = "Compress (150/200/300 DPI) • Merge • Split • Password Lock",
                                 color = Color(0xFF64748B),
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Quick Action Card 6: Bulk Batch OCR Queue
+            item(span = { GridItemSpan(2) }) {
+                Card(
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+                    border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onBulkBatchOcrClicked() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(18.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFDCFCE7)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = Color(0xFF16A34A),
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Bulk Batch OCR Queue",
+                                    color = Color(0xFF14532D),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color(0xFF22C55E)
+                                ) {
+                                    Text(
+                                        text = "NEW",
+                                        color = Color.White,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.ExtraBold,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "Select 10-50+ PDFs & Images • Background Searchable PDF OCR",
+                                color = Color(0xFF15803D),
                                 fontSize = 12.sp
                             )
                         }

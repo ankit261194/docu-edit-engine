@@ -302,7 +302,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 gravity = Gravity.CENTER_VERTICAL or Gravity.END
                 setMargins(0, 0, 40, 0)
             }
-            setOnClickListener { finishBatchAndReturn() }
+            setOnClickListener { showBatchReviewDialog() }
         }
         shutterContainer.addView(finishBatchChip)
 
@@ -955,6 +955,159 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 idCardFrontBitmap = null
             }
         }
+    }
+
+    private fun showBatchReviewDialog() {
+        if (batchCapturedPaths.isEmpty()) return
+        val dialog = android.app.Dialog(this).apply {
+            requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+            window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.argb(235, 15, 23, 42)))
+        }
+
+        val scroll = android.widget.HorizontalScrollView(this).apply {
+            setPadding(16, 16, 16, 16)
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        fun refreshThumbnails() {
+            row.removeAllViews()
+            for ((idx, path) in batchCapturedPaths.withIndex()) {
+                val card = LinearLayout(this@LiveCameraScannerActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER_HORIZONTAL
+                    setPadding(12, 12, 12, 12)
+                    background = GradientDrawable().apply {
+                        setColor(Color.argb(240, 30, 41, 59))
+                        cornerRadius = 16f
+                        setStroke(2, Color.argb(120, 148, 163, 184))
+                    }
+                }
+
+                val iv = ImageView(this@LiveCameraScannerActivity).apply {
+                    layoutParams = LinearLayout.LayoutParams(180, 240)
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    clipToOutline = true
+                    try {
+                        val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+                        val b = BitmapFactory.decodeFile(path, opts)
+                        setImageBitmap(b)
+                    } catch (_: Exception) {}
+                }
+                card.addView(iv)
+
+                val label = TextView(this@LiveCameraScannerActivity).apply {
+                    text = "Page ${idx + 1}"
+                    setTextColor(Color.WHITE)
+                    textSize = 12f
+                    setPadding(0, 8, 0, 8)
+                }
+                card.addView(label)
+
+                val btnRow = LinearLayout(this@LiveCameraScannerActivity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                }
+
+                // Move left
+                if (idx > 0) {
+                    val leftBtn = TextView(this@LiveCameraScannerActivity).apply {
+                        text = "◀"
+                        setTextColor(Color.WHITE)
+                        textSize = 14f
+                        setPadding(16, 8, 16, 8)
+                        setOnClickListener {
+                            java.util.Collections.swap(batchCapturedPaths, idx, idx - 1)
+                            refreshThumbnails()
+                        }
+                    }
+                    btnRow.addView(leftBtn)
+                }
+
+                // Delete
+                val delBtn = TextView(this@LiveCameraScannerActivity).apply {
+                    text = "🗑"
+                    setTextColor(Color.rgb(239, 68, 68))
+                    textSize = 14f
+                    setPadding(16, 8, 16, 8)
+                    setOnClickListener {
+                        val p = batchCapturedPaths.removeAt(idx)
+                        try { java.io.File(p).delete() } catch (_: Exception) {}
+                        if (batchCapturedPaths.isEmpty()) {
+                            dialog.dismiss()
+                            finishBatchChip.visibility = View.GONE
+                        } else {
+                            finishBatchChip.text = "Finish (${batchCapturedPaths.size}) ▶"
+                            refreshThumbnails()
+                        }
+                    }
+                }
+                btnRow.addView(delBtn)
+
+                // Move right
+                if (idx < batchCapturedPaths.size - 1) {
+                    val rightBtn = TextView(this@LiveCameraScannerActivity).apply {
+                        text = "▶"
+                        setTextColor(Color.WHITE)
+                        textSize = 14f
+                        setPadding(16, 8, 16, 8)
+                        setOnClickListener {
+                            java.util.Collections.swap(batchCapturedPaths, idx, idx + 1)
+                            refreshThumbnails()
+                        }
+                    }
+                    btnRow.addView(rightBtn)
+                }
+
+                card.addView(btnRow)
+                row.addView(card)
+
+                val spacer = View(this@LiveCameraScannerActivity).apply {
+                    layoutParams = LinearLayout.LayoutParams(16, 1)
+                }
+                row.addView(spacer)
+            }
+        }
+
+        refreshThumbnails()
+        scroll.addView(row)
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(24, 24, 24, 24)
+        }
+
+        val title = TextView(this).apply {
+            text = "Reorder & Review Scanned Pages"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setPadding(0, 0, 0, 16)
+        }
+        root.addView(title)
+        root.addView(scroll)
+
+        val doneBtn = TextView(this).apply {
+            text = "Open in Editor ▶"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(16, 185, 129))
+                cornerRadius = 24f
+            }
+            setPadding(40, 16, 40, 16)
+            setOnClickListener {
+                dialog.dismiss()
+                finishBatchAndReturn()
+            }
+        }
+        root.addView(doneBtn)
+
+        dialog.setContentView(root)
+        dialog.show()
     }
 
     private fun finishBatchAndReturn() {

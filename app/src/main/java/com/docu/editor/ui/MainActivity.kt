@@ -152,6 +152,15 @@ class MainActivity : ComponentActivity() {
                     uri?.let { viewModel.loadDocumentUri(it) }
                 }
 
+                // Bulk Batch OCR Multi-File Launcher
+                val bulkBatchOcrPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenMultipleDocuments()
+                ) { uris: List<Uri> ->
+                    if (uris.isNotEmpty()) {
+                        viewModel.processBatchOcrDocuments(uris)
+                    }
+                }
+
                 // Enterprise Real-Time Live Scanner Launcher
                 val liveScannerLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.StartActivityForResult()
@@ -418,6 +427,9 @@ class MainActivity : ComponentActivity() {
                                 onRotateClicked = {
                                     viewModel.rotateDocumentClockwise()
                                 },
+                                onAutoOrientClicked = {
+                                    viewModel.autoOrientCurrentDocument()
+                                },
                                 onInteractiveCropClicked = {
                                     viewModel.showInteractiveCropDialog(true)
                                 },
@@ -574,6 +586,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onPdfToolsClicked = {
                                     viewModel.showPdfToolboxDialog(true)
+                                },
+                                onBulkBatchOcrClicked = {
+                                    bulkBatchOcrPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
                                 },
                                 onTryDemoClicked = {
                                     viewModel.loadSampleDocument()
