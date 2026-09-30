@@ -22,6 +22,9 @@ enum class DocumentFilterMode(val displayName: String) {
     ORIGINAL("Original"),
     MAGIC_COLOR("Magic Color"),
     SHADOW_REMOVER("Remove Shadow"),
+    WATERMARK_REMOVER("Erase Watermark"),
+    FINGER_REMOVER("Remove Fingers"),
+    BOOK_DEWARP("Flatten Book Page"),
     CLEAN_BW("Clean B&W"),
     GRAYSCALE("Grayscale")
 }
@@ -52,6 +55,9 @@ data class DocumentEditorUiState(
     val showOcrTextExtractDialog: Boolean = false,
     val showInteractiveCropDialog: Boolean = false,
     val showCloudAiSettingsDialog: Boolean = false,
+    val showAcroFormDialog: Boolean = false,
+    val hasInteractiveAcroForm: Boolean = false,
+    val acroFormFields: List<com.docu.editor.core.pdf.AcroFormFieldItem> = emptyList(),
     val cloudAiStatus: String = "Online",
     val idCardFrontBitmap: Bitmap? = null,
     val idCardBackBitmap: Bitmap? = null,

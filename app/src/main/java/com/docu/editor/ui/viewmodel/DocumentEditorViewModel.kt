@@ -1155,6 +1155,9 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     DocumentFilterMode.ORIGINAL -> DocumentFilters.FilterType.ORIGINAL
                     DocumentFilterMode.MAGIC_COLOR -> DocumentFilters.FilterType.MAGIC_COLOR
                     DocumentFilterMode.SHADOW_REMOVER -> DocumentFilters.FilterType.REMOVE_SHADOWS
+                    DocumentFilterMode.WATERMARK_REMOVER -> DocumentFilters.FilterType.REMOVE_WATERMARK
+                    DocumentFilterMode.FINGER_REMOVER -> DocumentFilters.FilterType.REMOVE_FINGERS
+                    DocumentFilterMode.BOOK_DEWARP -> DocumentFilters.FilterType.DEWARP_CURVED_PAGE
                     DocumentFilterMode.CLEAN_BW -> DocumentFilters.FilterType.CLEAN_BW
                     DocumentFilterMode.GRAYSCALE -> DocumentFilters.FilterType.GRAYSCALE
                 }
@@ -1455,7 +1458,21 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             val outFile = File(downloadsDir, cleanName)
                             val state = _uiState.value
 
-                            if (state.pdfPageCount > 1) {
+                            if (state.activePdfUri != null && state.pdfPageCount > 1 && editedPagesMap.size < state.pdfPageCount) {
+                                // Hybrid Vector Preservation: Untouched pages retain 100% original vector typography & links!
+                                val allItems = mutableMapOf<Int, List<DetectedTextItem>>()
+                                for (i in 0 until state.pdfPageCount) {
+                                    allItems[i] = pageDetectedItemsMap[i] ?: emptyList()
+                                }
+                                com.docu.editor.core.pdf.PdfHybridExporter.exportHybridPdf(
+                                    context = context,
+                                    sourcePdfUri = state.activePdfUri,
+                                    editedPagesMap = editedPagesMap,
+                                    pagesDetectedItems = allItems,
+                                    outputFile = outFile,
+                                    ocrFallbackProvider = { bmp -> ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE) }
+                                )
+                            } else if (state.pdfPageCount > 1) {
                                 val allItems = mutableMapOf<Int, List<DetectedTextItem>>()
                                 for (i in 0 until state.pdfPageCount) {
                                     allItems[i] = pageDetectedItemsMap[i] ?: emptyList()
@@ -2500,6 +2517,124 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     fun getCurrentSyncKey(): String {
         return CloudBackupStore.getSyncKey(getApplication())
+    }
+
+    fun importCustomFont(uri: Uri): Boolean {
+        val tf = com.docu.editor.core.font.RemoteFontManager.importCustomFont(getApplication(), uri)
+        return if (tf != null) {
+            _uiState.update {
+                it.copy(
+                    canvasRevision = it.canvasRevision + 1,
+                    successMessage = "Custom font imported successfully!"
+                )
+            }
+            true
+        } else {
+            _uiState.update { it.copy(errorMessage = "Failed to load custom font file (.ttf/.otf)") }
+            false
+        }
+    }
+
+    fun checkAcroFormsForCurrentPdf() {
+        val uri = _uiState.value.activePdfUri ?: return
+        viewModelScope.launch {
+            val hasForms = com.docu.editor.core.pdf.AcroFormManager.hasAcroForm(getApplication(), uri)
+            if (hasForms) {
+                val fields = com.docu.editor.core.pdf.AcroFormManager.getFormFields(getApplication(), uri)
+                _uiState.update {
+                    it.copy(
+                        hasInteractiveAcroForm = true,
+                        acroFormFields = fields,
+                        showAcroFormDialog = true
+                    )
+                }
+            } else {
+                _uiState.update { it.copy(errorMessage = "No interactive form fields found in this PDF") }
+            }
+        }
+    }
+
+    fun dismissAcroFormDialog() {
+        _uiState.update { it.copy(showAcroFormDialog = false) }
+    }
+
+    fun saveAcroFormFields(fieldValues: Map<String, String>) {
+        val uri = _uiState.value.activePdfUri ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Saving interactive PDF form...") }
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val outFile = File(downloadsDir, "DocuEdit_Filled_Form_${System.currentTimeMillis()}.pdf")
+            val success = com.docu.editor.core.pdf.AcroFormManager.saveFormFields(
+                context = getApplication(),
+                pdfUri = uri,
+                outputFile = outFile,
+                fieldValues = fieldValues
+            )
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = false,
+                    processingMessage = null,
+                    showAcroFormDialog = false,
+                    successMessage = if (success) "Saved filled form to Downloads: ${outFile.name}" else "Failed to save form fields"
+                )
+            }
+        }
+    }
+
+    fun exportHybridPdf(
+        fitToA4: Boolean = true,
+        customFileName: String? = null,
+        onComplete: (File) -> Unit = {}
+    ) {
+        val activeUri = _uiState.value.activePdfUri
+        val state = _uiState.value
+        val context = getApplication<Application>()
+        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val name = customFileName?.takeIf { it.isNotBlank() } ?: "DocuEdit_Hybrid_${System.currentTimeMillis()}.pdf"
+        val cleanName = if (name.endsWith(".pdf", ignoreCase = true)) name else "$name.pdf"
+        val outFile = File(downloadsDir, cleanName)
+
+        saveCurrentPageToCache()
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Preserving original vector quality...") }
+
+            val exportedFile = withContext(Dispatchers.IO) {
+                if (activeUri != null) {
+                    val allItems = mutableMapOf<Int, List<DetectedTextItem>>()
+                    for (i in 0 until state.pdfPageCount) {
+                        allItems[i] = pageDetectedItemsMap[i] ?: emptyList()
+                    }
+                    com.docu.editor.core.pdf.PdfHybridExporter.exportHybridPdf(
+                        context = context,
+                        sourcePdfUri = activeUri,
+                        editedPagesMap = editedPagesMap,
+                        pagesDetectedItems = allItems,
+                        outputFile = outFile,
+                        ocrFallbackProvider = { bmp -> ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE) }
+                    )
+                } else {
+                    val current = state.currentBitmap ?: return@withContext null
+                    PdfExportEngine.exportBitmapToPdf(
+                        bitmap = current,
+                        outputFile = outFile,
+                        fitToA4 = fitToA4,
+                        detectedItems = state.detectedItems,
+                        ocrFallbackProvider = { bmp -> ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE) }
+                    )
+                }
+            }
+
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = false,
+                    processingMessage = null,
+                    exportUri = exportedFile?.absolutePath,
+                    successMessage = if (exportedFile != null) "Hybrid vector PDF saved: ${outFile.name}" else "Export failed"
+                )
+            }
+            if (exportedFile != null) onComplete(exportedFile)
+        }
     }
 
     /**

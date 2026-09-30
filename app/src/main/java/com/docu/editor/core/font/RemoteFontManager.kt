@@ -33,6 +33,17 @@ object RemoteFontManager {
         val key = "${fontId}_$isBold"
         memoryCache[key]?.let { return it }
 
+        if (fontId == "custom") {
+            val customFile = File(File(context.filesDir, "custom_fonts"), "user_custom_font.ttf")
+            if (customFile.exists() && customFile.length() > 500) {
+                try {
+                    val tf = Typeface.createFromFile(customFile)
+                    memoryCache[key] = tf
+                    return tf
+                } catch (_: Exception) {}
+            }
+        }
+
         val file = getCacheFile(context, fontId, isBold)
         if (file.exists() && file.length() > 1024) {
             try {
@@ -42,6 +53,29 @@ object RemoteFontManager {
             } catch (_: Exception) {}
         }
         return null
+    }
+
+    fun importCustomFont(context: Context, uri: android.net.Uri): Typeface? {
+        return try {
+            val fontsDir = File(context.filesDir, "custom_fonts").apply { mkdirs() }
+            val customFontFile = File(fontsDir, "user_custom_font.ttf")
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(customFontFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            val tf = Typeface.createFromFile(customFontFile)
+            memoryCache["custom_false"] = tf
+            memoryCache["custom_true"] = tf
+            tf
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun hasCustomFont(context: Context): Boolean {
+        val customFontFile = File(File(context.filesDir, "custom_fonts"), "user_custom_font.ttf")
+        return customFontFile.exists() && customFontFile.length() > 500
     }
 
     suspend fun fetchFont(context: Context, fontId: String, isBold: Boolean): Typeface? = withContext(Dispatchers.IO) {

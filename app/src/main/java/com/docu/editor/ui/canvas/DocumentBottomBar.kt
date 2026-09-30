@@ -141,8 +141,18 @@ fun DocumentBottomBar(
                                     onFilterSelected(filter)
                                 },
                                 label = {
+                                    val chipText = when (filter) {
+                                        DocumentFilterMode.MAGIC_COLOR -> "✨ Magic Color"
+                                        DocumentFilterMode.SHADOW_REMOVER -> "🌤️ Remove Shadow"
+                                        DocumentFilterMode.WATERMARK_REMOVER -> "🧹 Erase Watermark"
+                                        DocumentFilterMode.FINGER_REMOVER -> "🖐️ Remove Fingers"
+                                        DocumentFilterMode.BOOK_DEWARP -> "📖 Flatten Page"
+                                        DocumentFilterMode.CLEAN_BW -> "📄 Clean B&W"
+                                        DocumentFilterMode.GRAYSCALE -> "🔘 Grayscale"
+                                        else -> filter.displayName
+                                    }
                                     Text(
-                                        text = if (isMagicColor) "✨ Magic Color" else filter.displayName,
+                                        text = chipText,
                                         color = if (isSelected) Color.White else Color(0xFF1E293B),
                                         fontSize = 12.sp,
                                         fontWeight = if (isSelected || isMagicColor) FontWeight.Bold else FontWeight.SemiBold

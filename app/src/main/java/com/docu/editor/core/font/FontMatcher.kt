@@ -32,6 +32,9 @@ enum class FontClassification(
     KALAM("kalam", "Kalam / Hindi Pen", "Handwriting"),
     CAVEAT("caveat", "Caveat / Casual Script", "Handwriting"),
     DANCING_SCRIPT("dancingscript", "Dancing Script / Signature", "Handwriting"),
+    ARCHITECTS_DAUGHTER("architectsdaughter", "Architects Daughter / Pencil Notes", "Handwriting"),
+    MARCK_SCRIPT("marckscript", "Marck Script / Cursive Script", "Handwriting"),
+    CUSTOM("custom", "Custom Imported Font (.ttf)", "Handwriting"),
     INCONSOLATA("inconsolata", "Inconsolata / Code", "Basic"),
     HIND("hind", "Hind / Hindi Official", "Hindi")
 }

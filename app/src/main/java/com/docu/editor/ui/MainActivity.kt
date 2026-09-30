@@ -36,9 +36,11 @@ import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -218,6 +220,13 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // Custom Font (.ttf / .otf) file picker
+                val fontPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    uri?.let { viewModel.importCustomFont(it) }
+                }
+
                 // Snackbar notifications
                 LaunchedEffect(uiState.errorMessage) {
                     uiState.errorMessage?.let { snackbarHostState.showSnackbar(it) }
@@ -355,6 +364,22 @@ class MainActivity : ComponentActivity() {
                                             Icons.AutoMirrored.Filled.Redo,
                                             contentDescription = "Redo",
                                             tint = if (uiState.canRedo) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outlineVariant
+                                        )
+                                    }
+                                    if (uiState.activePdfUri != null) {
+                                        IconButton(onClick = { viewModel.checkAcroFormsForCurrentPdf() }) {
+                                            Icon(
+                                                Icons.Default.Description,
+                                                contentDescription = "Fill PDF Form",
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                    IconButton(onClick = { fontPickerLauncher.launch(arrayOf("*/*")) }) {
+                                        Icon(
+                                            Icons.Default.TextFields,
+                                            contentDescription = "Import Font",
+                                            tint = MaterialTheme.colorScheme.onSurface
                                         )
                                     }
                                     IconButton(
@@ -756,6 +781,17 @@ class MainActivity : ComponentActivity() {
                                     viewModel.applyBookDewarp(spine, intensity)
                                 },
                                 onDismiss = { viewModel.showBookDewarpDialog(false) }
+                            )
+                        }
+
+                        // Interactive AcroForm PDF Fillable Fields Dialog
+                        if (uiState.showAcroFormDialog && uiState.acroFormFields.isNotEmpty()) {
+                            com.docu.editor.ui.dialogs.AcroFormEditDialog(
+                                formFields = uiState.acroFormFields,
+                                onDismiss = { viewModel.dismissAcroFormDialog() },
+                                onSaveFields = { fieldValues ->
+                                    viewModel.saveAcroFormFields(fieldValues)
+                                }
                             )
                         }
 

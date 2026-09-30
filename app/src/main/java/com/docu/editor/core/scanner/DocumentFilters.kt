@@ -17,6 +17,9 @@ object DocumentFilters {
         ORIGINAL,
         MAGIC_COLOR,      // High contrast text pop + vivid ink colors (CamScanner flagship)
         REMOVE_SHADOWS,   // Bilateral Illumination Division (erases phone flash & crease shadows)
+        REMOVE_WATERMARK, // Sigmoid background subtraction: erases diagonal translucent watermarks
+        REMOVE_FINGERS,   // Automated YCrCb skin segmentation & border intrusion inpainting
+        DEWARP_CURVED_PAGE, // Non-linear cylindrical remap flattening curved book spine pages
         CLEAN_BW,         // Crisp high-contrast black & white fax mode
         GRAYSCALE         // Smooth leveled gray tone
     }
@@ -26,6 +29,9 @@ object DocumentFilters {
             FilterType.ORIGINAL -> bitmap.copy(Bitmap.Config.ARGB_8888, true)
             FilterType.MAGIC_COLOR -> applyMagicColor(bitmap)
             FilterType.REMOVE_SHADOWS -> applyShadowRemoval(bitmap)
+            FilterType.REMOVE_WATERMARK -> applyWatermarkRemoval(bitmap)
+            FilterType.REMOVE_FINGERS -> FingerRemovalEngine.removeFingers(bitmap)
+            FilterType.DEWARP_CURVED_PAGE -> BookDewarpEngine.dewarpPage(bitmap)
             FilterType.CLEAN_BW -> applyCleanBw(bitmap)
             FilterType.GRAYSCALE -> applyEnhancedGrayscale(bitmap)
         }
@@ -196,6 +202,94 @@ object DocumentFilters {
         } finally {
             srcRgba.release()
             gray.release()
+            resultRgba.release()
+        }
+    }
+
+    /**
+     * Translucent Watermark Removal:
+     * Erases light grey/colored diagonal watermarks (e.g. "CONFIDENTIAL", "SAMPLE", draft stamps)
+     * while preserving high-contrast text strokes.
+     */
+    private fun applyWatermarkRemoval(source: Bitmap): Bitmap {
+        val srcRgba = Mat()
+        val srcRgb = Mat()
+        val gray = Mat()
+        val background = Mat()
+        val normalized = Mat()
+        val resultRgb = Mat()
+        val resultRgba = Mat()
+
+        return try {
+            Utils.bitmapToMat(source, srcRgba)
+            Imgproc.cvtColor(srcRgba, srcRgb, Imgproc.COLOR_RGBA2RGB)
+            Imgproc.cvtColor(srcRgb, gray, Imgproc.COLOR_RGB2GRAY)
+
+            // 1. Estimate background paper luminance via large morphological close
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(35.0, 35.0))
+            Imgproc.morphologyEx(gray, background, Imgproc.MORPH_CLOSE, kernel)
+            kernel.release()
+
+            // 2. Normalize: (gray / background) * 255
+            val gray32 = Mat()
+            val bg32 = Mat()
+            val norm32 = Mat()
+            gray.convertTo(gray32, CvType.CV_32F)
+            background.convertTo(bg32, CvType.CV_32F)
+            Core.divide(gray32, bg32, norm32)
+            Core.multiply(norm32, Scalar(255.0), norm32)
+            norm32.convertTo(normalized, CvType.CV_8U)
+            gray32.release()
+            bg32.release()
+            norm32.release()
+
+            // 3. Sigmoid tone curve:
+            // Text ink has normalized luma <= 140
+            // Watermarks sit in range 150..225
+            // Paper sits in range 230..255
+            val lut = Mat(1, 256, CvType.CV_8U)
+            val lutData = ByteArray(256)
+            for (i in 0..255) {
+                lutData[i] = when {
+                    i <= 130 -> i.toByte() // preserve dark text ink
+                    i >= 210 -> 255.toByte() // push paper & faint watermark to pure white
+                    else -> {
+                        val t = (i - 130).toFloat() / (210 - 130)
+                        val v = (130 + t * t * (255 - 130)).coerceIn(0f, 255f).toInt()
+                        v.toByte()
+                    }
+                }
+            }
+            lut.put(0, 0, lutData)
+            val cleanGray = Mat()
+            Core.LUT(normalized, lut, cleanGray)
+            lut.release()
+
+            // 4. Color reconstruction: Where cleanGray is near 255, make it white paper
+            val mask = Mat()
+            Imgproc.threshold(cleanGray, mask, 240.0, 255.0, Imgproc.THRESH_BINARY)
+            val textMask = Mat()
+            Core.bitwise_not(mask, textMask)
+
+            resultRgb.create(source.height, source.width, CvType.CV_8UC3)
+            resultRgb.setTo(Scalar(255.0, 255.0, 255.0))
+            srcRgb.copyTo(resultRgb, textMask)
+
+            mask.release()
+            textMask.release()
+            cleanGray.release()
+
+            Imgproc.cvtColor(resultRgb, resultRgba, Imgproc.COLOR_RGB2RGBA)
+            val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(resultRgba, output)
+            output
+        } finally {
+            srcRgba.release()
+            srcRgb.release()
+            gray.release()
+            background.release()
+            normalized.release()
+            resultRgb.release()
             resultRgba.release()
         }
     }
