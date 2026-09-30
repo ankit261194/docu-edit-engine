@@ -49,5 +49,10 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- Google ML Kit OCR Model Pre-download -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="ocr,ocr_devanagari" />
+
     </application>
 </manifest>

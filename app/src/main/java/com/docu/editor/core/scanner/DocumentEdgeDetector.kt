@@ -8,11 +8,13 @@ import kotlinx.coroutines.withContext
 import org.opencv.android.Utils
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.MatOfInt
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
+import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
@@ -24,74 +26,16 @@ object DocumentEdgeDetector {
     suspend fun detectCorners(bitmap: Bitmap): DocumentCorners = withContext(Dispatchers.Default) {
         val srcMat = Mat()
         val grayMat = Mat()
-        val blurredMat = Mat()
-        val cannedMat = Mat()
-        val dilatedMat = Mat()
 
         try {
             Utils.bitmapToMat(bitmap, srcMat)
             Imgproc.cvtColor(srcMat, grayMat, Imgproc.COLOR_RGBA2GRAY)
 
-            // 1. Bilateral filter or Gaussian blur to smooth texture while keeping boundary edges
-            Imgproc.GaussianBlur(grayMat, blurredMat, Size(9.0, 9.0), 0.0)
-
-            // 2. Canny Edge Detection with Otsu-guided thresholds
-            Imgproc.Canny(blurredMat, cannedMat, 50.0, 150.0)
-
-            // 3. Dilate slightly to connect broken edge lines
-            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
-            Imgproc.dilate(cannedMat, dilatedMat, kernel)
-            kernel.release()
-
-            // 4. Find all outer contours
-            val contours = mutableListOf<MatOfPoint>()
-            val hierarchy = Mat()
-            Imgproc.findContours(
-                dilatedMat,
-                contours,
-                hierarchy,
-                Imgproc.RETR_EXTERNAL,
-                Imgproc.CHAIN_APPROX_SIMPLE
-            )
-            hierarchy.release()
-
-            val minArea = (bitmap.width * bitmap.height) * 0.15 // Document must be at least 15% of frame
-            var maxArea = 0.0
-            var bestQuad: MatOfPoint2f? = null
-
-            for (contour in contours) {
-                val contour2f = MatOfPoint2f(*contour.toArray())
-                val peri = Imgproc.arcLength(contour2f, true)
-                val approx = MatOfPoint2f()
-
-                // Approximate polygon with epsilon
-                Imgproc.approxPolyDP(contour2f, approx, 0.02 * peri, true)
-
-                val area = Imgproc.contourArea(approx)
-                if (approx.total() == 4L && area > minArea && area > maxArea) {
-                    // Check if convex
-                    val mop = MatOfPoint(*approx.toArray())
-                    if (Imgproc.isContourConvex(mop)) {
-                        maxArea = area
-                        bestQuad?.release()
-                        bestQuad = approx
-                    } else {
-                        approx.release()
-                    }
-                    mop.release()
-                } else {
-                    approx.release()
-                }
-                contour2f.release()
-                contour.release()
-            }
-
-            if (bestQuad != null) {
-                val points = bestQuad.toArray()
-                bestQuad.release()
-                sortCorners(points)
+            val detected = detectCornersFromGrayMat(grayMat, bitmap.width, bitmap.height)
+            if (detected != null) {
+                detected
             } else {
-                // Fallback: 8% padded rectangle inside the frame
+                // Fallback: 6% padded rectangle inside the frame
                 val padX = bitmap.width * 0.06f
                 val padY = bitmap.height * 0.06f
                 DocumentCorners(
@@ -104,28 +48,49 @@ object DocumentEdgeDetector {
         } finally {
             srcMat.release()
             grayMat.release()
-            blurredMat.release()
-            cannedMat.release()
-            dilatedMat.release()
         }
     }
 
     /**
      * Real-time high-speed corner detector operating directly on CameraX Y-plane Mat (0ms bitmap conversion).
+     * Eliminates internal text interference via morphological closing and convex hulling.
      */
-    fun detectCornersFromGrayMat(grayMat: Mat, width: Int, height: Int): DocumentCorners? {
+    fun detectCornersFromGrayMat(grayMat: Mat, origWidth: Int, origHeight: Int): DocumentCorners? {
+        val targetWidth = 480.0
+        val scale = if (origWidth > targetWidth) targetWidth / origWidth else 1.0
+        val procWidth = (origWidth * scale).toInt()
+        val procHeight = (origHeight * scale).toInt()
+
+        val smallGray = Mat()
+        val closedMat = Mat()
         val blurredMat = Mat()
         val cannedMat = Mat()
         val dilatedMat = Mat()
 
         try {
-            Imgproc.GaussianBlur(grayMat, blurredMat, Size(7.0, 7.0), 0.0)
-            Imgproc.Canny(blurredMat, cannedMat, 40.0, 120.0)
+            if (scale < 1.0) {
+                Imgproc.resize(grayMat, smallGray, Size(procWidth.toDouble(), procHeight.toDouble()), 0.0, 0.0, Imgproc.INTER_LINEAR)
+            } else {
+                grayMat.copyTo(smallGray)
+            }
 
-            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
-            Imgproc.dilate(cannedMat, dilatedMat, kernel)
-            kernel.release()
+            // 1. Morphological Close with 15x15 kernel to completely blend black text characters into white paper
+            val textEraseKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(15.0, 15.0))
+            Imgproc.morphologyEx(smallGray, closedMat, Imgproc.MORPH_CLOSE, textEraseKernel)
+            textEraseKernel.release()
 
+            // 2. Gaussian blur to remove any remaining background high frequencies
+            Imgproc.GaussianBlur(closedMat, blurredMat, Size(7.0, 7.0), 0.0)
+
+            // 3. Canny edge detection focused on strong paper borders
+            Imgproc.Canny(blurredMat, cannedMat, 30.0, 100.0)
+
+            // 4. Dilate to seal any slight gaps on the paper edge
+            val edgeKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
+            Imgproc.dilate(cannedMat, dilatedMat, edgeKernel)
+            edgeKernel.release()
+
+            // 5. Find outer contours
             val contours = mutableListOf<MatOfPoint>()
             val hierarchy = Mat()
             Imgproc.findContours(
@@ -137,45 +102,64 @@ object DocumentEdgeDetector {
             )
             hierarchy.release()
 
-            val minArea = (width * height) * 0.12
+            val frameArea = procWidth * procHeight
+            val minArea = frameArea * 0.15 // Paper must occupy at least 15% of frame
+            val maxAllowedArea = frameArea * 0.98
+
             var maxArea = 0.0
-            var bestQuad: MatOfPoint2f? = null
+            var bestQuad: Array<Point>? = null
 
             for (contour in contours) {
-                val contour2f = MatOfPoint2f(*contour.toArray())
-                val peri = Imgproc.arcLength(contour2f, true)
+                val contourArea = Imgproc.contourArea(contour)
+                if (contourArea < minArea || contourArea > maxAllowedArea) {
+                    contour.release()
+                    continue
+                }
+
+                // Compute Convex Hull to smooth finger grips or small boundary jaggedness
+                val hullIndices = MatOfInt()
+                Imgproc.convexHull(contour, hullIndices)
+                val contourPoints = contour.toArray()
+                val hullPoints = hullIndices.toArray().map { contourPoints[it] }.toTypedArray()
+                hullIndices.release()
+
+                val hullMat = MatOfPoint2f(*hullPoints)
+                val peri = Imgproc.arcLength(hullMat, true)
                 val approx = MatOfPoint2f()
 
-                Imgproc.approxPolyDP(contour2f, approx, 0.02 * peri, true)
-                val area = Imgproc.contourArea(approx)
+                // Approximate polygon
+                Imgproc.approxPolyDP(hullMat, approx, 0.025 * peri, true)
+                val approxCount = approx.total()
 
-                if (approx.total() == 4L && area > minArea && area > maxArea) {
+                if (approxCount == 4L) {
                     val mop = MatOfPoint(*approx.toArray())
-                    if (Imgproc.isContourConvex(mop)) {
-                        maxArea = area
-                        bestQuad?.release()
-                        bestQuad = approx
-                    } else {
-                        approx.release()
+                    if (Imgproc.isContourConvex(mop) && contourArea > maxArea) {
+                        val pts = approx.toArray()
+                        if (isValidDocumentQuad(pts, procWidth, procHeight)) {
+                            maxArea = contourArea
+                            bestQuad = pts
+                        }
                     }
                     mop.release()
-                } else {
-                    approx.release()
                 }
-                contour2f.release()
+
+                approx.release()
+                hullMat.release()
                 contour.release()
             }
 
-            return if (bestQuad != null) {
-                val points = bestQuad.toArray()
-                bestQuad.release()
-                sortCorners(points)
-            } else {
-                null
+            if (bestQuad != null) {
+                // Scale back to original resolution
+                val invScale = 1.0 / scale
+                val scaledPoints = bestQuad.map { Point(it.x * invScale, it.y * invScale) }.toTypedArray()
+                return sortCorners(scaledPoints)
             }
+            return null
         } catch (_: Exception) {
             return null
         } finally {
+            smallGray.release()
+            closedMat.release()
             blurredMat.release()
             cannedMat.release()
             dilatedMat.release()
@@ -183,15 +167,33 @@ object DocumentEdgeDetector {
     }
 
     /**
+     * Validates that the 4 points form a realistic document quadrilateral (not a narrow sliver or degenerate box).
+     */
+    private fun isValidDocumentQuad(pts: Array<Point>, w: Int, h: Int): Boolean {
+        if (pts.size != 4) return false
+        val edge1 = hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+        val edge2 = hypot(pts[1].x - pts[2].x, pts[1].y - pts[2].y)
+        val edge3 = hypot(pts[2].x - pts[3].x, pts[2].y - pts[3].y)
+        val edge4 = hypot(pts[3].x - pts[0].x, pts[3].y - pts[0].y)
+
+        val minEdge = minOf(edge1, edge2, edge3, edge4)
+        val maxEdge = maxOf(edge1, edge2, edge3, edge4)
+
+        if (minEdge < 40.0) return false
+        // Aspect ratio between max edge and min edge should be reasonable (< 3.0)
+        if (maxEdge / minEdge > 3.0) return false
+
+        return true
+    }
+
+    /**
      * Orders 4 vertices into [Top-Left, Top-Right, Bottom-Right, Bottom-Left].
      */
     private fun sortCorners(pts: Array<Point>): DocumentCorners {
-        // Sum (x + y): Top-Left has smallest sum, Bottom-Right has largest sum
         val sortedBySum = pts.sortedBy { it.x + it.y }
         val tl = sortedBySum.first()
         val br = sortedBySum.last()
 
-        // Diff (y - x): Top-Right has smallest diff (or x - y largest), Bottom-Left has largest diff
         val remaining = pts.filter { it != tl && it != br }
         val sortedByDiff = remaining.sortedBy { it.y - it.x }
         val tr = sortedByDiff.first()

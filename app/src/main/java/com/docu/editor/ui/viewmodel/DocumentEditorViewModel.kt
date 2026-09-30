@@ -615,7 +615,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         clearUndoRedo()
 
         val items = withContext(Dispatchers.Default) {
-            ocrAnalyzer.detectTextBlocks(optimized, TextHierarchyLevel.ELEMENT)
+            ocrAnalyzer.detectTextBlocks(optimized, TextHierarchyLevel.LINE)
         }
 
         val pageIdx = _uiState.value.currentPdfPageIndex
@@ -627,7 +627,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 detectedItems = items,
                 isScanning = false,
                 processingMessage = null,
-                successMessage = "Detected ${items.size} editable words"
+                successMessage = "✓ Auto-fetched ${items.size} text lines • Ready to tap & edit"
             )
         }
 
@@ -1040,7 +1040,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
             // Re-detect or update OCR items for the newly enhanced contrast
             val items = withContext(Dispatchers.Default) {
-                ocrAnalyzer.detectTextBlocks(filtered, TextHierarchyLevel.ELEMENT)
+                ocrAnalyzer.detectTextBlocks(filtered, TextHierarchyLevel.LINE)
             }
 
             _uiState.update {
@@ -1070,7 +1070,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 DocumentFilters.adjustBrightnessContrast(base, brightness, contrast)
             }
             val items = withContext(Dispatchers.Default) {
-                ocrAnalyzer.detectTextBlocks(adjusted, TextHierarchyLevel.ELEMENT)
+                ocrAnalyzer.detectTextBlocks(adjusted, TextHierarchyLevel.LINE)
             }
             _uiState.update {
                 it.copy(
@@ -1103,7 +1103,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 }
 
                 val items = withContext(Dispatchers.Default) {
-                    ocrAnalyzer.detectTextBlocks(warped, TextHierarchyLevel.ELEMENT)
+                    ocrAnalyzer.detectTextBlocks(warped, TextHierarchyLevel.LINE)
                 }
                 _uiState.update {
                     it.copy(
@@ -1145,7 +1145,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 }
 
                 val items = withContext(Dispatchers.Default) {
-                    ocrAnalyzer.detectTextBlocks(warped, TextHierarchyLevel.ELEMENT)
+                    ocrAnalyzer.detectTextBlocks(warped, TextHierarchyLevel.LINE)
                 }
                 _uiState.update {
                     it.copy(
@@ -1646,7 +1646,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     BookCurveDewarper.flattenBookCurvature(current, spine, intensity)
                 }
                 val reOcrItems = withContext(Dispatchers.Default) {
-                    ocrAnalyzer.detectTextBlocks(flattened, TextHierarchyLevel.ELEMENT)
+                    ocrAnalyzer.detectTextBlocks(flattened, TextHierarchyLevel.LINE)
                 }
                 _uiState.update {
                     it.copy(
@@ -2057,11 +2057,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 result
             } else {
                 val localItems = withContext(Dispatchers.Default) {
-                    ocrAnalyzer.detectTextBlocks(current, TextHierarchyLevel.ELEMENT)
+                    ocrAnalyzer.detectTextBlocks(current, TextHierarchyLevel.LINE)
                 }
                 localItems.sortedWith(
                     compareBy<DetectedTextItem> { it.boundingBox.top / 20 }.thenBy { it.boundingBox.left }
-                ).joinToString(" ") { it.text }
+                ).joinToString("\n") { it.text }
             }
 
             _uiState.update { it.copy(isPerformingHandwritingOcr = false) }
@@ -2166,7 +2166,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 val restoredBmp = step.bitmap
                 viewModelScope.launch {
                     val items = withContext(Dispatchers.Default) {
-                        ocrAnalyzer.detectTextBlocks(restoredBmp, TextHierarchyLevel.ELEMENT)
+                        ocrAnalyzer.detectTextBlocks(restoredBmp, TextHierarchyLevel.LINE)
                     }
                     _uiState.update {
                         it.copy(
@@ -2250,7 +2250,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 val restoredBmp = step.bitmap
                 viewModelScope.launch {
                     val items = withContext(Dispatchers.Default) {
-                        ocrAnalyzer.detectTextBlocks(restoredBmp, TextHierarchyLevel.ELEMENT)
+                        ocrAnalyzer.detectTextBlocks(restoredBmp, TextHierarchyLevel.LINE)
                     }
                     _uiState.update {
                         it.copy(

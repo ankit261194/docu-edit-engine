@@ -269,8 +269,33 @@ fun DocumentInteractiveCanvas(
                             val bitmapX = relX / effectiveScale
                             val bitmapY = relY / effectiveScale
 
-                            val hitItem = detectedItems.firstOrNull { item ->
+                            // 1. Direct hit check
+                            var hitItem = detectedItems.firstOrNull { item ->
                                 item.boundingBox.contains(bitmapX.toInt(), bitmapY.toInt())
+                            }
+
+                            // 2. Magnetic Snap: If finger missed by a few pixels, find the closest text item within 32dp
+                            if (hitItem == null && detectedItems.isNotEmpty()) {
+                                val snapRadiusPx = 32.dp.toPx() / effectiveScale
+                                var closestDistance = Float.MAX_VALUE
+                                for (item in detectedItems) {
+                                    val b = item.boundingBox
+                                    val dx = when {
+                                        bitmapX < b.left -> b.left - bitmapX
+                                        bitmapX > b.right -> bitmapX - b.right
+                                        else -> 0f
+                                    }
+                                    val dy = when {
+                                        bitmapY < b.top -> b.top - bitmapY
+                                        bitmapY > b.bottom -> bitmapY - b.bottom
+                                        else -> 0f
+                                    }
+                                    val dist = kotlin.math.hypot(dx, dy)
+                                    if (dist <= snapRadiusPx && dist < closestDistance) {
+                                        closestDistance = dist
+                                        hitItem = item
+                                    }
+                                }
                             }
 
                             if (hitItem != null) {
@@ -334,16 +359,27 @@ fun DocumentInteractiveCanvas(
                             style = Stroke(width = 2.dp.toPx())
                         )
                     } else if (isSingleSelected) {
+                        // High-contrast Emerald/Cyan Selection with Corner Knobs
                         drawRect(
-                            color = Color(0xFF00E5FF).copy(alpha = 0.22f),
+                            color = Color(0xFF06B6D4).copy(alpha = 0.28f),
                             topLeft = Offset(boxLeft, boxTop),
                             size = Size(boxWidth, boxHeight)
                         )
                         drawRect(
-                            color = Color(0xFF2563EB),
+                            color = Color(0xFF0284C7),
                             topLeft = Offset(boxLeft, boxTop),
                             size = Size(boxWidth, boxHeight),
                             style = Stroke(width = 3.dp.toPx())
+                        )
+                        drawCircle(
+                            color = Color(0xFF0284C7),
+                            radius = 4.dp.toPx(),
+                            center = Offset(boxLeft, boxTop)
+                        )
+                        drawCircle(
+                            color = Color(0xFF0284C7),
+                            radius = 4.dp.toPx(),
+                            center = Offset(boxLeft + boxWidth, boxTop + boxHeight)
                         )
                     } else if (isLassoSelected) {
                         drawRect(
@@ -358,11 +394,17 @@ fun DocumentInteractiveCanvas(
                             style = Stroke(width = 2.5.dp.toPx())
                         )
                     } else {
+                        // CamScanner-Style Soft Blue/Cyan Glowing Highlight Pill
                         drawRect(
-                            color = Color(0xFF2563EB).copy(alpha = 0.35f),
+                            color = Color(0xFF0284C7).copy(alpha = 0.14f),
+                            topLeft = Offset(boxLeft, boxTop),
+                            size = Size(boxWidth, boxHeight)
+                        )
+                        drawRect(
+                            color = Color(0xFF0284C7).copy(alpha = 0.55f),
                             topLeft = Offset(boxLeft, boxTop),
                             size = Size(boxWidth, boxHeight),
-                            style = Stroke(width = 1.5.dp.toPx())
+                            style = Stroke(width = 1.6.dp.toPx())
                         )
                     }
                 }
