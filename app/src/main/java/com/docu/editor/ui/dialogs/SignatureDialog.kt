@@ -6,6 +6,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +35,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.material3.Surface
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.material3.Text
@@ -85,6 +88,17 @@ fun SignatureDialog(
     val coroutineScope = rememberCoroutineScope()
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Signature, 1: Stamp, 2: Seal, 3: Vault
     var selectedColorIndex by remember { mutableIntStateOf(0) } // 0: Blue, 1: Black, 2: Red
+    var recentVaultItems by remember { mutableStateOf<List<Pair<SavedSignatureItem, Bitmap>>>(emptyList()) }
+
+    LaunchedEffect(selectedTab) {
+        val loaded = SignatureVaultManager.loadAll(context).take(5)
+        val list = mutableListOf<Pair<SavedSignatureItem, Bitmap>>()
+        for (item in loaded) {
+            val bmp = SignatureVaultManager.loadBitmap(item)
+            if (bmp != null) list.add(Pair(item, bmp))
+        }
+        recentVaultItems = list
+    }
 
     val inkColors = listOf(
         Pair("Navy Blue", android.graphics.Color.rgb(10, 35, 120)),
@@ -203,6 +217,57 @@ fun SignatureDialog(
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
+
+                // Quick Pick from Vault
+                if (recentVaultItems.isNotEmpty() && selectedTab != 3) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp)
+                    ) {
+                        Text(
+                            text = "⚡ Quick Stamping (Saved in Vault):",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF64748B)
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.horizontalScroll(rememberScrollState())
+                        ) {
+                            recentVaultItems.forEach { (item, bmp) ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFFF1F5F9),
+                                    border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                                    modifier = Modifier
+                                        .clickable {
+                                            onApplyToDocument(bmp)
+                                            onDismiss()
+                                        }
+                                        .height(34.dp)
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Image(
+                                            bitmap = bmp.asImageBitmap(),
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = item.type.lowercase().replaceFirstChar { it.uppercase() },
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color(0xFF1E293B)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 // Ink Color Selection for Drawing & Photo Signature
                 if (selectedTab == 0 || selectedTab == 1) {

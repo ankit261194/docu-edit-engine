@@ -524,6 +524,121 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun duplicatePage(index: Int) {
+        val state = _uiState.value
+        saveCurrentPageToCache()
+        val context = getApplication<Application>()
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Duplicating page ${index + 1}...") }
+            try {
+                val srcBmp: Bitmap = withContext(Dispatchers.Default) {
+                    val cached = editedPagesMap[index]
+                    if (cached != null) {
+                        cached
+                    } else if (state.activePdfUri != null) {
+                        PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, index)
+                    } else if (state.batchScannedPaths.size > index) {
+                        com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[index], 2880)
+                    } else if (index == state.currentPdfPageIndex) {
+                        state.currentBitmap
+                    } else {
+                        null
+                    }
+                } ?: run {
+                    _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "Failed to load page for duplication") }
+                    return@launch
+                }
+
+                val clonedBmp = srcBmp.copy(srcBmp.config ?: Bitmap.Config.ARGB_8888, true)
+                val clonedItems = (pageDetectedItemsMap[index] ?: (if (index == state.currentPdfPageIndex) state.detectedItems else emptyList())).map { it.copy() }
+
+                val insertIndex = index + 1
+                val newEdited = mutableMapOf<Int, Bitmap>()
+                val newDetected = mutableMapOf<Int, List<DetectedTextItem>>()
+
+                for (i in 0 until state.pdfPageCount) {
+                    if (i <= index) {
+                        editedPagesMap[i]?.let { newEdited[i] = it }
+                        pageDetectedItemsMap[i]?.let { newDetected[i] = it }
+                    } else {
+                        editedPagesMap[i]?.let { newEdited[i + 1] = it }
+                        pageDetectedItemsMap[i]?.let { newDetected[i + 1] = it }
+                    }
+                }
+                newEdited[insertIndex] = clonedBmp
+                newDetected[insertIndex] = clonedItems
+
+                editedPagesMap.clear()
+                editedPagesMap.putAll(newEdited)
+                pageDetectedItemsMap.clear()
+                pageDetectedItemsMap.putAll(newDetected)
+
+                val newPageCount = state.pdfPageCount + 1
+                _uiState.update {
+                    it.copy(
+                        pdfPageCount = newPageCount,
+                        isApplyingEdit = false,
+                        hasUnsavedChanges = true,
+                        successMessage = "Page ${index + 1} duplicated as Page ${insertIndex + 1}"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "Duplicate failed: ${e.localizedMessage}") }
+            }
+        }
+    }
+
+    fun deleteMultiplePages(indices: Set<Int>) {
+        val state = _uiState.value
+        if (indices.isEmpty()) return
+        if (indices.size >= state.pdfPageCount) {
+            _uiState.update { it.copy(errorMessage = "Cannot delete all pages. Document must have at least one page.") }
+            return
+        }
+        saveCurrentPageToCache()
+
+        val remainingPages = (0 until state.pdfPageCount).filter { it !in indices }
+        val newEdited = mutableMapOf<Int, Bitmap>()
+        val newDetected = mutableMapOf<Int, List<DetectedTextItem>>()
+
+        for ((newIdx, oldIdx) in remainingPages.withIndex()) {
+            editedPagesMap[oldIdx]?.let { newEdited[newIdx] = it }
+            pageDetectedItemsMap[oldIdx]?.let { newDetected[newIdx] = it }
+        }
+
+        editedPagesMap.clear()
+        editedPagesMap.putAll(newEdited)
+        pageDetectedItemsMap.clear()
+        pageDetectedItemsMap.putAll(newDetected)
+
+        val newCount = remainingPages.size
+        val newCurrentIdx = if (state.currentPdfPageIndex in indices) {
+            0.coerceAtMost(newCount - 1)
+        } else {
+            val countBefore = indices.count { it < state.currentPdfPageIndex }
+            (state.currentPdfPageIndex - countBefore).coerceIn(0, newCount - 1)
+        }
+
+        val targetBmp = newEdited[newCurrentIdx]
+        _uiState.update {
+            it.copy(
+                pdfPageCount = newCount,
+                currentPdfPageIndex = newCurrentIdx,
+                currentBitmap = targetBmp ?: it.currentBitmap,
+                originalBitmap = targetBmp ?: it.originalBitmap,
+                detectedItems = newDetected[newCurrentIdx] ?: emptyList(),
+                selectedItem = null,
+                selectedItems = emptyList(),
+                hasUnsavedChanges = true,
+                successMessage = "${indices.size} pages deleted"
+            )
+        }
+        if (state.activePdfUri != null) {
+            loadPdfPage(state.activePdfUri, newCurrentIdx)
+        }
+    }
+
     fun appendPageToDocument(bitmap: Bitmap) {
         saveCurrentPageToCache()
         val currentCount = _uiState.value.pdfPageCount
@@ -1623,6 +1738,22 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             DocxExportEngine.generateDocx(rawName, docText, outFile)
                             outFile
                         }
+                        "XLSX" -> {
+                            val cleanName = if (rawName.endsWith(".xlsx", ignoreCase = true)) rawName else "$rawName.xlsx"
+                            val outFile = File(downloadsDir, cleanName)
+                            val state = _uiState.value
+                            val pagesMap = mutableMapOf<Int, List<DetectedTextItem>>()
+                            if (state.pdfPageCount > 1) {
+                                for (pIdx in 0 until state.pdfPageCount) {
+                                    val items = pageDetectedItemsMap[pIdx] ?: if (pIdx == state.currentPdfPageIndex) state.detectedItems else emptyList()
+                                    pagesMap[pIdx] = items
+                                }
+                            } else {
+                                pagesMap[0] = state.detectedItems
+                            }
+                            SpreadsheetExportEngine.exportToXlsx(pagesMap, outFile)
+                            outFile
+                        }
                         "CSV", "XLS" -> {
                             val cleanName = if (rawName.endsWith(".csv", ignoreCase = true)) rawName else "$rawName.csv"
                             val outFile = File(downloadsDir, cleanName)
@@ -2104,102 +2235,238 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun replaceAllOccurrences(query: String, replacement: String) {
+    fun replaceAllOccurrences(query: String, replacement: String, allPages: Boolean = false) {
         if (query.isBlank()) return
-        val currentBitmap = _uiState.value.currentBitmap ?: return
+        val state = _uiState.value
+        val currentBitmap = state.currentBitmap ?: return
         val q = query.trim().lowercase()
-        val matchingItems = _uiState.value.detectedItems.filter {
-            it.text.lowercase().contains(q)
-        }
-        if (matchingItems.isEmpty()) {
-            _uiState.update { it.copy(errorMessage = "No occurrences found for '$query'") }
-            return
-        }
 
-        pushUndoStep(UndoStep.FullBitmap(currentBitmap))
+        saveCurrentPageToCache()
+        val context = getApplication<Application>()
 
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isApplyingEdit = true,
-                    processingMessage = "Replacing ${matchingItems.size} occurrences of '$query'..."
-                )
-            }
+        if (allPages && state.pdfPageCount > 1) {
+            // Multi-page document-wide replace
+            pushUndoStep(UndoStep.FullBitmap(currentBitmap))
 
-            try {
-                var workingBitmap = currentBitmap.copy(Bitmap.Config.ARGB_8888, true)
-                val updatedItemsMap = mutableMapOf<String, DetectedTextItem>()
+            viewModelScope.launch {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = true,
+                        processingMessage = "Replacing '$query' across all ${state.pdfPageCount} pages..."
+                    )
+                }
 
-                withContext(Dispatchers.Default) {
-                    for (item in matchingItems) {
-                        val newText = item.text.replace(query, replacement, ignoreCase = true)
+                try {
+                    var totalReplacements = 0
+                    var affectedPages = 0
+                    var updatedCurrentBitmap: Bitmap? = null
+                    var updatedCurrentItems: List<DetectedTextItem>? = null
 
-                        val cleanedBackground = backgroundInpainter.inpaint(
-                            sourceBitmap = workingBitmap,
-                            targetBounds = item.boundingBox
-                        )
+                    withContext(Dispatchers.Default) {
+                        for (pIdx in 0 until state.pdfPageCount) {
+                            val pageBmp = if (pIdx == state.currentPdfPageIndex) {
+                                currentBitmap
+                            } else {
+                                editedPagesMap[pIdx]
+                                    ?: if (state.activePdfUri != null) PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, pIdx)
+                                    else if (state.batchScannedPaths.size > pIdx) com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[pIdx], 2880)
+                                    else null
+                            } ?: continue
 
-                        val renderResult = textRenderer.render(
-                            cleanedBackground = cleanedBackground,
-                            params = TextRenderer.TextRenderParams(
-                                newText = newText,
-                                originalText = item.text,
-                                targetBounds = item.boundingBox,
-                                inkColorRgb = item.inkColorRgb,
-                                rotationAngle = item.rotationAngle,
-                                typographyMetrics = item.typography,
-                                overrideClassification = null,
-                                isBold = (item.typography.estimatedFontWeight == FontWeightEstimate.BOLD),
-                                sizeMultiplier = 1.0f,
-                                alignment = Paint.Align.LEFT
-                            )
-                        )
+                            val pageItems = if (pIdx == state.currentPdfPageIndex) {
+                                state.detectedItems
+                            } else {
+                                pageDetectedItemsMap[pIdx]
+                                    ?: ocrAnalyzer.detectTextBlocks(pageBmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE)
+                            }
 
-                        cleanedBackground.recycle()
-                        if (workingBitmap != currentBitmap) {
-                            workingBitmap.recycle()
+                            val matchingItems = pageItems.filter { it.text.lowercase().contains(q) }
+                            if (matchingItems.isNotEmpty()) {
+                                affectedPages++
+                                totalReplacements += matchingItems.size
+                                var workingBmp = pageBmp.copy(Bitmap.Config.ARGB_8888, true)
+                                val updatedMap = mutableMapOf<String, DetectedTextItem>()
+
+                                for (item in matchingItems) {
+                                    val newText = item.text.replace(query, replacement, ignoreCase = true)
+                                    val cleanedBg = backgroundInpainter.inpaint(
+                                        sourceBitmap = workingBmp,
+                                        targetBounds = item.boundingBox
+                                    )
+                                    val renderResult = textRenderer.render(
+                                        cleanedBackground = cleanedBg,
+                                        params = TextRenderer.TextRenderParams(
+                                            newText = newText,
+                                            originalText = item.text,
+                                            targetBounds = item.boundingBox,
+                                            inkColorRgb = item.inkColorRgb,
+                                            rotationAngle = item.rotationAngle,
+                                            typographyMetrics = item.typography,
+                                            overrideClassification = null,
+                                            isBold = (item.typography.estimatedFontWeight == FontWeightEstimate.BOLD),
+                                            sizeMultiplier = 1.0f,
+                                            alignment = Paint.Align.LEFT
+                                        )
+                                    )
+                                    cleanedBg.recycle()
+                                    if (workingBmp != pageBmp) {
+                                        workingBmp.recycle()
+                                    }
+                                    workingBmp = renderResult.outputBitmap
+
+                                    val charW = (item.boundingBox.height() * 0.52f)
+                                    val newWidth = (newText.length * charW).toInt().coerceAtLeast(24)
+                                    val updatedItem = item.copy(
+                                        text = newText,
+                                        boundingBox = Rect(item.boundingBox.left, item.boundingBox.top, item.boundingBox.left + newWidth, item.boundingBox.bottom)
+                                    )
+                                    updatedMap[item.id] = updatedItem
+                                }
+
+                                val newItems = pageItems.map { updatedMap[it.id] ?: it }
+                                editedPagesMap[pIdx] = workingBmp
+                                pageDetectedItemsMap[pIdx] = newItems
+
+                                if (pIdx == state.currentPdfPageIndex) {
+                                    updatedCurrentBitmap = workingBmp
+                                    updatedCurrentItems = newItems
+                                }
+                            }
                         }
-                        workingBitmap = renderResult.outputBitmap
+                    }
 
-                        val charW = (item.boundingBox.height() * 0.52f)
-                        val newWidth = (newText.length * charW).toInt().coerceAtLeast(24)
-                        val updatedItem = item.copy(
-                            text = newText,
-                            boundingBox = Rect(item.boundingBox.left, item.boundingBox.top, item.boundingBox.left + newWidth, item.boundingBox.bottom)
+                    if (totalReplacements == 0) {
+                        _uiState.update {
+                            it.copy(
+                                isApplyingEdit = false,
+                                processingMessage = null,
+                                errorMessage = "No occurrences of '$query' found across all ${state.pdfPageCount} pages"
+                            )
+                        }
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                originalBitmap = updatedCurrentBitmap ?: it.originalBitmap,
+                                currentBitmap = updatedCurrentBitmap ?: it.currentBitmap,
+                                detectedItems = updatedCurrentItems ?: it.detectedItems,
+                                selectedItem = null,
+                                selectedItems = emptyList(),
+                                canUndo = true,
+                                canRedo = false,
+                                hasUnsavedChanges = true,
+                                canvasRevision = it.canvasRevision + 1,
+                                isApplyingEdit = false,
+                                processingMessage = null,
+                                searchQuery = "",
+                                searchMatchingIndices = emptyList(),
+                                successMessage = "Replaced $totalReplacements occurrences across $affectedPages page(s)!"
+                            )
+                        }
+                    }
+                } catch (e: Exception) {
+                    _uiState.update {
+                        it.copy(
+                            isApplyingEdit = false,
+                            processingMessage = null,
+                            errorMessage = "Multi-page replace failed: ${e.localizedMessage}"
                         )
-                        updatedItemsMap[item.id] = updatedItem
                     }
                 }
+            }
+        } else {
+            val matchingItems = state.detectedItems.filter {
+                it.text.lowercase().contains(q)
+            }
+            if (matchingItems.isEmpty()) {
+                _uiState.update { it.copy(errorMessage = "No occurrences found for '$query'") }
+                return
+            }
 
-                val newDetectedItems = _uiState.value.detectedItems.map { item ->
-                    updatedItemsMap[item.id] ?: item
-                }
+            pushUndoStep(UndoStep.FullBitmap(currentBitmap))
 
+            viewModelScope.launch {
                 _uiState.update {
                     it.copy(
-                        originalBitmap = workingBitmap,
-                        currentBitmap = workingBitmap,
-                        detectedItems = newDetectedItems,
-                        selectedItem = null,
-                        selectedItems = emptyList(),
-                        canUndo = true,
-                        canRedo = false,
-                        hasUnsavedChanges = true,
-                        canvasRevision = it.canvasRevision + 1,
-                        isApplyingEdit = false,
-                        processingMessage = null,
-                        searchQuery = "",
-                        searchMatchingIndices = emptyList(),
-                        successMessage = "Replaced ${matchingItems.size} occurrences of '$query' with '$replacement'!"
+                        isApplyingEdit = true,
+                        processingMessage = "Replacing ${matchingItems.size} occurrences of '$query'..."
                     )
                 }
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
-                        isApplyingEdit = false,
-                        processingMessage = null,
-                        errorMessage = "Replace all failed: ${e.localizedMessage}"
-                    )
+
+                try {
+                    var workingBitmap = currentBitmap.copy(Bitmap.Config.ARGB_8888, true)
+                    val updatedItemsMap = mutableMapOf<String, DetectedTextItem>()
+
+                    withContext(Dispatchers.Default) {
+                        for (item in matchingItems) {
+                            val newText = item.text.replace(query, replacement, ignoreCase = true)
+
+                            val cleanedBackground = backgroundInpainter.inpaint(
+                                sourceBitmap = workingBitmap,
+                                targetBounds = item.boundingBox
+                            )
+
+                            val renderResult = textRenderer.render(
+                                cleanedBackground = cleanedBackground,
+                                params = TextRenderer.TextRenderParams(
+                                    newText = newText,
+                                    originalText = item.text,
+                                    targetBounds = item.boundingBox,
+                                    inkColorRgb = item.inkColorRgb,
+                                    rotationAngle = item.rotationAngle,
+                                    typographyMetrics = item.typography,
+                                    overrideClassification = null,
+                                    isBold = (item.typography.estimatedFontWeight == FontWeightEstimate.BOLD),
+                                    sizeMultiplier = 1.0f,
+                                    alignment = Paint.Align.LEFT
+                                )
+                            )
+
+                            cleanedBackground.recycle()
+                            if (workingBitmap != currentBitmap) {
+                                workingBitmap.recycle()
+                            }
+                            workingBitmap = renderResult.outputBitmap
+
+                            val charW = (item.boundingBox.height() * 0.52f)
+                            val newWidth = (newText.length * charW).toInt().coerceAtLeast(24)
+                            val updatedItem = item.copy(
+                                text = newText,
+                                boundingBox = Rect(item.boundingBox.left, item.boundingBox.top, item.boundingBox.left + newWidth, item.boundingBox.bottom)
+                            )
+                            updatedItemsMap[item.id] = updatedItem
+                        }
+                    }
+
+                    val newDetectedItems = state.detectedItems.map { item ->
+                        updatedItemsMap[item.id] ?: item
+                    }
+
+                    _uiState.update {
+                        it.copy(
+                            originalBitmap = workingBitmap,
+                            currentBitmap = workingBitmap,
+                            detectedItems = newDetectedItems,
+                            selectedItem = null,
+                            selectedItems = emptyList(),
+                            canUndo = true,
+                            canRedo = false,
+                            hasUnsavedChanges = true,
+                            canvasRevision = it.canvasRevision + 1,
+                            isApplyingEdit = false,
+                            processingMessage = null,
+                            searchQuery = "",
+                            searchMatchingIndices = emptyList(),
+                            successMessage = "Replaced ${matchingItems.size} occurrences of '$query' with '$replacement'!"
+                        )
+                    }
+                } catch (e: Exception) {
+                    _uiState.update {
+                        it.copy(
+                            isApplyingEdit = false,
+                            processingMessage = null,
+                            errorMessage = "Replace all failed: ${e.localizedMessage}"
+                        )
+                    }
                 }
             }
         }
@@ -2965,6 +3232,21 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             }
                             DocxExportEngine.generateDocx(rawName, sb.toString().ifBlank { "Scanned Document" }, outFile)
                             Pair(outFile, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+                        }
+                        "XLSX" -> {
+                            val cleanName = if (rawName.endsWith(".xlsx", ignoreCase = true)) rawName else "$rawName.xlsx"
+                            val outFile = File(cacheDir, cleanName)
+                            val pagesMap = mutableMapOf<Int, List<DetectedTextItem>>()
+                            if (state.pdfPageCount > 1) {
+                                for (pIdx in 0 until state.pdfPageCount) {
+                                    val items = pageDetectedItemsMap[pIdx] ?: if (pIdx == state.currentPdfPageIndex) state.detectedItems else emptyList()
+                                    pagesMap[pIdx] = items
+                                }
+                            } else {
+                                pagesMap[0] = state.detectedItems
+                            }
+                            SpreadsheetExportEngine.exportToXlsx(pagesMap, outFile)
+                            Pair(outFile, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                         }
                         "CSV", "XLS" -> {
                             val cleanName = if (rawName.endsWith(".csv", ignoreCase = true)) rawName else "$rawName.csv"

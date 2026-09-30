@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.window.DialogProperties
 import com.docu.editor.core.ocr.model.DetectedTextItem
@@ -184,13 +185,43 @@ fun OcrTextExtractDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Optional Search Bar
+                val matchCount = remember(searchQuery, editableText) {
+                    if (searchQuery.isBlank()) 0
+                    else Regex(Regex.escape(searchQuery), RegexOption.IGNORE_CASE).findAll(editableText).count()
+                }
+
+                // Search Bar with Live Occurrence Count
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
                     placeholder = { Text("Search word in extracted text...", fontSize = 13.sp) },
                     leadingIcon = {
                         Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(end = 6.dp)
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (matchCount > 0) Color(0xFFDCFCE7) else Color(0xFFFEE2E2)
+                                ) {
+                                    Text(
+                                        text = "$matchCount found",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (matchCount > 0) Color(0xFF15803D) else Color(0xFFB91C1C),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                                IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(22.dp)) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(15.dp))
+                                }
+                            }
+                        }
                     },
                     singleLine = true,
                     shape = RoundedCornerShape(10.dp),
@@ -283,7 +314,7 @@ fun OcrTextExtractDialog(
                             .weight(1f)
                             .height(44.dp)
                     ) {
-                        Icon(Icons.Default.Article, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.Article, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(text = "📄 Word (.docx)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }

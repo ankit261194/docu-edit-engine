@@ -114,4 +114,126 @@ object SpreadsheetExportEngine {
         }
         return str
     }
+
+    /**
+     * Exports rows to genuine Microsoft Excel OpenXML Workbook (.xlsx) format
+     * with each page mapped to its own distinct worksheet tab (Page 1, Page 2, etc.).
+     * 100% lightweight and zero external library dependencies.
+     */
+    fun exportToXlsx(
+        pagesItems: Map<Int, List<DetectedTextItem>>,
+        outputFile: File
+    ): Boolean {
+        return try {
+            outputFile.parentFile?.mkdirs()
+            val sortedPageKeys = pagesItems.keys.sorted()
+            val pageCount = if (sortedPageKeys.isEmpty()) 1 else sortedPageKeys.size
+
+            java.util.zip.ZipOutputStream(java.io.FileOutputStream(outputFile)).use { zip ->
+                // 1. [Content_Types].xml
+                zip.putNextEntry(java.util.zip.ZipEntry("[Content_Types].xml"))
+                val ctSb = StringBuilder()
+                ctSb.append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
+                ctSb.append("""<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">""")
+                ctSb.append("""<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>""")
+                ctSb.append("""<Default Extension="xml" ContentType="application/xml"/>""")
+                ctSb.append("""<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>""")
+                for (i in 1..pageCount) {
+                    ctSb.append("""<Override PartName="/xl/worksheets/sheet$i.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>""")
+                }
+                ctSb.append("""</Types>""")
+                zip.write(ctSb.toString().toByteArray(StandardCharsets.UTF_8))
+                zip.closeEntry()
+
+                // 2. _rels/.rels
+                zip.putNextEntry(java.util.zip.ZipEntry("_rels/.rels"))
+                val rootRels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>"""
+                zip.write(rootRels.toByteArray(StandardCharsets.UTF_8))
+                zip.closeEntry()
+
+                // 3. xl/workbook.xml
+                zip.putNextEntry(java.util.zip.ZipEntry("xl/workbook.xml"))
+                val wbSb = StringBuilder()
+                wbSb.append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
+                wbSb.append("""<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">""")
+                wbSb.append("""<sheets>""")
+                for (i in 1..pageCount) {
+                    wbSb.append("""<sheet name="Page $i" sheetId="$i" r:id="rId$i"/>""")
+                }
+                wbSb.append("""</sheets></workbook>""")
+                zip.write(wbSb.toString().toByteArray(StandardCharsets.UTF_8))
+                zip.closeEntry()
+
+                // 4. xl/_rels/workbook.xml.rels
+                zip.putNextEntry(java.util.zip.ZipEntry("xl/_rels/workbook.xml.rels"))
+                val wbRelsSb = StringBuilder()
+                wbRelsSb.append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
+                wbRelsSb.append("""<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">""")
+                for (i in 1..pageCount) {
+                    wbRelsSb.append("""<Relationship Id="rId$i" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet$i.xml"/>""")
+                }
+                wbRelsSb.append("""</Relationships>""")
+                zip.write(wbRelsSb.toString().toByteArray(StandardCharsets.UTF_8))
+                zip.closeEntry()
+
+                // 5. xl/worksheets/sheet{N}.xml
+                val keysToProcess = if (sortedPageKeys.isEmpty()) listOf(0) else sortedPageKeys
+                for ((idx, pageKey) in keysToProcess.withIndex()) {
+                    val sheetNum = idx + 1
+                    val items = pagesItems[pageKey] ?: emptyList()
+                    val rows = extractTableRows(items)
+
+                    zip.putNextEntry(java.util.zip.ZipEntry("xl/worksheets/sheet$sheetNum.xml"))
+                    val sheetSb = StringBuilder()
+                    sheetSb.append("""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>""")
+                    sheetSb.append("""<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">""")
+                    sheetSb.append("""<sheetData>""")
+
+                    for ((rIdx, row) in rows.withIndex()) {
+                        val rowNum = rIdx + 1
+                        sheetSb.append("""<row r="$rowNum">""")
+                        for ((cIdx, cellText) in row.withIndex()) {
+                            if (cellText.isNotBlank()) {
+                                val colRef = getColumnLetter(cIdx)
+                                val cellRef = "$colRef$rowNum"
+                                val escaped = escapeXml(cellText)
+                                sheetSb.append("""<c r="$cellRef" t="inlineStr"><is><t>$escaped</t></is></c>""")
+                            }
+                        }
+                        sheetSb.append("""</row>""")
+                    }
+
+                    sheetSb.append("""</sheetData></worksheet>""")
+                    zip.write(sheetSb.toString().toByteArray(StandardCharsets.UTF_8))
+                    zip.closeEntry()
+                }
+            }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun getColumnLetter(colIndex: Int): String {
+        var num = colIndex + 1
+        val sb = StringBuilder()
+        while (num > 0) {
+            val rem = (num - 1) % 26
+            sb.append(('A'.code + rem).toChar())
+            num = (num - 1) / 26
+        }
+        return sb.reverse().toString()
+    }
+
+    private fun escapeXml(str: String): String {
+        return str
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&apos;")
+    }
 }

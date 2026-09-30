@@ -24,20 +24,30 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RotateRight
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -64,10 +74,15 @@ fun PagesOverviewDialog(
     onDeletePage: (Int) -> Unit,
     onMovePage: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
     onRotatePage: (pageIndex: Int) -> Unit = {},
+    onDuplicatePage: (pageIndex: Int) -> Unit = {},
+    onDeleteMultiplePages: (pageIndices: Set<Int>) -> Unit = {},
     onAddPageFromCamera: () -> Unit = {},
     onAddPageFromGallery: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
+    var isSelectionMode by remember { mutableStateOf(false) }
+    var selectedPages by remember { mutableStateOf(setOf<Int>()) }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -86,32 +101,101 @@ fun PagesOverviewDialog(
                     .fillMaxSize()
                     .padding(20.dp)
             ) {
-                // Header
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = "Document Pages",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = "$pageCount Total Pages • Tap to Jump",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                // Dynamic Header: Normal vs Selection Mode
+                if (!isSelectionMode) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Document Pages",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "$pageCount Total Pages • Tap to Jump",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
 
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (pageCount > 1) {
+                                OutlinedButton(
+                                    onClick = {
+                                        isSelectionMode = true
+                                        selectedPages = emptySet()
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text("Select", fontSize = 11.sp, color = Color(0xFF2563EB), fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(6.dp))
+                            }
+                            IconButton(onClick = onDismiss) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Close",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "${selectedPages.size} Selected",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF2563EB)
+                            )
+                            Text(
+                                text = "Tap cards to toggle",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(
+                                onClick = {
+                                    selectedPages = if (selectedPages.size == pageCount) emptySet() else (0 until pageCount).toSet()
+                                }
+                            ) {
+                                Text(if (selectedPages.size == pageCount) "Deselect" else "Select All", fontSize = 11.sp)
+                            }
+                            if (selectedPages.isNotEmpty() && selectedPages.size < pageCount) {
+                                Button(
+                                    onClick = {
+                                        onDeleteMultiplePages(selectedPages)
+                                        isSelectionMode = false
+                                        selectedPages = emptySet()
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color.White)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Delete (${selectedPages.size})", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+                            IconButton(onClick = { isSelectionMode = false; selectedPages = emptySet() }) {
+                                Icon(Icons.Default.Close, contentDescription = "Cancel", tint = MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
                     }
                 }
 
@@ -127,22 +211,27 @@ fun PagesOverviewDialog(
                 ) {
                     items(pageCount) { index ->
                         val isCurrent = index == currentPageIndex
+                        val isSelected = selectedPages.contains(index)
                         val thumbnail = pageThumbnails[index]
 
                         Card(
                             shape = RoundedCornerShape(14.dp),
                             border = BorderStroke(
-                                width = if (isCurrent) 2.5.dp else 1.dp,
-                                color = if (isCurrent) Color(0xFF2563EB) else MaterialTheme.colorScheme.outlineVariant
+                                width = if (isSelectionMode && isSelected) 2.5.dp else if (isCurrent && !isSelectionMode) 2.5.dp else 1.dp,
+                                color = if (isSelectionMode && isSelected) Color(0xFF2563EB) else if (isCurrent && !isSelectionMode) Color(0xFF2563EB) else MaterialTheme.colorScheme.outlineVariant
                             ),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isCurrent) Color(0xFF2563EB).copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                containerColor = if (isSelectionMode && isSelected) Color(0xFF2563EB).copy(alpha = 0.08f) else if (isCurrent) Color(0xFF2563EB).copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
-                                    onSelectPage(index)
-                                    onDismiss()
+                                    if (isSelectionMode) {
+                                        selectedPages = if (selectedPages.contains(index)) selectedPages - index else selectedPages + index
+                                    } else {
+                                        onSelectPage(index)
+                                        onDismiss()
+                                    }
                                 }
                         ) {
                             Column(
@@ -175,7 +264,22 @@ fun PagesOverviewDialog(
                                         )
                                     }
 
-                                    if (isCurrent) {
+                                    if (isSelectionMode) {
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopStart)
+                                                .padding(6.dp)
+                                        ) {
+                                            Checkbox(
+                                                checked = isSelected,
+                                                onCheckedChange = { checked ->
+                                                    selectedPages = if (checked) selectedPages + index else selectedPages - index
+                                                },
+                                                colors = CheckboxDefaults.colors(checkedColor = Color(0xFF2563EB)),
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                    } else if (isCurrent) {
                                         Box(
                                             modifier = Modifier
                                                 .align(Alignment.TopEnd)
@@ -208,55 +312,68 @@ fun PagesOverviewDialog(
                                         color = if (isCurrent) Color(0xFF2563EB) else MaterialTheme.colorScheme.onSurface
                                     )
 
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        IconButton(
-                                            onClick = { onRotatePage(index) },
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.RotateRight,
-                                                contentDescription = "Rotate 90°",
-                                                tint = Color(0xFF2563EB),
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                        if (index > 0) {
+                                    if (!isSelectionMode) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
                                             IconButton(
-                                                onClick = { onMovePage(index, index - 1) },
+                                                onClick = { onRotatePage(index) },
                                                 modifier = Modifier.size(24.dp)
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                                    contentDescription = "Move Earlier",
-                                                    tint = Color(0xFF64748B),
-                                                    modifier = Modifier.size(15.dp)
+                                                    imageVector = Icons.AutoMirrored.Filled.RotateRight,
+                                                    contentDescription = "Rotate 90°",
+                                                    tint = Color(0xFF2563EB),
+                                                    modifier = Modifier.size(16.dp)
                                                 )
                                             }
-                                        }
-                                        if (index < pageCount - 1) {
                                             IconButton(
-                                                onClick = { onMovePage(index, index + 1) },
+                                                onClick = { onDuplicatePage(index) },
                                                 modifier = Modifier.size(24.dp)
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                                    contentDescription = "Move Later",
-                                                    tint = Color(0xFF64748B),
-                                                    modifier = Modifier.size(15.dp)
+                                                    imageVector = Icons.Default.ContentCopy,
+                                                    contentDescription = "Duplicate Page",
+                                                    tint = Color(0xFF0D9488),
+                                                    modifier = Modifier.size(14.dp)
                                                 )
                                             }
-                                        }
-                                        if (pageCount > 1) {
-                                            IconButton(
-                                                onClick = { onDeletePage(index) },
-                                                modifier = Modifier.size(24.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Delete,
-                                                    contentDescription = "Delete Page",
-                                                    tint = Color(0xFFEF4444),
-                                                    modifier = Modifier.size(15.dp)
-                                                )
+                                            if (index > 0) {
+                                                IconButton(
+                                                    onClick = { onMovePage(index, index - 1) },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                                        contentDescription = "Move Earlier",
+                                                        tint = Color(0xFF64748B),
+                                                        modifier = Modifier.size(15.dp)
+                                                    )
+                                                }
+                                            }
+                                            if (index < pageCount - 1) {
+                                                IconButton(
+                                                    onClick = { onMovePage(index, index + 1) },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                                        contentDescription = "Move Later",
+                                                        tint = Color(0xFF64748B),
+                                                        modifier = Modifier.size(15.dp)
+                                                    )
+                                                }
+                                            }
+                                            if (pageCount > 1) {
+                                                IconButton(
+                                                    onClick = { onDeletePage(index) },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Delete,
+                                                        contentDescription = "Delete Page",
+                                                        tint = Color(0xFFEF4444),
+                                                        modifier = Modifier.size(15.dp)
+                                                    )
+                                                }
                                             }
                                         }
                                     }

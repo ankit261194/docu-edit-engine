@@ -18,6 +18,7 @@ import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,6 +46,8 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -286,6 +289,7 @@ class MainActivity : ComponentActivity() {
                             val mime = when {
                                 file.name.endsWith(".pdf", ignoreCase = true) -> "application/pdf"
                                 file.name.endsWith(".docx", ignoreCase = true) -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                file.name.endsWith(".xlsx", ignoreCase = true) -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                 file.name.endsWith(".csv", ignoreCase = true) -> "text/csv"
                                 file.name.endsWith(".png", ignoreCase = true) -> "image/png"
                                 file.name.endsWith(".txt", ignoreCase = true) -> "text/plain"
@@ -504,6 +508,7 @@ class MainActivity : ComponentActivity() {
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 var replaceText by remember { mutableStateOf("") }
+                                var replaceAllPagesScope by remember { mutableStateOf(false) }
                                 Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -538,28 +543,55 @@ class MainActivity : ComponentActivity() {
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Text(
-                                            text = if (uiState.searchQuery.isNotEmpty()) "${uiState.searchMatchingIndices.size} match(es) highlighted" else "Type word to find",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = if (uiState.searchMatchingIndices.isNotEmpty()) Color(0xFF2563EB) else MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text(
+                                                text = if (uiState.searchQuery.isNotEmpty()) "${uiState.searchMatchingIndices.size} match(es)" else "Type word to find",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (uiState.searchMatchingIndices.isNotEmpty()) Color(0xFF2563EB) else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            if (uiState.pdfPageCount > 1) {
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.clickable { replaceAllPagesScope = !replaceAllPagesScope }
+                                                ) {
+                                                    Checkbox(
+                                                        checked = replaceAllPagesScope,
+                                                        onCheckedChange = { replaceAllPagesScope = it },
+                                                        colors = CheckboxDefaults.colors(checkedColor = Color(0xFF2563EB)),
+                                                        modifier = Modifier.size(24.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = "All ${uiState.pdfPageCount} pgs",
+                                                        fontSize = 11.sp,
+                                                        fontWeight = if (replaceAllPagesScope) FontWeight.Bold else FontWeight.Normal,
+                                                        color = if (replaceAllPagesScope) Color(0xFF2563EB) else MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                        }
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             TextButton(onClick = { viewModel.toggleSearch(false) }) {
                                                 Text("Close", fontSize = 12.sp)
                                             }
                                             Button(
                                                 onClick = {
-                                                    viewModel.replaceAllOccurrences(uiState.searchQuery, replaceText)
+                                                    viewModel.replaceAllOccurrences(uiState.searchQuery, replaceText, allPages = replaceAllPagesScope)
                                                     replaceText = ""
                                                 },
                                                 enabled = uiState.searchQuery.isNotBlank() && uiState.searchMatchingIndices.isNotEmpty(),
-                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                                colors = ButtonDefaults.buttonColors(containerColor = if (replaceAllPagesScope) Color(0xFF1D4ED8) else Color(0xFF2563EB)),
                                                 shape = RoundedCornerShape(8.dp),
                                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                                 modifier = Modifier.height(34.dp)
                                             ) {
-                                                Text("Replace All", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                Text(
+                                                    text = if (replaceAllPagesScope && uiState.pdfPageCount > 1) "Replace All Pages" else "Replace Page",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
                                             }
                                         }
                                     }
@@ -782,6 +814,12 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onDeletePage = { index ->
                                     viewModel.deletePage(index)
+                                },
+                                onDuplicatePage = { index ->
+                                    viewModel.duplicatePage(index)
+                                },
+                                onDeleteMultiplePages = { indices ->
+                                    viewModel.deleteMultiplePages(indices)
                                 },
                                 onMovePage = { from, to ->
                                     viewModel.movePage(from, to)

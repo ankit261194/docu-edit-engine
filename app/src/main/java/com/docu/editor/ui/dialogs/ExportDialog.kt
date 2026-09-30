@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Article
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
@@ -175,7 +176,7 @@ fun ExportDialog(
                 FormatOptionCard(
                     title = "Microsoft Word (.docx)",
                     description = "Fully editable text, headings & tables in MS Word & Google Docs",
-                    icon = Icons.Default.Article,
+                    icon = Icons.AutoMirrored.Filled.Article,
                     iconTint = Color(0xFF1E40AF),
                     isSelected = selectedFormat == "DOCX",
                     onClick = { selectedFormat = "DOCX" }
@@ -183,12 +184,24 @@ fun ExportDialog(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Format Option 5: Excel Spreadsheet (.csv)
+                // Format Option 5: Native Excel Workbook (.xlsx)
                 FormatOptionCard(
-                    title = "Excel Spreadsheet (.csv)",
-                    description = "Extract tabular rows, receipts & numbers into MS Excel & Google Sheets",
-                    icon = Icons.Default.Article,
+                    title = "Excel Workbook (.xlsx)",
+                    description = "Native MS Excel spreadsheet with multi-page tabs (Sheet 1, Sheet 2)",
+                    icon = Icons.AutoMirrored.Filled.Article,
                     iconTint = Color(0xFF15803D),
+                    isSelected = selectedFormat == "XLSX",
+                    onClick = { selectedFormat = "XLSX" }
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Format Option 6: CSV Spreadsheet (.csv)
+                FormatOptionCard(
+                    title = "Spreadsheet (.csv)",
+                    description = "Universal comma-separated values with UTF-8 BOM for all spreadsheet apps",
+                    icon = Icons.AutoMirrored.Filled.Article,
+                    iconTint = Color(0xFF0D9488),
                     isSelected = selectedFormat == "CSV",
                     onClick = { selectedFormat = "CSV" }
                 )
