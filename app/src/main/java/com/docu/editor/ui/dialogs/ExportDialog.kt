@@ -2,6 +2,7 @@ package com.docu.editor.ui.dialogs
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,6 +41,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -59,7 +61,9 @@ import androidx.compose.material.icons.filled.DriveFolderUpload
 
 @Composable
 fun ExportDialog(
-    onExportConfirmed: (format: String, fitToA4: Boolean, customFileName: String, password: String) -> Unit,
+    totalPages: Int = 1,
+    currentPageIndex: Int = 0,
+    onExportConfirmed: (format: String, fitToA4: Boolean, customFileName: String, password: String, pageIndices: List<Int>?) -> Unit,
     onSaveToGoogleDriveClicked: (format: String, fitToA4: Boolean, customFileName: String) -> Unit = { _, _, _ -> },
     onSaveToHostingCloudClicked: (customFileName: String) -> Unit = {},
     onPrintClicked: () -> Unit = {},
@@ -70,6 +74,8 @@ fun ExportDialog(
     var customFileName by remember { mutableStateOf("") }
     var isPasswordProtected by remember { mutableStateOf(false) }
     var pdfPassword by remember { mutableStateOf("") }
+    var pageRangeMode by remember { mutableIntStateOf(0) } // 0: All, 1: Current, 2: Custom
+    var customRangeText by remember { mutableStateOf("") }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -301,11 +307,142 @@ fun ExportDialog(
                     }
                 }
 
+                // Multi-Page Range Selector
+                if (totalPages > 1) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "📑 Page Export Range:",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                // 1. All Pages
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (pageRangeMode == 0) Color(0xFF2563EB) else MaterialTheme.colorScheme.surface)
+                                        .border(1.dp, if (pageRangeMode == 0) Color(0xFF2563EB) else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                                        .clickable { pageRangeMode = 0 }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "All ($totalPages)",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (pageRangeMode == 0) Color.White else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                // 2. Current Page Only
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (pageRangeMode == 1) Color(0xFF2563EB) else MaterialTheme.colorScheme.surface)
+                                        .border(1.dp, if (pageRangeMode == 1) Color(0xFF2563EB) else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                                        .clickable { pageRangeMode = 1 }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Page ${currentPageIndex + 1} Only",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (pageRangeMode == 1) Color.White else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+
+                                // 3. Custom Range
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (pageRangeMode == 2) Color(0xFF2563EB) else MaterialTheme.colorScheme.surface)
+                                        .border(1.dp, if (pageRangeMode == 2) Color(0xFF2563EB) else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                                        .clickable { pageRangeMode = 2 }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Custom",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (pageRangeMode == 2) Color.White else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+
+                            if (pageRangeMode == 2) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                OutlinedTextField(
+                                    value = customRangeText,
+                                    onValueChange = { customRangeText = it },
+                                    placeholder = { Text("e.g. 1-3, 5 (1 to $totalPages)", fontSize = 12.sp) },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFF2563EB),
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Confirm Action Button
                 Button(
-                    onClick = { onExportConfirmed(selectedFormat, fitToA4, customFileName, if (isPasswordProtected) pdfPassword else "") },
+                    onClick = {
+                        val resolvedPages: List<Int>? = if (totalPages <= 1 || pageRangeMode == 0) {
+                            null
+                        } else if (pageRangeMode == 1) {
+                            listOf(currentPageIndex)
+                        } else {
+                            val indices = mutableSetOf<Int>()
+                            val parts = customRangeText.split(",")
+                            for (part in parts) {
+                                val trimmed = part.trim()
+                                if (trimmed.contains("-")) {
+                                    val rangeParts = trimmed.split("-")
+                                    val start = rangeParts.getOrNull(0)?.trim()?.toIntOrNull()?.minus(1)
+                                    val end = rangeParts.getOrNull(1)?.trim()?.toIntOrNull()?.minus(1)
+                                    if (start != null && end != null) {
+                                        for (p in kotlin.math.min(start, end)..kotlin.math.max(start, end)) {
+                                            if (p in 0 until totalPages) indices.add(p)
+                                        }
+                                    }
+                                } else {
+                                    val single = trimmed.toIntOrNull()?.minus(1)
+                                    if (single != null && single in 0 until totalPages) indices.add(single)
+                                }
+                            }
+                            if (indices.isEmpty()) null else indices.sorted()
+                        }
+                        onExportConfirmed(
+                            selectedFormat,
+                            fitToA4,
+                            customFileName,
+                            if (isPasswordProtected) pdfPassword else "",
+                            resolvedPages
+                        )
+                    },
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
                     modifier = Modifier

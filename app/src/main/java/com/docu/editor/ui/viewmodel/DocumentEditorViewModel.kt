@@ -9,6 +9,14 @@ import android.graphics.Color
 import android.graphics.ImageDecoder
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.Path
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.provider.OpenableColumns
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
 import android.net.Uri
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -59,6 +67,7 @@ import com.docu.editor.ui.dialogs.CloudSyncResult
 import com.docu.editor.domain.model.DocumentEditorUiState
 import com.docu.editor.domain.model.DocumentFilterMode
 import com.docu.editor.domain.model.EditorToolMode
+import com.docu.editor.domain.model.ShapeType
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -174,6 +183,27 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         return true
     }
 
+    private fun queryFileName(context: Context, uri: Uri): String {
+        var result: String? = null
+        if (uri.scheme == "content") {
+            try {
+                context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (idx >= 0) {
+                            result = cursor.getString(idx)
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+        if (result.isNullOrBlank()) {
+            result = uri.lastPathSegment
+        }
+        val name = result ?: "Document_${System.currentTimeMillis()}"
+        return if (name.contains(".")) name.substringBeforeLast(".") else name
+    }
+
     // --- Loading Documents & Images ---
 
     fun loadDocumentUri(uri: Uri, autoApplyMagicColor: Boolean = false) {
@@ -190,6 +220,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 val isPdf = mimeType == "application/pdf" ||
                     uri.toString().endsWith(".pdf", ignoreCase = true) ||
                     uri.path?.endsWith(".pdf", ignoreCase = true) == true
+                val docName = queryFileName(context, uri)
 
                 if (isPdf) {
                     val pageCount = PdfPageLoader.getPageCount(context, uri)
@@ -198,7 +229,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             activePdfUri = uri,
                             pdfPageCount = pageCount,
                             currentPdfPageIndex = 0,
-                            batchScannedPaths = emptyList()
+                            batchScannedPaths = emptyList(),
+                            documentTitle = docName
                         )
                     }
                     val bitmap = withContext(Dispatchers.IO) {
@@ -211,7 +243,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             activePdfUri = null,
                             pdfPageCount = 1,
                             currentPdfPageIndex = 0,
-                            batchScannedPaths = emptyList()
+                            batchScannedPaths = emptyList(),
+                            documentTitle = docName
                         )
                     }
                     val bitmap = withContext(Dispatchers.IO) {
@@ -419,7 +452,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     currentBatchIndex = 0,
                     pdfPageCount = paths.size,
                     currentPdfPageIndex = 0,
-                    activePdfUri = null
+                    activePdfUri = null,
+                    documentTitle = "Scan_${System.currentTimeMillis()}"
                 )
             }
             loadBatchPage(0)
@@ -867,6 +901,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(filePath, 2880)
                 }
                 if (bitmap != null) {
+                    val title = File(filePath).nameWithoutExtension
+                    _uiState.update { it.copy(documentTitle = title) }
                     setDocumentBitmap(bitmap, autoApplyMagicColor = autoApplyMagicColor)
                 } else {
                     _uiState.update { it.copy(isScanning = false, errorMessage = "Failed to open scanned document.") }
@@ -1618,7 +1654,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         format: String = "PDF",
         fitToA4: Boolean = true,
         customFileName: String = "",
-        password: String = ""
+        password: String = "",
+        pageIndices: List<Int>? = null
     ) {
         val current = _uiState.value.currentBitmap ?: return
         saveCurrentPageToCache()
@@ -1641,13 +1678,17 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         "DocuEdit_Export_$time"
                     }
 
+                    val state = _uiState.value
+                    val effectivePages = (pageIndices?.filter { it in 0 until state.pdfPageCount } ?: (0 until state.pdfPageCount).toList()).let {
+                        if (it.isEmpty()) (0 until state.pdfPageCount).toList() else it
+                    }
+
                     when (format.uppercase()) {
                         "PDF" -> {
                             val cleanName = if (rawName.endsWith(".pdf", ignoreCase = true)) rawName else "$rawName.pdf"
                             val outFile = File(downloadsDir, cleanName)
-                            val state = _uiState.value
 
-                            if (state.activePdfUri != null && state.pdfPageCount > 1 && editedPagesMap.size < state.pdfPageCount) {
+                            if (state.activePdfUri != null && state.pdfPageCount > 1 && pageIndices == null && editedPagesMap.size < state.pdfPageCount) {
                                 // Hybrid Vector Preservation: Untouched pages retain 100% original vector typography & links!
                                 val allItems = mutableMapOf<Int, List<DetectedTextItem>>()
                                 for (i in 0 until state.pdfPageCount) {
@@ -1661,22 +1702,23 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                                     outputFile = outFile,
                                     ocrFallbackProvider = { bmp -> ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE) }
                                 )
-                            } else if (state.pdfPageCount > 1) {
+                            } else if (effectivePages.size > 1 || (state.pdfPageCount > 1 && effectivePages.size == 1)) {
                                 val allItems = mutableMapOf<Int, List<DetectedTextItem>>()
-                                for (i in 0 until state.pdfPageCount) {
-                                    allItems[i] = pageDetectedItemsMap[i] ?: emptyList()
+                                effectivePages.forEachIndexed { outIdx, realIdx ->
+                                    allItems[outIdx] = pageDetectedItemsMap[realIdx] ?: (if (realIdx == state.currentPdfPageIndex) state.detectedItems else emptyList())
                                 }
 
                                 PdfExportEngine.exportPagesStreamingToPdf(
-                                    pageCount = state.pdfPageCount,
+                                    pageCount = effectivePages.size,
                                     pageBitmapProvider = { idx ->
-                                        val cached = editedPagesMap[idx]
+                                        val realIdx = effectivePages[idx]
+                                        val cached = editedPagesMap[realIdx]
                                         if (cached != null) {
                                             cached.copy(cached.config ?: Bitmap.Config.ARGB_8888, false)
                                         } else if (state.activePdfUri != null) {
-                                            PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, idx)
-                                        } else if (state.batchScannedPaths.size > idx) {
-                                            com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[idx], 2880)
+                                            PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, realIdx)
+                                        } else if (state.batchScannedPaths.size > realIdx) {
+                                            com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[realIdx], 2880)
                                         } else {
                                             current.copy(current.config ?: Bitmap.Config.ARGB_8888, false)
                                         }
@@ -1723,10 +1765,9 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         "DOCX" -> {
                             val cleanName = if (rawName.endsWith(".docx", ignoreCase = true)) rawName else "$rawName.docx"
                             val outFile = File(downloadsDir, cleanName)
-                            val state = _uiState.value
                             val sb = StringBuilder()
-                            if (state.pdfPageCount > 1) {
-                                for (pIdx in 0 until state.pdfPageCount) {
+                            if (effectivePages.size > 1 || (state.pdfPageCount > 1 && effectivePages.size == 1)) {
+                                for (pIdx in effectivePages) {
                                     sb.append("## Page ${pIdx + 1}\n\n")
                                     val items = pageDetectedItemsMap[pIdx] ?: if (pIdx == state.currentPdfPageIndex) state.detectedItems else emptyList()
                                     sb.append(DocxExportEngine.formatItemsToStructuredDocument(items)).append("\n\n")
@@ -1741,12 +1782,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         "XLSX" -> {
                             val cleanName = if (rawName.endsWith(".xlsx", ignoreCase = true)) rawName else "$rawName.xlsx"
                             val outFile = File(downloadsDir, cleanName)
-                            val state = _uiState.value
                             val pagesMap = mutableMapOf<Int, List<DetectedTextItem>>()
-                            if (state.pdfPageCount > 1) {
-                                for (pIdx in 0 until state.pdfPageCount) {
-                                    val items = pageDetectedItemsMap[pIdx] ?: if (pIdx == state.currentPdfPageIndex) state.detectedItems else emptyList()
-                                    pagesMap[pIdx] = items
+                            if (effectivePages.size > 1 || (state.pdfPageCount > 1 && effectivePages.size == 1)) {
+                                effectivePages.forEachIndexed { outIdx, realIdx ->
+                                    val items = pageDetectedItemsMap[realIdx] ?: if (realIdx == state.currentPdfPageIndex) state.detectedItems else emptyList()
+                                    pagesMap[outIdx] = items
                                 }
                             } else {
                                 pagesMap[0] = state.detectedItems
@@ -2664,6 +2704,269 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     fun showCloudAiSettingsDialog(show: Boolean) {
         _uiState.update { it.copy(showCloudAiSettingsDialog = show) }
+    }
+
+    fun setDocumentTitle(title: String) {
+        val clean = title.trim()
+        if (clean.isNotBlank()) {
+            _uiState.update { it.copy(documentTitle = clean, showRenameDialog = false, hasUnsavedChanges = true) }
+        } else {
+            _uiState.update { it.copy(showRenameDialog = false) }
+        }
+    }
+
+    fun showRenameDialog(show: Boolean) {
+        _uiState.update { it.copy(showRenameDialog = show) }
+    }
+
+    fun addBlankPage() {
+        val state = _uiState.value
+        val w = state.currentBitmap?.width?.coerceAtLeast(600) ?: 1240
+        val h = state.currentBitmap?.height?.coerceAtLeast(800) ?: 1754
+        val blankBmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(Color.WHITE)
+        }
+        appendPageToDocument(blankBmp)
+    }
+
+    fun quickCopyItemText(item: DetectedTextItem) {
+        val context = getApplication<Application>()
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        val clip = ClipData.newPlainText("Document Text", item.text)
+        clipboard?.setPrimaryClip(clip)
+        _uiState.update {
+            it.copy(
+                selectedItem = null,
+                successMessage = "Copied text to clipboard"
+            )
+        }
+    }
+
+    fun quickEraseItem(item: DetectedTextItem) {
+        val currentBitmap = _uiState.value.currentBitmap ?: return
+        val margin = 4
+        val patchL = max(0, item.boundingBox.left - margin)
+        val patchT = max(0, item.boundingBox.top - margin)
+        val patchR = min(currentBitmap.width, item.boundingBox.right + margin)
+        val patchB = min(currentBitmap.height, item.boundingBox.bottom + margin)
+        val patchW = max(1, patchR - patchL)
+        val patchH = max(1, patchB - patchT)
+
+        val patchBmp = Bitmap.createBitmap(currentBitmap, patchL, patchT, patchW, patchH)
+        pushUndoStep(UndoStep.PixelPatch(patchBmp, patchL, patchT))
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Erasing text...") }
+            try {
+                val updatedBitmap = withContext(Dispatchers.Default) {
+                    backgroundInpainter.inpaint(currentBitmap, item.boundingBox)
+                }
+                val remaining = _uiState.value.detectedItems.filterNot { it.id == item.id }
+                editedPagesMap[_uiState.value.currentPdfPageIndex] = updatedBitmap
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = updatedBitmap,
+                        detectedItems = remaining,
+                        selectedItem = null,
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        successMessage = "Erased text seamlessly",
+                        canUndo = true,
+                        canRedo = false,
+                        hasUnsavedChanges = true,
+                        canvasRevision = it.canvasRevision + 1
+                    )
+                }
+                updateRecentDocumentThumbnail(updatedBitmap)
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(isApplyingEdit = false, processingMessage = null, errorMessage = "Erase failed: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun quickHighlightItem(item: DetectedTextItem, colorRgb: Int = Color.rgb(255, 235, 59)) {
+        val currentBitmap = _uiState.value.currentBitmap ?: return
+        val margin = 4
+        val patchL = max(0, item.boundingBox.left - margin)
+        val patchT = max(0, item.boundingBox.top - margin)
+        val patchR = min(currentBitmap.width, item.boundingBox.right + margin)
+        val patchB = min(currentBitmap.height, item.boundingBox.bottom + margin)
+        val patchW = max(1, patchR - patchL)
+        val patchH = max(1, patchB - patchT)
+
+        val patchBmp = Bitmap.createBitmap(currentBitmap, patchL, patchT, patchW, patchH)
+        pushUndoStep(UndoStep.PixelPatch(patchBmp, patchL, patchT))
+
+        val canvas = Canvas(currentBitmap)
+        val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(120, Color.red(colorRgb), Color.green(colorRgb), Color.blue(colorRgb))
+            style = Paint.Style.FILL
+        }
+        val rect = RectF(
+            (item.boundingBox.left - 2).toFloat(),
+            (item.boundingBox.top - 1).toFloat(),
+            (item.boundingBox.right + 2).toFloat(),
+            (item.boundingBox.bottom + 1).toFloat()
+        )
+        canvas.drawRoundRect(rect, 4f, 4f, highlightPaint)
+        editedPagesMap[_uiState.value.currentPdfPageIndex] = currentBitmap
+
+        _uiState.update {
+            it.copy(
+                selectedItem = null,
+                canUndo = true,
+                canRedo = false,
+                hasUnsavedChanges = true,
+                successMessage = "Highlighted text",
+                canvasRevision = it.canvasRevision + 1
+            )
+        }
+        updateRecentDocumentThumbnail(currentBitmap)
+    }
+
+    fun quickBlackoutItem(item: DetectedTextItem) {
+        applyBlackoutRect(item.boundingBox)
+        _uiState.update { it.copy(selectedItem = null) }
+    }
+
+    fun setRedactionBrushRadius(radius: Float) {
+        _uiState.update { it.copy(redactionBrushRadius = radius.coerceIn(8f, 120f)) }
+    }
+
+    fun applyBlackoutRect(rect: Rect) {
+        val currentBitmap = _uiState.value.currentBitmap ?: return
+        val patchL = max(0, rect.left - 2)
+        val patchT = max(0, rect.top - 2)
+        val patchR = min(currentBitmap.width, rect.right + 2)
+        val patchB = min(currentBitmap.height, rect.bottom + 2)
+        val patchW = max(1, patchR - patchL)
+        val patchH = max(1, patchB - patchT)
+
+        val patchBmp = Bitmap.createBitmap(currentBitmap, patchL, patchT, patchW, patchH)
+        pushUndoStep(UndoStep.PixelPatch(patchBmp, patchL, patchT))
+
+        val canvas = Canvas(currentBitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.BLACK
+            style = Paint.Style.FILL
+        }
+        canvas.drawRect(rect, paint)
+
+        // Remove any text items obscured by this redaction box
+        val remaining = _uiState.value.detectedItems.filterNot { item ->
+            Rect.intersects(rect, item.boundingBox)
+        }
+
+        editedPagesMap[_uiState.value.currentPdfPageIndex] = currentBitmap
+
+        _uiState.update {
+            it.copy(
+                detectedItems = remaining,
+                canUndo = true,
+                canRedo = false,
+                hasUnsavedChanges = true,
+                successMessage = "Redacted area censored",
+                canvasRevision = it.canvasRevision + 1
+            )
+        }
+        updateRecentDocumentThumbnail(currentBitmap)
+    }
+
+    fun setSelectedShapeType(type: ShapeType) {
+        _uiState.update { it.copy(selectedShapeType = type) }
+    }
+
+    fun setShapeStrokeColor(colorRgb: Int) {
+        _uiState.update { it.copy(shapeStrokeColorRgb = colorRgb) }
+    }
+
+    fun setShapeStrokeWidth(width: Float) {
+        _uiState.update { it.copy(shapeStrokeWidth = width) }
+    }
+
+    fun commitShape(
+        type: ShapeType,
+        start: PointF,
+        end: PointF,
+        colorRgb: Int,
+        strokeWidth: Float
+    ) {
+        val currentBitmap = _uiState.value.currentBitmap ?: return
+
+        val minX = min(start.x, end.x)
+        val minY = min(start.y, end.y)
+        val maxX = max(start.x, end.x)
+        val maxY = max(start.y, end.y)
+
+        val pad = strokeWidth * 4 + 8
+        val patchL = (minX - pad).toInt().coerceIn(0, currentBitmap.width - 1)
+        val patchT = (minY - pad).toInt().coerceIn(0, currentBitmap.height - 1)
+        val patchR = (maxX + pad).toInt().coerceIn(0, currentBitmap.width)
+        val patchB = (maxY + pad).toInt().coerceIn(0, currentBitmap.height)
+        val patchW = max(1, patchR - patchL)
+        val patchH = max(1, patchB - patchT)
+
+        val patchBmp = Bitmap.createBitmap(currentBitmap, patchL, patchT, patchW, patchH)
+        pushUndoStep(UndoStep.PixelPatch(patchBmp, patchL, patchT))
+
+        val canvas = Canvas(currentBitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = colorRgb
+            this.strokeWidth = strokeWidth
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+        }
+
+        when (type) {
+            ShapeType.RECTANGLE -> {
+                canvas.drawRect(minX, minY, maxX, maxY, paint)
+            }
+            ShapeType.LINE -> {
+                canvas.drawLine(start.x, start.y, end.x, end.y, paint)
+            }
+            ShapeType.CIRCLE -> {
+                val oval = RectF(minX, minY, maxX, maxY)
+                canvas.drawOval(oval, paint)
+            }
+            ShapeType.ARROW -> {
+                canvas.drawLine(start.x, start.y, end.x, end.y, paint)
+                val angle = atan2((end.y - start.y).toDouble(), (end.x - start.x).toDouble())
+                val headLength = max(24f, strokeWidth * 3.5f)
+                val arrowAngle = Math.toRadians(30.0)
+
+                val x1 = (end.x - headLength * cos(angle - arrowAngle)).toFloat()
+                val y1 = (end.y - headLength * sin(angle - arrowAngle)).toFloat()
+                val x2 = (end.x - headLength * cos(angle + arrowAngle)).toFloat()
+                val y2 = (end.y - headLength * sin(angle + arrowAngle)).toFloat()
+
+                val headPath = Path().apply {
+                    moveTo(end.x, end.y)
+                    lineTo(x1, y1)
+                    lineTo(x2, y2)
+                    close()
+                }
+                val fillPaint = Paint(paint).apply {
+                    style = Paint.Style.FILL
+                }
+                canvas.drawPath(headPath, fillPaint)
+            }
+        }
+
+        editedPagesMap[_uiState.value.currentPdfPageIndex] = currentBitmap
+
+        _uiState.update {
+            it.copy(
+                canUndo = true,
+                canRedo = false,
+                hasUnsavedChanges = true,
+                successMessage = "Shape added",
+                canvasRevision = it.canvasRevision + 1
+            )
+        }
+        updateRecentDocumentThumbnail(currentBitmap)
     }
 
     fun exportTextToFile(text: String): String? {

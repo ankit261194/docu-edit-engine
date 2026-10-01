@@ -24,8 +24,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Remove
@@ -71,6 +74,10 @@ fun TextEditBottomSheet(
     item: DetectedTextItem,
     sheetState: SheetState,
     onDismiss: () -> Unit,
+    onCopyText: (String) -> Unit = {},
+    onQuickErase: () -> Unit = {},
+    onQuickHighlight: () -> Unit = {},
+    onQuickBlackout: () -> Unit = {},
     onApplyEdit: (
         newText: String,
         fontClassification: FontClassification,
@@ -143,6 +150,51 @@ fun TextEditBottomSheet(
                 }
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = textPrimary)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // 1-Tap Instant Quick Actions Strip
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (isDark) Color(0xFF334155).copy(alpha = 0.5f) else Color(0xFFF1F5F9),
+                border = BorderStroke(1.dp, surfaceBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 1. Copy
+                    QuickActionButton(
+                        icon = Icons.Default.ContentCopy,
+                        label = "Copy",
+                        tint = Color(0xFF2563EB),
+                        onClick = { onCopyText(item.text); onDismiss() }
+                    )
+                    // 2. Erase / Whiteout
+                    QuickActionButton(
+                        icon = Icons.Default.Clear,
+                        label = "Erase",
+                        tint = Color(0xFF64748B),
+                        onClick = { onQuickErase(); onDismiss() }
+                    )
+                    // 3. Highlight
+                    QuickActionButton(
+                        icon = Icons.Default.AutoFixHigh,
+                        label = "Highlight",
+                        tint = Color(0xFFD97706),
+                        onClick = { onQuickHighlight(); onDismiss() }
+                    )
+                    // 4. Blackout / Redact
+                    QuickActionButton(
+                        icon = Icons.Default.Block,
+                        label = "Blackout",
+                        tint = Color(0xFFDC2626),
+                        onClick = { onQuickBlackout(); onDismiss() }
+                    )
                 }
             }
 
@@ -637,5 +689,33 @@ private fun ColorChipLight(
                 modifier = Modifier.size(14.dp)
             )
         }
+    }
+}
+
+@Composable
+private fun QuickActionButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    tint: Color,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 6.dp, vertical = 4.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(tint.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(imageVector = icon, contentDescription = label, tint = tint, modifier = Modifier.size(17.dp))
+        }
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(text = label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = tint)
     }
 }

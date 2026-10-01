@@ -15,7 +15,16 @@ enum class EditorToolMode {
     BOOK_DEWARP,
     WATERMARK,
     SIGNATURE,
-    PDF_TOOLS
+    PDF_TOOLS,
+    REDACTION,
+    SHAPES
+}
+
+enum class ShapeType(val displayName: String) {
+    RECTANGLE("Rectangle"),
+    ARROW("Arrow"),
+    LINE("Line"),
+    CIRCLE("Circle")
 }
 
 enum class DocumentFilterMode(val displayName: String) {
@@ -91,6 +100,12 @@ data class DocumentEditorUiState(
     val markupColorRgb: Int = android.graphics.Color.rgb(255, 235, 59),
     val markupStrokeWidth: Float = 28f,
     val penColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
-    val penStrokeWidth: Float = 6f
+    val penStrokeWidth: Float = 6f,
+    val documentTitle: String = "Untitled Document",
+    val showRenameDialog: Boolean = false,
+    val selectedShapeType: ShapeType = ShapeType.RECTANGLE,
+    val shapeStrokeWidth: Float = 6f,
+    val shapeStrokeColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
+    val redactionBrushRadius: Float = 24f
 )
 

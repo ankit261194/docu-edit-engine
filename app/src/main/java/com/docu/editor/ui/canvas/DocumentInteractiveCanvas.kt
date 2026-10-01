@@ -58,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.docu.editor.core.ocr.model.DetectedTextItem
 import com.docu.editor.domain.model.EditorToolMode
+import com.docu.editor.domain.model.ShapeType
 import kotlin.math.min
 
 @Composable
@@ -94,6 +95,11 @@ fun DocumentInteractiveCanvas(
     penColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
     penStrokeWidth: Float = 6f,
     onCommitMarkupStroke: (points: List<android.graphics.PointF>, isHighlighter: Boolean) -> Unit = { _, _ -> },
+    selectedShapeType: ShapeType = ShapeType.RECTANGLE,
+    shapeStrokeWidth: Float = 6f,
+    shapeStrokeColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
+    onCommitShape: (shapeType: ShapeType, start: android.graphics.PointF, end: android.graphics.PointF, colorRgb: Int, strokeWidth: Float) -> Unit = { _, _, _, _, _ -> },
+    onCommitBlackoutRect: (android.graphics.RectF) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
@@ -102,6 +108,10 @@ fun DocumentInteractiveCanvas(
     var isHoldingCompare by remember { mutableStateOf(false) }
     var lassoBoxStart by remember { mutableStateOf<Offset?>(null) }
     var lassoBoxCurrent by remember { mutableStateOf<Offset?>(null) }
+    var shapeDragStart by remember { mutableStateOf<Offset?>(null) }
+    var shapeDragCurrent by remember { mutableStateOf<Offset?>(null) }
+    var redactionBoxStart by remember { mutableStateOf<Offset?>(null) }
+    var redactionBoxCurrent by remember { mutableStateOf<Offset?>(null) }
     val liveMarkupPoints = remember { mutableStateListOf<android.graphics.PointF>() }
 
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
@@ -234,6 +244,101 @@ fun DocumentInteractiveCanvas(
                         },
                         onDragCancel = {
                             liveMarkupPoints.clear()
+                        }
+                    )
+                } else if (activeMode == EditorToolMode.REDACTION) {
+                    // Redaction / Blackout drag gesture to censor area
+                    detectDragGestures(
+                        onDragStart = { startOffset ->
+                            redactionBoxStart = startOffset
+                            redactionBoxCurrent = startOffset
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            redactionBoxCurrent = change.position
+                        },
+                        onDragEnd = {
+                            val start = redactionBoxStart
+                            val curr = redactionBoxCurrent
+                            if (start != null && curr != null) {
+                                val fitScale = min(
+                                    containerSize.width.toFloat() / bitmap.width,
+                                    containerSize.height.toFloat() / bitmap.height
+                                )
+                                val effectiveScale = fitScale * scale
+                                val drawWidth = bitmap.width * effectiveScale
+                                val drawHeight = bitmap.height * effectiveScale
+                                val baseLeft = (containerSize.width - drawWidth) / 2f + offset.x
+                                val baseTop = (containerSize.height - drawHeight) / 2f + offset.y
+
+                                val sx = (start.x - baseLeft) / effectiveScale
+                                val sy = (start.y - baseTop) / effectiveScale
+                                val ex = (curr.x - baseLeft) / effectiveScale
+                                val ey = (curr.y - baseTop) / effectiveScale
+
+                                val left = kotlin.math.min(sx, ex).coerceIn(0f, bitmap.width.toFloat())
+                                val top = kotlin.math.min(sy, ey).coerceIn(0f, bitmap.height.toFloat())
+                                val right = kotlin.math.max(sx, ex).coerceIn(0f, bitmap.width.toFloat())
+                                val bottom = kotlin.math.max(sy, ey).coerceIn(0f, bitmap.height.toFloat())
+
+                                if (right - left > 6f && bottom - top > 6f) {
+                                    onCommitBlackoutRect(android.graphics.RectF(left, top, right, bottom))
+                                }
+                            }
+                            redactionBoxStart = null
+                            redactionBoxCurrent = null
+                        },
+                        onDragCancel = {
+                            redactionBoxStart = null
+                            redactionBoxCurrent = null
+                        }
+                    )
+                } else if (activeMode == EditorToolMode.SHAPES) {
+                    // Geometric Shapes drag gesture
+                    detectDragGestures(
+                        onDragStart = { startOffset ->
+                            shapeDragStart = startOffset
+                            shapeDragCurrent = startOffset
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            shapeDragCurrent = change.position
+                        },
+                        onDragEnd = {
+                            val start = shapeDragStart
+                            val curr = shapeDragCurrent
+                            if (start != null && curr != null) {
+                                val fitScale = min(
+                                    containerSize.width.toFloat() / bitmap.width,
+                                    containerSize.height.toFloat() / bitmap.height
+                                )
+                                val effectiveScale = fitScale * scale
+                                val drawWidth = bitmap.width * effectiveScale
+                                val drawHeight = bitmap.height * effectiveScale
+                                val baseLeft = (containerSize.width - drawWidth) / 2f + offset.x
+                                val baseTop = (containerSize.height - drawHeight) / 2f + offset.y
+
+                                val sx = (start.x - baseLeft) / effectiveScale
+                                val sy = (start.y - baseTop) / effectiveScale
+                                val ex = (curr.x - baseLeft) / effectiveScale
+                                val ey = (curr.y - baseTop) / effectiveScale
+
+                                if (kotlin.math.hypot((ex - sx).toDouble(), (ey - sy).toDouble()) > 10.0) {
+                                    onCommitShape(
+                                        selectedShapeType,
+                                        android.graphics.PointF(sx, sy),
+                                        android.graphics.PointF(ex, ey),
+                                        shapeStrokeColorRgb,
+                                        shapeStrokeWidth
+                                    )
+                                }
+                            }
+                            shapeDragStart = null
+                            shapeDragCurrent = null
+                        },
+                        onDragCancel = {
+                            shapeDragStart = null
+                            shapeDragCurrent = null
                         }
                     )
                 } else if (activeMode == EditorToolMode.ADD_TEXT) {
@@ -511,6 +616,90 @@ fun DocumentInteractiveCanvas(
                 }
             }
 
+            // 2.3 Draw live Redaction box preview
+            if (redactionBoxStart != null && redactionBoxCurrent != null) {
+                val s = redactionBoxStart!!
+                val c = redactionBoxCurrent!!
+                val left = kotlin.math.min(s.x, c.x)
+                val top = kotlin.math.min(s.y, c.y)
+                val w = kotlin.math.abs(s.x - c.x)
+                val h = kotlin.math.abs(s.y - c.y)
+                drawRect(
+                    color = Color.Black,
+                    topLeft = Offset(left, top),
+                    size = Size(w, h)
+                )
+                drawRect(
+                    color = Color(0xFFEF4444),
+                    topLeft = Offset(left, top),
+                    size = Size(w, h),
+                    style = Stroke(width = 1.5.dp.toPx())
+                )
+            }
+
+            // 2.4 Draw live Geometric Shape preview
+            if (shapeDragStart != null && shapeDragCurrent != null) {
+                val s = shapeDragStart!!
+                val c = shapeDragCurrent!!
+                val strokeColor = Color(shapeStrokeColorRgb)
+                val strokeW = shapeStrokeWidth * effectiveScale
+                when (selectedShapeType) {
+                    ShapeType.RECTANGLE -> {
+                        val left = kotlin.math.min(s.x, c.x)
+                        val top = kotlin.math.min(s.y, c.y)
+                        val w = kotlin.math.abs(s.x - c.x)
+                        val h = kotlin.math.abs(s.y - c.y)
+                        drawRect(
+                            color = strokeColor,
+                            topLeft = Offset(left, top),
+                            size = Size(w, h),
+                            style = Stroke(width = strokeW)
+                        )
+                    }
+                    ShapeType.LINE -> {
+                        drawLine(
+                            color = strokeColor,
+                            start = s,
+                            end = c,
+                            strokeWidth = strokeW,
+                            cap = StrokeCap.Round
+                        )
+                    }
+                    ShapeType.CIRCLE -> {
+                        val left = kotlin.math.min(s.x, c.x)
+                        val top = kotlin.math.min(s.y, c.y)
+                        val w = kotlin.math.abs(s.x - c.x)
+                        val h = kotlin.math.abs(s.y - c.y)
+                        drawOval(
+                            color = strokeColor,
+                            topLeft = Offset(left, top),
+                            size = Size(w, h),
+                            style = Stroke(width = strokeW)
+                        )
+                    }
+                    ShapeType.ARROW -> {
+                        drawLine(
+                            color = strokeColor,
+                            start = s,
+                            end = c,
+                            strokeWidth = strokeW,
+                            cap = StrokeCap.Round
+                        )
+                        val deltaX = c.x - s.x
+                        val deltaY = c.y - s.y
+                        val angle = kotlin.math.atan2(deltaY.toDouble(), deltaX.toDouble())
+                        val headLen = (strokeW * 3.5f).coerceAtLeast(20f)
+                        val headAngle = Math.PI / 6
+                        val x1 = c.x - headLen * kotlin.math.cos(angle - headAngle).toFloat()
+                        val y1 = c.y - headLen * kotlin.math.sin(angle - headAngle).toFloat()
+                        val x2 = c.x - headLen * kotlin.math.cos(angle + headAngle).toFloat()
+                        val y2 = c.y - headLen * kotlin.math.sin(angle + headAngle).toFloat()
+                        drawLine(color = strokeColor, start = c, end = Offset(x1, y1), strokeWidth = strokeW, cap = StrokeCap.Round)
+                        drawLine(color = strokeColor, start = c, end = Offset(x2, y2), strokeWidth = strokeW, cap = StrokeCap.Round)
+                    }
+                }
+            }
+
             // 3. Draw Signature / Stamp Overlay if active
             if (activeOverlayBitmap != null) {
                 val overlayDrawW = (activeOverlayBitmap.width * overlayScale * effectiveScale).toInt()
@@ -567,6 +756,44 @@ fun DocumentInteractiveCanvas(
             ) {
                 Text(
                     text = "🖊️ Pen Markup Active: Drag to draw notes or markings",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+        }
+
+        // Redaction / Blackout Mode Banner
+        if (activeMode == EditorToolMode.REDACTION) {
+            Surface(
+                color = Color(0xFF0F172A).copy(alpha = 0.95f),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp)
+            ) {
+                Text(
+                    text = "⬛ Redaction Active: Drag black censor box or tap text",
+                    color = Color.White,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+        }
+
+        // Shapes Mode Banner
+        if (activeMode == EditorToolMode.SHAPES) {
+            Surface(
+                color = Color(0xFF2563EB).copy(alpha = 0.95f),
+                shape = RoundedCornerShape(20.dp),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp)
+            ) {
+                Text(
+                    text = "📐 Shapes Active: Drag to draw ${selectedShapeType.displayName}",
                     color = Color.White,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,

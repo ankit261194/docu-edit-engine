@@ -23,6 +23,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CloudUpload
@@ -63,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.docu.editor.domain.model.DocumentFilterMode
 import com.docu.editor.domain.model.EditorToolMode
+import com.docu.editor.domain.model.ShapeType
 
 /**
  * Enterprise CamScanner-Grade Document Bottom Bar Dock.
@@ -102,7 +105,13 @@ fun DocumentBottomBar(
     penColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
     penStrokeWidth: Float = 6f,
     onPenColorChanged: (Int) -> Unit = {},
-    onPenStrokeWidthChanged: (Float) -> Unit = {}
+    onPenStrokeWidthChanged: (Float) -> Unit = {},
+    selectedShapeType: ShapeType = ShapeType.RECTANGLE,
+    onShapeTypeSelected: (ShapeType) -> Unit = {},
+    shapeStrokeWidth: Float = 6f,
+    onShapeStrokeWidthChanged: (Float) -> Unit = {},
+    shapeStrokeColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
+    onShapeStrokeColorChanged: (Int) -> Unit = {}
 ) {
     var brightness by remember { mutableFloatStateOf(0f) }
     var contrast by remember { mutableFloatStateOf(1f) }
@@ -373,6 +382,122 @@ fun DocumentBottomBar(
                 }
             }
 
+            // Shapes Sub-Bar: Type chips + Color Palette + Width Slider
+            AnimatedVisibility(visible = activeMode == EditorToolMode.SHAPES) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Geometric Shapes:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                val shapes = listOf(
+                                    Pair(ShapeType.RECTANGLE, "▭ Box"),
+                                    Pair(ShapeType.ARROW, "➔ Arrow"),
+                                    Pair(ShapeType.LINE, "── Line"),
+                                    Pair(ShapeType.CIRCLE, "◯ Circle")
+                                )
+                                shapes.forEach { (type, label) ->
+                                    val isCur = selectedShapeType == type
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isCur) Color(0xFF2563EB) else MaterialTheme.colorScheme.surface)
+                                            .border(1.dp, if (isCur) Color(0xFF2563EB) else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
+                                            .clickable { onShapeTypeSelected(type) }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                                    ) {
+                                        Text(text = label, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = if (isCur) Color.White else MaterialTheme.colorScheme.onSurface)
+                                    }
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Color:", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                                val shapeColors = listOf(
+                                    android.graphics.Color.rgb(220, 38, 38),
+                                    android.graphics.Color.rgb(37, 99, 235),
+                                    android.graphics.Color.rgb(15, 23, 42),
+                                    android.graphics.Color.rgb(22, 163, 74)
+                                )
+                                shapeColors.forEach { rgb ->
+                                    val isCur = shapeStrokeColorRgb == rgb
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(rgb))
+                                            .border(if (isCur) 2.dp else 0.5.dp, if (isCur) Color.White else Color.Gray, CircleShape)
+                                            .clickable { onShapeStrokeColorChanged(rgb) }
+                                    )
+                                }
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f).padding(start = 12.dp)) {
+                                Text("${shapeStrokeWidth.toInt()}px", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Slider(
+                                    value = shapeStrokeWidth,
+                                    onValueChange = onShapeStrokeWidthChanged,
+                                    valueRange = 2f..24f,
+                                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+                                    colors = SliderDefaults.colors(thumbColor = Color(0xFF2563EB), activeTrackColor = Color(0xFF2563EB))
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Redaction / Blackout Sub-Bar
+            AnimatedVisibility(visible = activeMode == EditorToolMode.REDACTION) {
+                Surface(
+                    color = Color(0xFF0F172A),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFF334155)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Block, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Blackout Redaction Tool",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                        Text(
+                            text = "Drag box or tap text to censor",
+                            fontSize = 11.sp,
+                            color = Color(0xFFFCA5A5)
+                        )
+                    }
+                }
+            }
+
             // Lasso Multi-Select Floating Action Strip
             AnimatedVisibility(visible = activeMode == EditorToolMode.LASSO_SELECT && selectedLassoCount > 0) {
                 Surface(
@@ -519,6 +644,12 @@ fun DocumentBottomBar(
                                 onClick = { onModeSelected(EditorToolMode.ADD_TEXT) }
                             )
                             ToolDockButton(
+                                icon = Icons.Default.Category,
+                                label = "Shapes",
+                                isSelected = activeMode == EditorToolMode.SHAPES,
+                                onClick = { onModeSelected(EditorToolMode.SHAPES) }
+                            )
+                            ToolDockButton(
                                 icon = Icons.Default.AutoFixHigh,
                                 label = "Highlighter",
                                 isSelected = activeMode == EditorToolMode.HIGHLIGHTER,
@@ -535,6 +666,12 @@ fun DocumentBottomBar(
                                 label = "Whiteout",
                                 isSelected = activeMode == EditorToolMode.WHITEOUT,
                                 onClick = { onModeSelected(EditorToolMode.WHITEOUT) }
+                            )
+                            ToolDockButton(
+                                icon = Icons.Default.Block,
+                                label = "Blackout",
+                                isSelected = activeMode == EditorToolMode.REDACTION,
+                                onClick = { onModeSelected(EditorToolMode.REDACTION) }
                             )
                             ToolDockButton(
                                 icon = Icons.Default.SelectAll,
@@ -588,6 +725,12 @@ fun DocumentBottomBar(
                             label = "Watermark",
                             isSelected = false,
                             onClick = onWatermarkClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Block,
+                            label = "Blackout",
+                            isSelected = activeMode == EditorToolMode.REDACTION,
+                            onClick = { onModeSelected(EditorToolMode.REDACTION) }
                         )
                         ToolDockButton(
                             icon = Icons.Default.Compress,

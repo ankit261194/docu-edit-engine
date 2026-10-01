@@ -40,10 +40,12 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
@@ -160,6 +162,16 @@ class MainActivity : ComponentActivity() {
                     contract = ActivityResultContracts.OpenDocument()
                 ) { uri: Uri? ->
                     uri?.let { viewModel.loadDocumentUri(it) }
+                }
+
+                // Dedicated PDF Tools Picker Launcher for Home Screen
+                val pdfToolsPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri: Uri? ->
+                    uri?.let {
+                        viewModel.loadDocumentUri(it)
+                        viewModel.showPdfToolboxDialog(true)
+                    }
                 }
 
                 // Bulk Batch OCR Multi-File Launcher
@@ -323,13 +335,27 @@ class MainActivity : ComponentActivity() {
                                             color = Color(0xFF2563EB)
                                         )
                                     } else {
-                                        Column {
-                                            Text(
-                                                "DocuEdit Studio",
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 17.sp,
-                                                color = MaterialTheme.colorScheme.onSurface
-                                            )
+                                        Column(
+                                            modifier = Modifier.clickable { viewModel.showRenameDialog(true) }
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = uiState.documentTitle.ifBlank { "DocuEdit Studio" },
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 16.sp,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    maxLines = 1,
+                                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1f, fill = false)
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Icon(
+                                                    imageVector = Icons.Default.Edit,
+                                                    contentDescription = "Rename Document",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
                                             val subtext = if (uiState.pdfPageCount > 1) {
                                                 "Page ${uiState.currentPdfPageIndex + 1}/${uiState.pdfPageCount} • ${uiState.detectedItems.size} blocks"
                                             } else {
@@ -483,7 +509,13 @@ class MainActivity : ComponentActivity() {
                                 penColorRgb = uiState.penColorRgb,
                                 penStrokeWidth = uiState.penStrokeWidth,
                                 onPenColorChanged = { viewModel.setPenColor(it) },
-                                onPenStrokeWidthChanged = { viewModel.setPenStrokeWidth(it) }
+                                onPenStrokeWidthChanged = { viewModel.setPenStrokeWidth(it) },
+                                selectedShapeType = uiState.selectedShapeType,
+                                onShapeTypeSelected = { viewModel.setSelectedShapeType(it) },
+                                shapeStrokeWidth = uiState.shapeStrokeWidth,
+                                onShapeStrokeWidthChanged = { viewModel.setShapeStrokeWidth(it) },
+                                shapeStrokeColorRgb = uiState.shapeStrokeColorRgb,
+                                onShapeStrokeColorChanged = { viewModel.setShapeStrokeColor(it) }
                             )
                         }
                     }
@@ -638,6 +670,22 @@ class MainActivity : ComponentActivity() {
                                     val col = if (isHl) uiState.markupColorRgb else uiState.penColorRgb
                                     val w = if (isHl) uiState.markupStrokeWidth else uiState.penStrokeWidth
                                     viewModel.commitMarkupStroke(pts, col, w, isHl)
+                                },
+                                selectedShapeType = uiState.selectedShapeType,
+                                shapeStrokeWidth = uiState.shapeStrokeWidth,
+                                shapeStrokeColorRgb = uiState.shapeStrokeColorRgb,
+                                onCommitShape = { type, start, end, col, w ->
+                                    viewModel.commitShape(type, start, end, col, w)
+                                },
+                                onCommitBlackoutRect = { rectF ->
+                                    viewModel.applyBlackoutRect(
+                                        android.graphics.Rect(
+                                            rectF.left.toInt(),
+                                            rectF.top.toInt(),
+                                            rectF.right.toInt(),
+                                            rectF.bottom.toInt()
+                                        )
+                                    )
                                 }
                             )
 
@@ -708,7 +756,11 @@ class MainActivity : ComponentActivity() {
                                     viewModel.showSignatureDialog(true)
                                 },
                                 onPdfToolsClicked = {
-                                    viewModel.showPdfToolboxDialog(true)
+                                    if (uiState.currentBitmap == null) {
+                                        pdfToolsPickerLauncher.launch(arrayOf("application/pdf"))
+                                    } else {
+                                        viewModel.showPdfToolboxDialog(true)
+                                    }
                                 },
                                 onBulkBatchOcrClicked = {
                                     bulkBatchOcrPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
@@ -762,6 +814,18 @@ class MainActivity : ComponentActivity() {
                                 item = targetItem,
                                 sheetState = sheetState,
                                 onDismiss = { viewModel.selectTextItem(null) },
+                                onCopyText = { _ ->
+                                    viewModel.quickCopyItemText(targetItem)
+                                },
+                                onQuickErase = {
+                                    viewModel.quickEraseItem(targetItem)
+                                },
+                                onQuickHighlight = {
+                                    viewModel.quickHighlightItem(targetItem)
+                                },
+                                onQuickBlackout = {
+                                    viewModel.quickBlackoutItem(targetItem)
+                                },
                                 onApplyEdit = { newText, fontClassification, isBold, sizeMultiplier, colorRgb, alignment, useCloudAi ->
                                     viewModel.applyTextReplacement(
                                         targetItem = targetItem,
@@ -838,6 +902,9 @@ class MainActivity : ComponentActivity() {
                                 onAddPageFromGallery = {
                                     appendPageGalleryLauncher.launch(arrayOf("image/*", "application/pdf"))
                                 },
+                                onAddBlankPage = {
+                                    viewModel.addBlankPage()
+                                },
                                 onDismiss = { viewModel.showPagesOverview(false) }
                             )
                         }
@@ -883,8 +950,10 @@ class MainActivity : ComponentActivity() {
                         // Export Format Dialog (Real PDF / JPG / PNG / Print / Google Drive / Hosting Cloud)
                         if (uiState.showExportDialog) {
                             ExportDialog(
-                                onExportConfirmed = { format, fitToA4, customFileName, password ->
-                                    viewModel.exportCurrentDocument(format, fitToA4, customFileName, password)
+                                totalPages = uiState.pdfPageCount,
+                                currentPageIndex = uiState.currentPdfPageIndex,
+                                onExportConfirmed = { format, fitToA4, customFileName, password, pageIndices ->
+                                    viewModel.exportCurrentDocument(format, fitToA4, customFileName, password, pageIndices)
                                 },
                                 onSaveToGoogleDriveClicked = { format, fitToA4, customFileName ->
                                     viewModel.exportAndSaveToGoogleDrive(this@MainActivity, format, fitToA4, customFileName)
@@ -1134,6 +1203,48 @@ class MainActivity : ComponentActivity() {
                                 onConfirmUpdate = { downloadUrl, fileName ->
                                     pendingUpdate = null
                                     apkInstaller.startDownload(downloadUrl, fileName)
+                                }
+                            )
+                        }
+
+                        // Rename Document Dialog
+                        if (uiState.showRenameDialog) {
+                            var renameText by remember(uiState.documentTitle) { mutableStateOf(uiState.documentTitle) }
+                            AlertDialog(
+                                onDismissRequest = { viewModel.showRenameDialog(false) },
+                                title = {
+                                    Text(text = "Rename Document", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                },
+                                text = {
+                                    Column {
+                                        Text(
+                                            text = "Enter a new name for this document:",
+                                            fontSize = 13.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        OutlinedTextField(
+                                            value = renameText,
+                                            onValueChange = { renameText = it },
+                                            singleLine = true,
+                                            label = { Text("Document Name") },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                },
+                                confirmButton = {
+                                    Button(
+                                        onClick = { viewModel.setDocumentTitle(renameText) }
+                                    ) {
+                                        Text("Rename")
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(
+                                        onClick = { viewModel.showRenameDialog(false) }
+                                    ) {
+                                        Text("Cancel")
+                                    }
                                 }
                             )
                         }

@@ -78,6 +78,7 @@ fun PagesOverviewDialog(
     onDeleteMultiplePages: (pageIndices: Set<Int>) -> Unit = {},
     onAddPageFromCamera: () -> Unit = {},
     onAddPageFromGallery: () -> Unit = {},
+    onAddBlankPage: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     var isSelectionMode by remember { mutableStateOf(false) }
@@ -406,19 +407,23 @@ fun PagesOverviewDialog(
                                     color = Color(0xFF1D4ED8)
                                 )
                                 Spacer(modifier = Modifier.height(10.dp))
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     OutlinedButton(
                                         onClick = {
                                             onAddPageFromCamera()
                                             onDismiss()
                                         },
                                         shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                        modifier = Modifier.height(34.dp)
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                        modifier = Modifier.weight(1f).height(34.dp)
                                     ) {
-                                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF2563EB))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Camera", fontSize = 11.sp, color = Color(0xFF2563EB))
+                                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color(0xFF2563EB))
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text("Camera", fontSize = 10.sp, color = Color(0xFF2563EB), maxLines = 1)
                                     }
                                     OutlinedButton(
                                         onClick = {
@@ -426,12 +431,25 @@ fun PagesOverviewDialog(
                                             onDismiss()
                                         },
                                         shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                        modifier = Modifier.height(34.dp)
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                        modifier = Modifier.weight(1f).height(34.dp)
                                     ) {
-                                        Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFF2563EB))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Gallery", fontSize = 11.sp, color = Color(0xFF2563EB))
+                                        Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color(0xFF0D9488))
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text("Gallery", fontSize = 10.sp, color = Color(0xFF0D9488), maxLines = 1)
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            onAddBlankPage()
+                                            onDismiss()
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                                        modifier = Modifier.weight(1f).height(34.dp)
+                                    ) {
+                                        Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color(0xFF7C3AED))
+                                        Spacer(modifier = Modifier.width(3.dp))
+                                        Text("Blank", fontSize = 10.sp, color = Color(0xFF7C3AED), maxLines = 1)
                                     }
                                 }
                             }
