@@ -12,8 +12,8 @@ android {
         applicationId = "com.docu.editor"
         minSdk = 26
         targetSdk = 34
-        versionCode = 22
-        versionName = "3.7.0"
+        versionCode = 23
+        versionName = "3.8.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -105,4 +105,7 @@ dependencies {
 
     // Android Print Spooler (Wi-Fi / Cloud Print)
     implementation("androidx.print:print:1.0.0")
+
+    // Cryptographic PKI Digital Signature Engine (X.509, PKCS#12, CMS, Adobe Green Checkmark)
+    implementation("org.bouncycastle:bcpkix-jdk15to18:1.72")
 }

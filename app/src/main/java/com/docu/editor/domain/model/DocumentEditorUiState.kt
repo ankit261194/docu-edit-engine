@@ -58,6 +58,8 @@ data class DocumentEditorUiState(
     val showIdCardDialog: Boolean = false,
     val showSignatureDialog: Boolean = false,
     val showPdfToolboxDialog: Boolean = false,
+    val showPkiDigitalSignDialog: Boolean = false,
+    val pendingSignedPdfFile: java.io.File? = null,
     val showExportDialog: Boolean = false,
     val showWatermarkDialog: Boolean = false,
     val showBookDewarpDialog: Boolean = false,

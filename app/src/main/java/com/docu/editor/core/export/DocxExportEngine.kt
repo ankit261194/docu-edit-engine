@@ -368,6 +368,22 @@ object DocxExportEngine {
     fun formatItemsToStructuredDocument(items: List<com.docu.editor.core.ocr.model.DetectedTextItem>): String {
         if (items.isEmpty()) return ""
 
+        // 1. Try high-fidelity spatial grid clustering from TableGridDetector
+        val gridTable = com.docu.editor.core.layout.TableGridDetector.detectBorderlessTable(items)
+        if (gridTable != null && gridTable.rowCount >= 2 && gridTable.colCount >= 2) {
+            val sb = StringBuilder()
+            val maxCols = gridTable.colCount
+            for ((rIdx, rowCells) in gridTable.rows.withIndex()) {
+                val cellTexts = rowCells.map { it.text.trim() }
+                sb.append("| ").append(cellTexts.joinToString(" | ")).append(" |\n")
+                if (rIdx == 0) {
+                    sb.append("|").append("---|".repeat(maxCols)).append("\n")
+                }
+            }
+            sb.append("\n")
+            return sb.toString()
+        }
+
         val sorted = items.sortedBy { it.boundingBox.top }
         val rows = mutableListOf<MutableList<com.docu.editor.core.ocr.model.DetectedTextItem>>()
 

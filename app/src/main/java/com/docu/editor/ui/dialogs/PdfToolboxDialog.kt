@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.VerifiedUser
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -28,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -48,6 +50,7 @@ import androidx.compose.ui.window.Dialog
 fun PdfToolboxDialog(
     onCompressSelected: (dpi: Int) -> Unit,
     onPasswordProtectSelected: (password: String) -> Unit,
+    onPkiSignSelected: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     var selectedDpi by remember { mutableIntStateOf(150) }
@@ -215,6 +218,62 @@ fun PdfToolboxDialog(
                         "Encrypt Document with AES",
                         fontWeight = FontWeight.Bold,
                         color = if (passwordText.isNotBlank()) Color.White else Color(0xFF94A3B8)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // Section 3: Legal PKI Digital Signature (Adobe Green Checkmark)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.VerifiedUser,
+                        contentDescription = null,
+                        tint = Color(0xFF059669),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Legal PKI Digital Signature",
+                        color = Color(0xFF0F172A),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFFDCFCE7)
+                    ) {
+                        Text(
+                            text = "ADOBE GREEN TICK",
+                            color = Color(0xFF15803D),
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Sign with X.509 PKCS#12 (.pfx/.p12) certificate. Court and bank valid.",
+                    color = Color(0xFF64748B),
+                    fontSize = 11.sp
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Button(
+                    onClick = { onPkiSignSelected() },
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        "🔐 Launch PKI Certificate Signer",
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
                     )
                 }
             }

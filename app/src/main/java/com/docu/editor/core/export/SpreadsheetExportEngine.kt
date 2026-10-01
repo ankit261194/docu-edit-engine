@@ -20,6 +20,14 @@ object SpreadsheetExportEngine {
     fun extractTableRows(items: List<DetectedTextItem>): List<List<String>> {
         if (items.isEmpty()) return emptyList()
 
+        // 1. Try high-fidelity spatial grid clustering from TableGridDetector
+        val gridTable = com.docu.editor.core.layout.TableGridDetector.detectBorderlessTable(items)
+        if (gridTable != null && gridTable.rowCount >= 2 && gridTable.colCount >= 2) {
+            return gridTable.rows.map { rowCells ->
+                rowCells.map { it.text.trim() }
+            }
+        }
+
         val sorted = items.sortedBy { it.boundingBox.top }
         val rows = mutableListOf<MutableList<DetectedTextItem>>()
 

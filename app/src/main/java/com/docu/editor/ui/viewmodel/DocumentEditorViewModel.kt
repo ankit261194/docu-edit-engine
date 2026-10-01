@@ -2694,6 +2694,67 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(showPdfToolboxDialog = show) }
     }
 
+    fun showPkiDigitalSignDialog(show: Boolean) {
+        _uiState.update { it.copy(showPkiDigitalSignDialog = show) }
+    }
+
+    fun prepareAndLaunchPkiSign() {
+        val current = _uiState.value.currentBitmap ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Preparing document for PKI signing...") }
+            val tempPdf = withContext(Dispatchers.IO) {
+                try {
+                    val cachePdf = File(getApplication<Application>().cacheDir, "pki_sign_temp_${System.currentTimeMillis()}.pdf")
+                    val totalPages = _uiState.value.pdfPageCount.coerceAtLeast(1)
+                    val activePdfUri = _uiState.value.activePdfUri
+                    val batchPaths = _uiState.value.batchScannedPaths
+                    val context = getApplication<Application>()
+
+                    if (totalPages > 1 && (activePdfUri != null || batchPaths.isNotEmpty() || editedPagesMap.isNotEmpty())) {
+                        PdfExportEngine.exportPagesStreamingToPdf(
+                            pageCount = totalPages,
+                            pageBitmapProvider = { idx ->
+                                val cached = editedPagesMap[idx]
+                                if (cached != null) {
+                                    cached.copy(cached.config ?: Bitmap.Config.ARGB_8888, false)
+                                } else if (activePdfUri != null) {
+                                    PdfPageLoader.renderPageToBitmap(context, activePdfUri, idx)
+                                } else if (batchPaths.size > idx) {
+                                    com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(batchPaths[idx], 2880)
+                                } else {
+                                    current.copy(current.config ?: Bitmap.Config.ARGB_8888, false)
+                                }
+                            },
+                            outputFile = cachePdf,
+                            fitToA4 = true,
+                            pagesDetectedItems = pageDetectedItemsMap,
+                            autoRecycleBitmaps = true
+                        )
+                    } else {
+                        PdfExportEngine.exportBitmapToPdf(
+                            bitmap = current,
+                            outputFile = cachePdf,
+                            fitToA4 = true,
+                            detectedItems = _uiState.value.detectedItems
+                        )
+                    }
+                    cachePdf
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            _uiState.update { 
+                it.copy(
+                    isApplyingEdit = false,
+                    processingMessage = null,
+                    showPkiDigitalSignDialog = (tempPdf != null),
+                    pendingSignedPdfFile = tempPdf,
+                    errorMessage = if (tempPdf == null) "Failed to prepare document for signing" else null
+                )
+            }
+        }
+    }
+
     fun showOcrTextExtractDialog(show: Boolean) {
         _uiState.update { it.copy(showOcrTextExtractDialog = show) }
     }
@@ -3773,16 +3834,54 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             val finalTranscription = if (!result.isNullOrBlank()) {
                 result
             } else {
-                val localItems = withContext(Dispatchers.Default) {
-                    ocrAnalyzer.detectTextBlocks(current, TextHierarchyLevel.LINE)
+                val offlineHandwriting = withContext(Dispatchers.Default) {
+                    com.docu.editor.core.ocr.OfflineHandwritingRecognizer.transcribeOffline(current)
                 }
-                localItems.sortedWith(
-                    compareBy<DetectedTextItem> { it.boundingBox.top / 20 }.thenBy { it.boundingBox.left }
-                ).joinToString("\n") { it.text }
+                if (offlineHandwriting.isOfflineSuccess && offlineHandwriting.transcribedText.isNotBlank()) {
+                    offlineHandwriting.transcribedText
+                } else {
+                    val localItems = withContext(Dispatchers.Default) {
+                        ocrAnalyzer.detectTextBlocks(current, TextHierarchyLevel.LINE)
+                    }
+                    localItems.sortedWith(
+                        compareBy<DetectedTextItem> { it.boundingBox.top / 20 }.thenBy { it.boundingBox.left }
+                    ).joinToString("\n") { it.text }
+                }
             }
 
             _uiState.update { it.copy(isPerformingHandwritingOcr = false) }
             onComplete(finalTranscription)
+        }
+    }
+
+    /**
+     * 100% On-Device Offline Handwriting OCR (Zero internet, zero latency).
+     */
+    fun transcribeHandwritingOffline(onComplete: (String?) -> Unit) {
+        val current = _uiState.value.currentBitmap ?: run {
+            onComplete(null)
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isPerformingHandwritingOcr = true) }
+            val offlineRes = withContext(Dispatchers.Default) {
+                com.docu.editor.core.ocr.OfflineHandwritingRecognizer.transcribeOffline(current)
+            }
+            _uiState.update { it.copy(isPerformingHandwritingOcr = false) }
+
+            if (offlineRes.isOfflineSuccess && offlineRes.transcribedText.isNotBlank()) {
+                onComplete(offlineRes.transcribedText)
+            } else {
+                // If local filter pass returned empty, attempt standard local text pass
+                val localItems = withContext(Dispatchers.Default) {
+                    ocrAnalyzer.detectTextBlocks(current, TextHierarchyLevel.LINE)
+                }
+                val text = localItems.sortedWith(
+                    compareBy<DetectedTextItem> { it.boundingBox.top / 20 }.thenBy { it.boundingBox.left }
+                ).joinToString("\n") { it.text }
+                onComplete(text.ifBlank { null })
+            }
         }
     }
 

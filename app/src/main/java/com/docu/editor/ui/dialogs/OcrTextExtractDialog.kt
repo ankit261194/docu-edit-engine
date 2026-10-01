@@ -68,6 +68,7 @@ fun OcrTextExtractDialog(
     onShareCsv: (String) -> Unit = {},
     onShareDocx: (String) -> Unit = {},
     onHandwritingAiRequest: ((onComplete: (String?) -> Unit) -> Unit)? = null,
+    onOfflineHandwritingRequest: ((onComplete: (String?) -> Unit) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     // Reconstruct full text in natural reading order (line by line)
@@ -264,13 +265,46 @@ fun OcrTextExtractDialog(
 
                 // Row 1: Premium AI & Word Superpowers (CamScanner)
                 var isTranscribing by remember { mutableStateOf(false) }
+                var isOfflineTranscribing by remember { mutableStateOf(false) }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // 1. Handwriting OCR AI
+                    // 1. 100% Offline Handwriting OCR (No internet)
                     Button(
+                        onClick = {
+                            if (onOfflineHandwritingRequest != null && !isOfflineTranscribing) {
+                                isOfflineTranscribing = true
+                                onOfflineHandwritingRequest { result ->
+                                    isOfflineTranscribing = false
+                                    if (!result.isNullOrBlank()) {
+                                        editableText = result
+                                    }
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                        modifier = Modifier
+                            .weight(1.1f)
+                            .height(44.dp)
+                    ) {
+                        if (isOfflineTranscribing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(text = "Transcribing...", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        } else {
+                            Text(text = "✍️ Offline HW", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+
+                    // 2. Cloud AI Vision
+                    OutlinedButton(
                         onClick = {
                             if (onHandwritingAiRequest != null && !isTranscribing) {
                                 isTranscribing = true
@@ -283,7 +317,8 @@ fun OcrTextExtractDialog(
                             }
                         },
                         shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED)),
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFF7C3AED).copy(alpha = 0.08f)),
+                        border = BorderStroke(1.dp, Color(0xFF7C3AED)),
                         modifier = Modifier
                             .weight(1f)
                             .height(44.dp)
@@ -291,19 +326,17 @@ fun OcrTextExtractDialog(
                         if (isTranscribing) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(16.dp),
-                                color = Color.White,
+                                color = Color(0xFF7C3AED),
                                 strokeWidth = 2.dp
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(text = "AI Transcribing...", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(text = "Cloud...", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF7C3AED))
                         } else {
-                            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(text = "✍️ Handwriting AI", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text(text = "⚡ Cloud AI", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF7C3AED))
                         }
                     }
 
-                    // 2. Export Word (.docx)
+                    // 3. Export Word (.docx)
                     Button(
                         onClick = {
                             onShareDocx(editableText)
@@ -314,9 +347,9 @@ fun OcrTextExtractDialog(
                             .weight(1f)
                             .height(44.dp)
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Article, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(text = "📄 Word (.docx)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        Icon(Icons.AutoMirrored.Filled.Article, contentDescription = null, modifier = Modifier.size(15.dp), tint = Color.White)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(text = "📄 Word", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
 

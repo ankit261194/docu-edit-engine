@@ -982,7 +982,37 @@ class MainActivity : ComponentActivity() {
                                     viewModel.showPdfToolboxDialog(false)
                                     viewModel.passwordProtectAndExport(pass)
                                 },
+                                onPkiSignSelected = {
+                                    viewModel.showPdfToolboxDialog(false)
+                                    viewModel.prepareAndLaunchPkiSign()
+                                },
                                 onDismiss = { viewModel.showPdfToolboxDialog(false) }
+                            )
+                        }
+
+                        // Legal PKI Cryptographic Digital Signature Dialog (Adobe Green Checkmark)
+                        if (uiState.showPkiDigitalSignDialog && uiState.pendingSignedPdfFile != null) {
+                            com.docu.editor.ui.dialogs.PkiDigitalSignDialog(
+                                inputPdfFile = uiState.pendingSignedPdfFile!!,
+                                pageCount = uiState.pdfPageCount,
+                                onSignCompleted = { signedFile ->
+                                    Toast.makeText(this@MainActivity, "Signed PDF saved: ${signedFile.name}", Toast.LENGTH_LONG).show()
+                                },
+                                onShareFile = { signedFile ->
+                                    val shareUri = FileProvider.getUriForFile(
+                                        this@MainActivity,
+                                        "${applicationContext.packageName}.fileprovider",
+                                        signedFile
+                                    )
+                                    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                        type = "application/pdf"
+                                        putExtra(Intent.EXTRA_STREAM, shareUri)
+                                        putExtra(Intent.EXTRA_SUBJECT, "Digitally Signed PDF (Verified)")
+                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    startActivity(Intent.createChooser(shareIntent, "Share Signed PDF"))
+                                },
+                                onDismiss = { viewModel.showPkiDigitalSignDialog(false) }
                             )
                         }
 
@@ -1104,6 +1134,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onHandwritingAiRequest = { onComplete ->
                                     viewModel.transcribeHandwritingWithAi(onComplete)
+                                },
+                                onOfflineHandwritingRequest = { onComplete ->
+                                    viewModel.transcribeHandwritingOffline(onComplete)
                                 },
                                 onDismiss = { viewModel.showOcrTextExtractDialog(false) }
                             )
