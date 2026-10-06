@@ -885,6 +885,35 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     fun showPagesOverview(show: Boolean) {
         saveCurrentPageToCache()
         _uiState.update { it.copy(showPagesOverviewDialog = show) }
+        if (show) {
+            preloadAllPageThumbnails()
+        }
+    }
+
+    private fun preloadAllPageThumbnails() {
+        val state = _uiState.value
+        val context = getApplication<Application>()
+        if (state.activePdfUri == null && state.batchScannedPaths.isEmpty()) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            for (idx in 0 until state.pdfPageCount) {
+                if (editedPagesMap[idx] == null) {
+                    try {
+                        val thumb = if (state.activePdfUri != null) {
+                            PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, idx)
+                        } else if (state.batchScannedPaths.size > idx) {
+                            com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[idx], 1200)
+                        } else {
+                            null
+                        }
+                        if (thumb != null) {
+                            editedPagesMap[idx] = thumb
+                            _uiState.update { it.copy(canvasRevision = it.canvasRevision + 1) }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+        }
     }
 
     fun loadSampleDocument() {
@@ -3126,51 +3155,62 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(showPkiDigitalSignDialog = show) }
     }
 
+    private suspend fun getOrGenerateConsolidatedPdf(): File? = withContext(Dispatchers.IO) {
+        try {
+            val cachePdf = File(getApplication<Application>().cacheDir, "consolidated_temp_${System.currentTimeMillis()}.pdf")
+            val totalPages = _uiState.value.pdfPageCount.coerceAtLeast(1)
+            val activePdfUri = _uiState.value.activePdfUri
+            val batchPaths = _uiState.value.batchScannedPaths
+            val context = getApplication<Application>()
+            val current = _uiState.value.currentBitmap
+
+            if (totalPages > 1 && (activePdfUri != null || batchPaths.isNotEmpty() || editedPagesMap.isNotEmpty())) {
+                PdfExportEngine.exportPagesStreamingToPdf(
+                    pageCount = totalPages,
+                    pageBitmapProvider = { idx ->
+                        val cached = editedPagesMap[idx]
+                        if (cached != null) {
+                            cached.copy(cached.config ?: Bitmap.Config.ARGB_8888, false)
+                        } else if (activePdfUri != null) {
+                            PdfPageLoader.renderPageToBitmap(context, activePdfUri, idx)
+                        } else if (batchPaths.size > idx) {
+                            com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(batchPaths[idx], 2880)
+                        } else {
+                            current?.copy(current.config ?: Bitmap.Config.ARGB_8888, false)
+                        }
+                    },
+                    outputFile = cachePdf,
+                    fitToA4 = true,
+                    pagesDetectedItems = pageDetectedItemsMap,
+                    autoRecycleBitmaps = true
+                )
+            } else if (current != null) {
+                PdfExportEngine.exportBitmapToPdf(
+                    bitmap = current,
+                    outputFile = cachePdf,
+                    fitToA4 = true,
+                    detectedItems = _uiState.value.detectedItems
+                )
+            } else if (activePdfUri != null) {
+                context.contentResolver.openInputStream(activePdfUri)?.use { input ->
+                    FileOutputStream(cachePdf).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            } else {
+                return@withContext null
+            }
+            cachePdf
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun prepareAndLaunchPkiSign() {
         val current = _uiState.value.currentBitmap ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Preparing document for PKI signing...") }
-            val tempPdf = withContext(Dispatchers.IO) {
-                try {
-                    val cachePdf = File(getApplication<Application>().cacheDir, "pki_sign_temp_${System.currentTimeMillis()}.pdf")
-                    val totalPages = _uiState.value.pdfPageCount.coerceAtLeast(1)
-                    val activePdfUri = _uiState.value.activePdfUri
-                    val batchPaths = _uiState.value.batchScannedPaths
-                    val context = getApplication<Application>()
-
-                    if (totalPages > 1 && (activePdfUri != null || batchPaths.isNotEmpty() || editedPagesMap.isNotEmpty())) {
-                        PdfExportEngine.exportPagesStreamingToPdf(
-                            pageCount = totalPages,
-                            pageBitmapProvider = { idx ->
-                                val cached = editedPagesMap[idx]
-                                if (cached != null) {
-                                    cached.copy(cached.config ?: Bitmap.Config.ARGB_8888, false)
-                                } else if (activePdfUri != null) {
-                                    PdfPageLoader.renderPageToBitmap(context, activePdfUri, idx)
-                                } else if (batchPaths.size > idx) {
-                                    com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(batchPaths[idx], 2880)
-                                } else {
-                                    current.copy(current.config ?: Bitmap.Config.ARGB_8888, false)
-                                }
-                            },
-                            outputFile = cachePdf,
-                            fitToA4 = true,
-                            pagesDetectedItems = pageDetectedItemsMap,
-                            autoRecycleBitmaps = true
-                        )
-                    } else {
-                        PdfExportEngine.exportBitmapToPdf(
-                            bitmap = current,
-                            outputFile = cachePdf,
-                            fitToA4 = true,
-                            detectedItems = _uiState.value.detectedItems
-                        )
-                    }
-                    cachePdf
-                } catch (_: Exception) {
-                    null
-                }
-            }
+            val tempPdf = getOrGenerateConsolidatedPdf()
             _uiState.update { 
                 it.copy(
                     isApplyingEdit = false,
@@ -3179,6 +3219,79 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     pendingSignedPdfFile = tempPdf,
                     errorMessage = if (tempPdf == null) "Failed to prepare document for signing" else null
                 )
+            }
+        }
+    }
+
+    fun splitCurrentDocument() {
+        val context = getApplication<Application>()
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Splitting document into single pages...") }
+            try {
+                val tempPdf = getOrGenerateConsolidatedPdf() ?: throw IllegalStateException("Could not generate document PDF")
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val toolbox = PdfToolbox(context)
+                val splitFiles = toolbox.splitPdf(Uri.fromFile(tempPdf), downloadsDir)
+                tempPdf.delete()
+
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        showPdfToolboxDialog = false,
+                        successMessage = "Split into ${splitFiles.size} PDF files in Downloads!"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "Split failed: ${e.localizedMessage}") }
+            }
+        }
+    }
+
+    fun extractPagesAsImages(quality: Int = 92) {
+        val context = getApplication<Application>()
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Extracting high-res JPG images...") }
+            try {
+                val tempPdf = getOrGenerateConsolidatedPdf() ?: throw IllegalStateException("Could not generate document PDF")
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val toolbox = PdfToolbox(context)
+                val imageFiles = toolbox.extractPagesAsImages(Uri.fromFile(tempPdf), downloadsDir, quality)
+                tempPdf.delete()
+
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        showPdfToolboxDialog = false,
+                        successMessage = "Saved ${imageFiles.size} high-res page images in Downloads!"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "Extract images failed: ${e.localizedMessage}") }
+            }
+        }
+    }
+
+    fun addWatermarkAndExport(watermarkText: String, opacity: Float = 0.22f) {
+        val context = getApplication<Application>()
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Applying security watermark '$watermarkText'...") }
+            try {
+                val tempPdf = getOrGenerateConsolidatedPdf() ?: throw IllegalStateException("Could not generate document PDF")
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val outFile = File(downloadsDir, "DocuEdit_Watermarked_${System.currentTimeMillis()}.pdf")
+                val toolbox = PdfToolbox(context)
+                toolbox.addWatermarkToPdf(Uri.fromFile(tempPdf), watermarkText, outFile, opacity)
+                tempPdf.delete()
+
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        showPdfToolboxDialog = false,
+                        successMessage = "Watermarked PDF saved: ${outFile.name}"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "Watermark failed: ${e.localizedMessage}") }
             }
         }
     }

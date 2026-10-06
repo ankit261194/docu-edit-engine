@@ -1022,6 +1022,18 @@ class MainActivity : ComponentActivity() {
                                     viewModel.showPdfToolboxDialog(false)
                                     viewModel.prepareAndLaunchPkiSign()
                                 },
+                                onSplitPdfSelected = {
+                                    viewModel.showPdfToolboxDialog(false)
+                                    viewModel.splitCurrentDocument()
+                                },
+                                onExtractImagesSelected = {
+                                    viewModel.showPdfToolboxDialog(false)
+                                    viewModel.extractPagesAsImages()
+                                },
+                                onAddWatermarkSelected = { watermark ->
+                                    viewModel.showPdfToolboxDialog(false)
+                                    viewModel.addWatermarkAndExport(watermark)
+                                },
                                 onDismiss = { viewModel.showPdfToolboxDialog(false) }
                             )
                         }
