@@ -656,14 +656,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
                             bottomLeft = PointF(corners.bottomLeft.x * scaleX, corners.bottomLeft.y * scaleY)
                         )
                     } else {
-                        val marginX = fullBitmap.width * 0.08f
-                        val marginY = fullBitmap.height * 0.08f
-                        DocumentCorners(
-                            topLeft = PointF(marginX, marginY),
-                            topRight = PointF(fullBitmap.width - marginX, marginY),
-                            bottomRight = PointF(fullBitmap.width - marginX, fullBitmap.height - marginY),
-                            bottomLeft = PointF(marginX, fullBitmap.height - marginY)
-                        )
+                        DocumentEdgeDetector.detectCorners(fullBitmap)
                     }
 
                     if (scannerMode == ScannerMode.ID_CARD) {
@@ -767,7 +760,8 @@ class LiveCameraScannerActivity : ComponentActivity() {
                             vibrate()
                         }
                     } else {
-                        if (corners != null && analysisFrameW > 0 && analysisFrameH > 0) {
+                        val shouldAutoWarp = (corners != null && analysisFrameW > 0 && analysisFrameH > 0) || autoSnapEnabled
+                        if (shouldAutoWarp) {
                             val warped = PerspectiveTransformer.warpPerspective(fullBitmap, initialCorners)
                             val outFile = File(cacheDir, "scanned_doc_${System.currentTimeMillis()}.jpg")
                             FileOutputStream(outFile).use { fos ->

@@ -76,6 +76,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -103,6 +106,8 @@ import com.docu.editor.ui.dialogs.SignatureDialog
 import com.docu.editor.ui.dialogs.WatermarkDialog
 import com.docu.editor.ui.dialogs.BookDewarpDialog
 import com.docu.editor.ui.dialogs.CloudBackupsListDialog
+import com.docu.editor.ui.dialogs.TargetSizeAdjusterDialog
+import com.docu.editor.ui.dialogs.SizeAdjustMode
 import com.docu.editor.ui.home.HomeScreenDashboard
 import android.widget.Toast
 import android.content.Context
@@ -127,6 +132,12 @@ class MainActivity : ComponentActivity() {
     private val apkInstaller by lazy { ApkDownloadInstaller(this) }
 
     private var tempCameraUri: Uri? = null
+    private val updateCheckTrigger = mutableIntStateOf(0)
+
+    override fun onResume() {
+        super.onResume()
+        updateCheckTrigger.intValue++
+    }
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -150,7 +161,7 @@ class MainActivity : ComponentActivity() {
                 var showFiltersRow by remember { mutableStateOf(false) }
                 var currentSignSourceBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
 
-                LaunchedEffect(Unit) {
+                LaunchedEffect(updateCheckTrigger.intValue) {
                     val info = updateManager.checkForUpdates()
                     if (info.hasUpdate) {
                         pendingUpdate = info
@@ -500,6 +511,9 @@ class MainActivity : ComponentActivity() {
                                 onCompressClicked = {
                                     viewModel.showPdfToolboxDialog(true)
                                 },
+                                onTargetSizeClicked = {
+                                    viewModel.showTargetSizeAdjusterDialog(true)
+                                },
                                 onExportClicked = {
                                     viewModel.showExportDialog(true)
                                 },
@@ -806,6 +820,17 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onCloudAiSettingsClicked = {
                                     viewModel.showCloudAiSettingsDialog(true)
+                                },
+                                onCheckUpdateClicked = {
+                                    lifecycleScope.launch {
+                                        Toast.makeText(this@MainActivity, "Checking for latest updates...", Toast.LENGTH_SHORT).show()
+                                        val info = updateManager.checkForUpdates()
+                                        if (info.hasUpdate) {
+                                            pendingUpdate = info
+                                        } else {
+                                            Toast.makeText(this@MainActivity, "You are on the latest version (v${info.currentVersion})", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
                                 }
                             )
                         }
@@ -1035,6 +1060,17 @@ class MainActivity : ComponentActivity() {
                                     viewModel.addWatermarkAndExport(watermark)
                                 },
                                 onDismiss = { viewModel.showPdfToolboxDialog(false) }
+                            )
+                        }
+
+                        // Target Size Adjuster Dialog (Pi7 Algorithm)
+                        if (uiState.showTargetSizeAdjusterDialog) {
+                            TargetSizeAdjusterDialog(
+                                initialFormat = if (uiState.activePdfUri != null || uiState.pdfPageCount > 1) "PDF" else "JPG",
+                                onConfirmAdjust = { mode, targetKb, format ->
+                                    viewModel.adjustDocumentToTargetSize(mode, targetKb, format)
+                                },
+                                onDismiss = { viewModel.showTargetSizeAdjusterDialog(false) }
                             )
                         }
 
@@ -1281,9 +1317,13 @@ class MainActivity : ComponentActivity() {
                             UpdateDialog(
                                 updateInfo = updateInfo,
                                 onDismiss = { pendingUpdate = null },
-                                onConfirmUpdate = { downloadUrl, fileName ->
+                                onConfirmUpdate = { downloadUrl, localApkPath, fileName ->
                                     pendingUpdate = null
-                                    apkInstaller.startDownload(downloadUrl, fileName)
+                                    if (!localApkPath.isNullOrBlank()) {
+                                        apkInstaller.installApk(File(localApkPath))
+                                    } else if (!downloadUrl.isNullOrBlank()) {
+                                        apkInstaller.startDownload(downloadUrl, fileName)
+                                    }
                                 }
                             )
                         }

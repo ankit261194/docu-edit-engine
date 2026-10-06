@@ -63,6 +63,8 @@ import com.docu.editor.core.export.SpreadsheetExportEngine
 import com.docu.editor.core.export.GoogleDriveExportHelper
 import com.docu.editor.core.cloud.CloudBackupStore
 import com.docu.editor.core.cloud.CloudBackupItem
+import com.docu.editor.core.export.TargetFileSizeEngine
+import com.docu.editor.ui.dialogs.SizeAdjustMode
 import com.docu.editor.ui.dialogs.CloudSyncResult
 import com.docu.editor.domain.model.DocumentEditorUiState
 import com.docu.editor.domain.model.DocumentFilterMode
@@ -952,7 +954,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
         val sourceBmp = orientedResult.rotatedBitmap
         val optimized = withContext(Dispatchers.Default) {
-            scaleDownIfNeeded(sourceBmp, maxDimension = 1920)
+            scaleDownIfNeeded(sourceBmp, maxDimension = 2560)
         }
 
         val effectiveBitmap = if (autoApplyMagicColor) {
@@ -3149,6 +3151,96 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     fun showPdfToolboxDialog(show: Boolean) {
         _uiState.update { it.copy(showPdfToolboxDialog = show) }
+    }
+
+    fun showTargetSizeAdjusterDialog(show: Boolean) {
+        _uiState.update { it.copy(showTargetSizeAdjusterDialog = show) }
+    }
+
+    fun adjustDocumentToTargetSize(mode: SizeAdjustMode, targetKb: Int, format: String) {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = true,
+                    processingMessage = if (mode == SizeAdjustMode.DECREASE)
+                        "Compressing to ${targetKb} KB ($format)..."
+                    else
+                        "Padding to ${targetKb} KB for Govt Portal ($format)...",
+                    showTargetSizeAdjusterDialog = false
+                )
+            }
+            try {
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val time = System.currentTimeMillis()
+
+                if (format.equals("PDF", ignoreCase = true)) {
+                    val tempPdf = getOrGenerateConsolidatedPdf() ?: throw IllegalStateException("Failed to generate document PDF")
+                    val outFile = File(downloadsDir, "DocuEdit_Target_${targetKb}KB_${time}.pdf")
+                    val result = if (mode == SizeAdjustMode.DECREASE) {
+                        TargetFileSizeEngine.compressPdfToTargetKb(
+                            context = getApplication(),
+                            sourceUri = Uri.fromFile(tempPdf),
+                            targetKb = targetKb,
+                            outputFile = outFile
+                        )
+                    } else {
+                        TargetFileSizeEngine.increasePdfToTargetKb(
+                            context = getApplication(),
+                            sourceUri = Uri.fromFile(tempPdf),
+                            targetKb = targetKb,
+                            outputFile = outFile
+                        )
+                    }
+                    tempPdf.delete()
+                    val actualKb = result.finalBytes / 1024
+                    _uiState.update {
+                        it.copy(
+                            isApplyingEdit = false,
+                            processingMessage = null,
+                            successMessage = "Target size ready: ${outFile.name} (${actualKb} KB)"
+                        )
+                    }
+                } else {
+                    val currentBmp = _uiState.value.currentBitmap ?: throw IllegalStateException("No active document loaded")
+                    val outFile = File(downloadsDir, "DocuEdit_Target_${targetKb}KB_${time}.jpg")
+                    val result = if (mode == SizeAdjustMode.DECREASE) {
+                        TargetFileSizeEngine.compressBitmapToTargetKb(
+                            bitmap = currentBmp,
+                            targetKb = targetKb,
+                            outputFile = outFile
+                        )
+                    } else {
+                        val tempJpg = File.createTempFile("temp_adjust_", ".jpg", getApplication<Application>().cacheDir)
+                        withContext(Dispatchers.IO) {
+                            FileOutputStream(tempJpg).use { currentBmp.compress(Bitmap.CompressFormat.JPEG, 95, it) }
+                        }
+                        val res = TargetFileSizeEngine.increaseJpegToTargetKb(
+                            inputJpegFile = tempJpg,
+                            targetKb = targetKb,
+                            outputFile = outFile
+                        )
+                        tempJpg.delete()
+                        res
+                    }
+                    val actualKb = result.finalBytes / 1024
+                    _uiState.update {
+                        it.copy(
+                            isApplyingEdit = false,
+                            processingMessage = null,
+                            successMessage = "Target size ready: ${outFile.name} (${actualKb} KB)"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Target size adjust failed: ${e.localizedMessage}"
+                    )
+                }
+            }
+        }
     }
 
     fun showPkiDigitalSignDialog(show: Boolean) {

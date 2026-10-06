@@ -8,5 +8,6 @@ data class UpdateInfo(
     val changelog: String,
     val apkDownloadUrl: String?,
     val apkFileName: String?,
-    val apkSizeMb: Float = 0f
+    val apkSizeMb: Float = 0f,
+    val localApkPath: String? = null
 )

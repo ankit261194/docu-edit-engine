@@ -111,7 +111,8 @@ fun HomeScreenDashboard(
     onPdfToolsClicked: () -> Unit,
     onBulkBatchOcrClicked: () -> Unit = {},
     onTryDemoClicked: () -> Unit,
-    onCloudAiSettingsClicked: () -> Unit = {}
+    onCloudAiSettingsClicked: () -> Unit = {},
+    onCheckUpdateClicked: () -> Unit = {}
 ) {
     var searchQuery by remember { mutableStateOf("") }
     var isSearchExpanded by remember { mutableStateOf(false) }
@@ -286,10 +287,13 @@ fun HomeScreenDashboard(
                             Spacer(modifier = Modifier.width(4.dp))
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable { onCheckUpdateClicked() }
                             ) {
                                 Text(
-                                    text = "v${com.docu.editor.BuildConfig.VERSION_NAME}",
+                                    text = "v${com.docu.editor.BuildConfig.VERSION_NAME} 🔄",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,

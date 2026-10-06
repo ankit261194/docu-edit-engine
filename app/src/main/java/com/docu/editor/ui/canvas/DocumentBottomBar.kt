@@ -37,6 +37,7 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -93,6 +94,7 @@ fun DocumentBottomBar(
     onSignatureClicked: () -> Unit,
     onPagesOverviewClicked: () -> Unit = {},
     onCompressClicked: () -> Unit,
+    onTargetSizeClicked: () -> Unit = {},
     onExportClicked: () -> Unit,
     onCloudSyncClicked: () -> Unit = {},
     selectedLassoCount: Int = 0,
@@ -778,6 +780,12 @@ fun DocumentBottomBar(
                             label = "PDF Toolbox",
                             isSelected = false,
                             onClick = onCompressClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Tune,
+                            label = "Target Size",
+                            isSelected = false,
+                            onClick = onTargetSizeClicked
                         )
                     }
                 }

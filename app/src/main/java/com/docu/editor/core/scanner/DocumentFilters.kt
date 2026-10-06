@@ -38,46 +38,94 @@ object DocumentFilters {
     }
 
     /**
-     * CamScanner "Magic Color": CLAHE on Luma + subtle unsharp mask sharpening + saturation boost.
+     * CamScanner Flagship "Magic Color":
+     * 1. Per-channel Morphological Background Illumination Division:
+     *    Erases all paper shadows, yellow room lighting, and phone flash gradients,
+     *    turning the paper into 100% studio-clean white (255, 255, 255).
+     * 2. Adaptive Ink S-Curve Contrast: Deepens black text characters and ink strokes.
+     * 3. HSV Saturation Boost: Makes colored inks (blue pens, red seals, green signatures) pop with vivid color.
+     * 4. Unsharp Masking: Razor-sharp character stroke edges without noise.
      */
     private fun applyMagicColor(source: Bitmap): Bitmap {
         val srcRgba = Mat()
         val srcRgb = Mat()
-        val labMat = Mat()
         val channels = mutableListOf<Mat>()
-        val lumaClahe = Mat()
+        val dividedChannels = mutableListOf<Mat>()
+        val normalizedRgb = Mat()
+        val contrastRgb = Mat()
+        val hsvMat = Mat()
+        val hsvChannels = mutableListOf<Mat>()
+        val blurred = Mat()
         val sharpenedRgb = Mat()
         val resultRgba = Mat()
 
         return try {
             Utils.bitmapToMat(source, srcRgba)
             Imgproc.cvtColor(srcRgba, srcRgb, Imgproc.COLOR_RGBA2RGB)
-            Imgproc.cvtColor(srcRgb, labMat, Imgproc.COLOR_RGB2Lab)
 
-            Core.split(labMat, channels)
-            val lChannel = channels[0]
+            // Step 1: Per-channel illumination division
+            Core.split(srcRgb, channels)
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(41.0, 41.0))
 
-            // Contrast Limited Adaptive Histogram Equalization on L channel
-            val clahe = Imgproc.createCLAHE(2.4, Size(8.0, 8.0))
-            clahe.apply(lChannel, lumaClahe)
-            clahe.collectGarbage()
+            for (ch in channels) {
+                val bg = Mat()
+                val chFloat = Mat()
+                val bgFloat = Mat()
+                val divFloat = Mat()
+                val divU8 = Mat()
 
-            // Adaptive White-Point Stretch: turn dim/yellow paper into clean studio white
-            val minMax = Core.minMaxLoc(lumaClahe)
-            if (minMax.maxVal in 180.0..250.0) {
-                val scaleFactor = 255.0 / minMax.maxVal
-                lumaClahe.convertTo(lumaClahe, -1, scaleFactor, 0.0)
+                // Morphological close fills ink with paper color to estimate background illumination
+                Imgproc.morphologyEx(ch, bg, Imgproc.MORPH_CLOSE, kernel)
+
+                ch.convertTo(chFloat, CvType.CV_32F)
+                bg.convertTo(bgFloat, CvType.CV_32F)
+                bg.release()
+
+                // Normalize: (ch / bg) * 255.0
+                Core.divide(chFloat, bgFloat, divFloat, 255.0)
+                chFloat.release()
+                bgFloat.release()
+
+                divFloat.convertTo(divU8, CvType.CV_8U)
+                divFloat.release()
+
+                dividedChannels.add(divU8)
             }
+            kernel.release()
 
-            lumaClahe.copyTo(channels[0])
-            Core.merge(channels, labMat)
-            Imgproc.cvtColor(labMat, srcRgb, Imgproc.COLOR_Lab2RGB)
+            Core.merge(dividedChannels, normalizedRgb)
 
-            // Unsharp Masking: Text = 1.3 * Original - 0.3 * GaussianBlur
-            val blurred = Mat()
-            Imgproc.GaussianBlur(srcRgb, blurred, Size(3.0, 3.0), 0.0)
-            Core.addWeighted(srcRgb, 1.35, blurred, -0.35, 0.0, sharpenedRgb)
-            blurred.release()
+            // Step 2: Adaptive Ink S-Curve & Studio Paper Whitening
+            val lut = Mat(1, 256, CvType.CV_8U)
+            val lutData = ByteArray(256)
+            for (i in 0..255) {
+                val v = when {
+                    i >= 220 -> 255 // Pure studio white paper
+                    i <= 35 -> 0    // Deep rich black text
+                    else -> {
+                        val norm = (i - 35).toDouble() / (220 - 35)
+                        val gamma = 1.35
+                        val mapped = Math.pow(norm, gamma) * 255.0
+                        mapped.coerceIn(0.0, 255.0).toInt()
+                    }
+                }
+                lutData[i] = v.toByte()
+            }
+            lut.put(0, 0, lutData)
+            Core.LUT(normalizedRgb, lut, contrastRgb)
+            lut.release()
+
+            // Step 3: Saturation Boost in HSV for blue ballpoints & red official stamps
+            Imgproc.cvtColor(contrastRgb, hsvMat, Imgproc.COLOR_RGB2HSV)
+            Core.split(hsvMat, hsvChannels)
+            val sChannel = hsvChannels[1]
+            sChannel.convertTo(sChannel, -1, 1.30, 0.0)
+            Core.merge(hsvChannels, hsvMat)
+            Imgproc.cvtColor(hsvMat, contrastRgb, Imgproc.COLOR_HSV2RGB)
+
+            // Step 4: Unsharp Masking for razor-sharp text strokes (1.30 * Img - 0.30 * Blur)
+            Imgproc.GaussianBlur(contrastRgb, blurred, Size(3.0, 3.0), 0.0)
+            Core.addWeighted(contrastRgb, 1.30, blurred, -0.30, 0.0, sharpenedRgb)
 
             Imgproc.cvtColor(sharpenedRgb, resultRgba, Imgproc.COLOR_RGB2RGBA)
             val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
@@ -86,9 +134,13 @@ object DocumentFilters {
         } finally {
             srcRgba.release()
             srcRgb.release()
-            labMat.release()
             channels.forEach { it.release() }
-            lumaClahe.release()
+            dividedChannels.forEach { it.release() }
+            normalizedRgb.release()
+            contrastRgb.release()
+            hsvMat.release()
+            hsvChannels.forEach { it.release() }
+            blurred.release()
             sharpenedRgb.release()
             resultRgba.release()
         }
@@ -110,7 +162,7 @@ object DocumentFilters {
             Imgproc.cvtColor(srcRgba, srcRgb, Imgproc.COLOR_RGBA2RGB)
             Core.split(srcRgb, channels)
 
-            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(21.0, 21.0))
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(35.0, 35.0))
 
             for (ch in channels) {
                 val backgroundIllumination = Mat()
@@ -119,33 +171,29 @@ object DocumentFilters {
                 val bgFloat = Mat()
                 val normMat = Mat()
 
-                // Morphological closing approximates background light distribution
                 Imgproc.morphologyEx(ch, backgroundIllumination, Imgproc.MORPH_CLOSE, kernel)
 
                 ch.convertTo(chFloat, CvType.CV_32F)
                 backgroundIllumination.convertTo(bgFloat, CvType.CV_32F)
-
-                // Divide channel by background illumination
-                Core.divide(chFloat, bgFloat, diffFloat)
-                Core.multiply(diffFloat, Scalar(255.0), diffFloat)
-
-                diffFloat.convertTo(normMat, CvType.CV_8U)
-                resultChannels.add(normMat)
-
                 backgroundIllumination.release()
-                diffFloat.release()
+
+                Core.divide(chFloat, bgFloat, diffFloat, 255.0)
                 chFloat.release()
                 bgFloat.release()
+
+                diffFloat.convertTo(normMat, CvType.CV_8U)
+                diffFloat.release()
+                resultChannels.add(normMat)
             }
             kernel.release()
 
             val mergedRgb = Mat()
             Core.merge(resultChannels, mergedRgb)
             Imgproc.cvtColor(mergedRgb, resultRgba, Imgproc.COLOR_RGB2RGBA)
+            mergedRgb.release()
 
             val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
             Utils.matToBitmap(resultRgba, output)
-            mergedRgb.release()
             output
         } finally {
             srcRgba.release()
@@ -158,10 +206,17 @@ object DocumentFilters {
 
     /**
      * Clean B&W / Fax Mode: Crisp text with pure white paper background.
+     * Uses Illumination Division first to eradicate all desk/paper shadows,
+     * followed by Otsu thresholding for 100% noise-free, crisp text.
      */
     private fun applyCleanBw(source: Bitmap): Bitmap {
         val srcRgba = Mat()
         val gray = Mat()
+        val bg = Mat()
+        val grayFloat = Mat()
+        val bgFloat = Mat()
+        val divFloat = Mat()
+        val norm = Mat()
         val bwMat = Mat()
         val resultRgba = Mat()
 
@@ -169,16 +224,23 @@ object DocumentFilters {
             Utils.bitmapToMat(source, srcRgba)
             Imgproc.cvtColor(srcRgba, gray, Imgproc.COLOR_RGBA2GRAY)
 
-            // Adaptive Gaussian Thresholding produces clean documents without dark patches
-            Imgproc.adaptiveThreshold(
-                gray,
-                bwMat,
-                255.0,
-                Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-                Imgproc.THRESH_BINARY,
-                15,
-                11.0
-            )
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(41.0, 41.0))
+            Imgproc.morphologyEx(gray, bg, Imgproc.MORPH_CLOSE, kernel)
+            kernel.release()
+
+            gray.convertTo(grayFloat, CvType.CV_32F)
+            bg.convertTo(bgFloat, CvType.CV_32F)
+            bg.release()
+
+            Core.divide(grayFloat, bgFloat, divFloat, 255.0)
+            grayFloat.release()
+            bgFloat.release()
+
+            divFloat.convertTo(norm, CvType.CV_8U)
+            divFloat.release()
+
+            // Otsu threshold on shadow-normalized surface gives pure black text on pure white paper
+            Imgproc.threshold(norm, bwMat, 0.0, 255.0, Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU)
 
             Imgproc.cvtColor(bwMat, resultRgba, Imgproc.COLOR_GRAY2RGBA)
             val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
@@ -187,6 +249,11 @@ object DocumentFilters {
         } finally {
             srcRgba.release()
             gray.release()
+            bg.release()
+            grayFloat.release()
+            bgFloat.release()
+            divFloat.release()
+            norm.release()
             bwMat.release()
             resultRgba.release()
         }
@@ -195,20 +262,63 @@ object DocumentFilters {
     private fun applyEnhancedGrayscale(source: Bitmap): Bitmap {
         val srcRgba = Mat()
         val gray = Mat()
+        val bg = Mat()
+        val grayFloat = Mat()
+        val bgFloat = Mat()
+        val divFloat = Mat()
+        val norm = Mat()
+        val cleanGray = Mat()
         val resultRgba = Mat()
 
         return try {
             Utils.bitmapToMat(source, srcRgba)
             Imgproc.cvtColor(srcRgba, gray, Imgproc.COLOR_RGBA2GRAY)
-            Imgproc.equalizeHist(gray, gray)
-            Imgproc.cvtColor(gray, resultRgba, Imgproc.COLOR_GRAY2RGBA)
 
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(41.0, 41.0))
+            Imgproc.morphologyEx(gray, bg, Imgproc.MORPH_CLOSE, kernel)
+            kernel.release()
+
+            gray.convertTo(grayFloat, CvType.CV_32F)
+            bg.convertTo(bgFloat, CvType.CV_32F)
+            bg.release()
+
+            Core.divide(grayFloat, bgFloat, divFloat, 255.0)
+            grayFloat.release()
+            bgFloat.release()
+
+            divFloat.convertTo(norm, CvType.CV_8U)
+            divFloat.release()
+
+            val lut = Mat(1, 256, CvType.CV_8U)
+            val lutData = ByteArray(256)
+            for (i in 0..255) {
+                val v = when {
+                    i >= 220 -> 255
+                    i <= 30 -> 0
+                    else -> {
+                        val t = (i - 30).toDouble() / (220 - 30)
+                        (Math.pow(t, 1.25) * 255.0).coerceIn(0.0, 255.0).toInt()
+                    }
+                }
+                lutData[i] = v.toByte()
+            }
+            lut.put(0, 0, lutData)
+            Core.LUT(norm, lut, cleanGray)
+            lut.release()
+
+            Imgproc.cvtColor(cleanGray, resultRgba, Imgproc.COLOR_GRAY2RGBA)
             val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
             Utils.matToBitmap(resultRgba, output)
             output
         } finally {
             srcRgba.release()
             gray.release()
+            bg.release()
+            grayFloat.release()
+            bgFloat.release()
+            divFloat.release()
+            norm.release()
+            cleanGray.release()
             resultRgba.release()
         }
     }
