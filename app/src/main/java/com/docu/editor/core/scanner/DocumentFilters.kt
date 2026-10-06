@@ -62,6 +62,13 @@ object DocumentFilters {
             clahe.apply(lChannel, lumaClahe)
             clahe.collectGarbage()
 
+            // Adaptive White-Point Stretch: turn dim/yellow paper into clean studio white
+            val minMax = Core.minMaxLoc(lumaClahe)
+            if (minMax.maxVal in 180.0..250.0) {
+                val scaleFactor = 255.0 / minMax.maxVal
+                lumaClahe.convertTo(lumaClahe, -1, scaleFactor, 0.0)
+            }
+
             lumaClahe.copyTo(channels[0])
             Core.merge(channels, labMat)
             Imgproc.cvtColor(labMat, srcRgb, Imgproc.COLOR_Lab2RGB)
