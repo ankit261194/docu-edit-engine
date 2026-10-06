@@ -2248,7 +2248,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         bgColor: Int? = null,
         fontSize: Float = 36f,
         isBold: Boolean = true,
-        isItalic: Boolean = false
+        isItalic: Boolean = false,
+        fontFamily: String = "Sans-Serif"
     ) {
         val existing = _uiState.value.editingTextLayer
         val bmp = DocumentCanvasLayer.createTypographyBitmap(
@@ -2257,7 +2258,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             backgroundColor = bgColor,
             fontSize = fontSize,
             isBold = isBold,
-            isItalic = isItalic
+            isItalic = isItalic,
+            fontFamily = fontFamily
         )
 
         if (existing != null) {
@@ -2271,7 +2273,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             backgroundColor = bgColor,
                             fontSize = fontSize,
                             isBold = isBold,
-                            isItalic = isItalic
+                            isItalic = isItalic,
+                            fontFamily = fontFamily
                         )
                     } else layer
                 }
@@ -2303,7 +2306,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 backgroundColor = bgColor,
                 fontSize = fontSize,
                 isBold = isBold,
-                isItalic = isItalic
+                isItalic = isItalic,
+                fontFamily = fontFamily
             )
             _uiState.update {
                 it.copy(

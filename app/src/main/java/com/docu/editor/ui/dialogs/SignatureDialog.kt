@@ -672,23 +672,61 @@ private fun SignatureDrawingPad(
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val strokeWidthPx = penThickness.dp.toPx()
                 for (stroke in strokes) {
-                    for (i in 0 until stroke.size - 1) {
-                        drawLine(
+                    if (stroke.size == 1) {
+                        drawCircle(
                             color = selectedColor,
-                            start = stroke[i],
-                            end = stroke[i + 1],
-                            strokeWidth = strokeWidthPx,
-                            cap = StrokeCap.Round
+                            radius = strokeWidthPx / 2f,
+                            center = stroke[0]
+                        )
+                    } else if (stroke.size > 1) {
+                        val composePath = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(stroke[0].x, stroke[0].y)
+                            for (i in 1 until stroke.size) {
+                                val prev = stroke[i - 1]
+                                val curr = stroke[i]
+                                val midX = (prev.x + curr.x) / 2f
+                                val midY = (prev.y + curr.y) / 2f
+                                quadraticTo(prev.x, prev.y, midX, midY)
+                            }
+                            lineTo(stroke.last().x, stroke.last().y)
+                        }
+                        drawPath(
+                            path = composePath,
+                            color = selectedColor,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = strokeWidthPx,
+                                cap = StrokeCap.Round,
+                                join = androidx.compose.ui.graphics.StrokeJoin.Round
+                            )
                         )
                     }
                 }
-                for (i in 0 until currentStroke.size - 1) {
-                    drawLine(
+                if (currentStroke.size == 1) {
+                    drawCircle(
                         color = selectedColor,
-                        start = currentStroke[i],
-                        end = currentStroke[i + 1],
-                        strokeWidth = strokeWidthPx,
-                        cap = StrokeCap.Round
+                        radius = strokeWidthPx / 2f,
+                        center = currentStroke[0]
+                    )
+                } else if (currentStroke.size > 1) {
+                    val composePath = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(currentStroke[0].x, currentStroke[0].y)
+                        for (i in 1 until currentStroke.size) {
+                            val prev = currentStroke[i - 1]
+                            val curr = currentStroke[i]
+                            val midX = (prev.x + curr.x) / 2f
+                            val midY = (prev.y + curr.y) / 2f
+                            quadraticTo(prev.x, prev.y, midX, midY)
+                        }
+                        lineTo(currentStroke.last().x, currentStroke.last().y)
+                    }
+                    drawPath(
+                        path = composePath,
+                        color = selectedColor,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = strokeWidthPx,
+                            cap = StrokeCap.Round,
+                            join = androidx.compose.ui.graphics.StrokeJoin.Round
+                        )
                     )
                 }
             }
@@ -774,11 +812,31 @@ private fun SignatureDrawingPad(
 
                         val path = android.graphics.Path()
                         for (stroke in strokes) {
-                            if (stroke.isNotEmpty()) {
-                                path.moveTo(stroke[0].x * scale + offsetX, stroke[0].y * scale + offsetY)
+                            if (stroke.size == 1) {
+                                val pt = stroke[0]
+                                c.drawCircle(
+                                    pt.x * scale + offsetX,
+                                    pt.y * scale + offsetY,
+                                    penThickness * scale * 0.5f,
+                                    paint
+                                )
+                            } else if (stroke.size > 1) {
+                                val startX = stroke[0].x * scale + offsetX
+                                val startY = stroke[0].y * scale + offsetY
+                                path.moveTo(startX, startY)
                                 for (i in 1 until stroke.size) {
-                                    path.lineTo(stroke[i].x * scale + offsetX, stroke[i].y * scale + offsetY)
+                                    val prev = stroke[i - 1]
+                                    val curr = stroke[i]
+                                    val x1 = prev.x * scale + offsetX
+                                    val y1 = prev.y * scale + offsetY
+                                    val x2 = curr.x * scale + offsetX
+                                    val y2 = curr.y * scale + offsetY
+                                    val midX = (x1 + x2) / 2f
+                                    val midY = (y1 + y2) / 2f
+                                    path.quadTo(x1, y1, midX, midY)
                                 }
+                                val last = stroke.last()
+                                path.lineTo(last.x * scale + offsetX, last.y * scale + offsetY)
                             }
                         }
                         c.drawPath(path, paint)

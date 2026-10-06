@@ -7,7 +7,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 
-enum class CanvaBadgeType(val title: String, val colorRgb: Int) {
+enum class CanvaBadgeType(val title: String, val colorRgb: Int, val isCircular: Boolean = false) {
     APPROVED("APPROVED", Color.rgb(5, 150, 105)),
     CONFIDENTIAL("CONFIDENTIAL", Color.rgb(220, 38, 38)),
     PAID("PAID", Color.rgb(37, 99, 235)),
@@ -15,11 +15,51 @@ enum class CanvaBadgeType(val title: String, val colorRgb: Int) {
     URGENT("URGENT", Color.rgb(234, 88, 12)),
     DRAFT("DRAFT", Color.rgb(100, 116, 139)),
     REJECTED("REJECTED", Color.rgb(185, 28, 28)),
-    OFFICIAL_SEAL("OFFICIAL", Color.rgb(180, 83, 9))
+    OFFICIAL_SEAL("OFFICIAL SEAL", Color.rgb(180, 83, 9), true)
 }
 
 object CanvaStickersGenerator {
     fun createBadgeBitmap(type: CanvaBadgeType): Bitmap {
+        if (type.isCircular) {
+            val size = 320
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            val center = size / 2f
+
+            val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = type.colorRgb
+                style = Paint.Style.STROKE
+                strokeWidth = 8f
+            }
+
+            // Outer thick circle
+            canvas.drawCircle(center, center, center - 14f, strokePaint)
+
+            // Inner circle
+            strokePaint.strokeWidth = 3f
+            canvas.drawCircle(center, center, center - 26f, strokePaint)
+
+            // Innermost circle
+            strokePaint.strokeWidth = 2f
+            canvas.drawCircle(center, center, center - 64f, strokePaint)
+
+            val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = type.colorRgb
+                style = Paint.Style.FILL
+                textSize = 36f
+                typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+                textAlign = Paint.Align.CENTER
+                letterSpacing = 0.12f
+            }
+
+            val yPos = center - ((textPaint.descent() + textPaint.ascent()) / 2f)
+            canvas.drawText("OFFICIAL", center, yPos - 16f, textPaint)
+            textPaint.textSize = 24f
+            canvas.drawText("★ SEAL ★", center, yPos + 22f, textPaint)
+
+            return bitmap
+        }
+
         val width = 480
         val height = 200
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)

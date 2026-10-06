@@ -55,8 +55,11 @@ object StampExtractor {
             Imgproc.morphologyEx(finalMask, finalMask, Imgproc.MORPH_CLOSE, kernel)
             kernel.release()
 
-            val maskBytes = ByteArray((finalMask.total() * finalMask.channels()).toInt())
-            finalMask.get(0, 0, maskBytes)
+            val smoothMask = Mat()
+            Imgproc.GaussianBlur(finalMask, smoothMask, org.opencv.core.Size(3.0, 3.0), 0.8)
+            val maskBytes = ByteArray((smoothMask.total() * smoothMask.channels()).toInt())
+            smoothMask.get(0, 0, maskBytes)
+            smoothMask.release()
 
             val width = sourceBitmap.width
             val height = sourceBitmap.height
@@ -65,9 +68,10 @@ object StampExtractor {
 
             val outPixels = IntArray(width * height)
             for (i in pixels.indices) {
-                val isStamp = (maskBytes[i].toInt() and 0xFF) > 128
-                if (isStamp) {
-                    outPixels[i] = pixels[i] // Preserve original stamp ink color & texture
+                val alpha = maskBytes[i].toInt() and 0xFF
+                if (alpha > 12) {
+                    val orig = pixels[i]
+                    outPixels[i] = (alpha shl 24) or (orig and 0x00FFFFFF)
                 } else {
                     outPixels[i] = Color.TRANSPARENT
                 }

@@ -30,7 +30,7 @@ import com.docu.editor.domain.model.DocumentCanvasLayer
 @Composable
 fun EditTextLayerDialog(
     initialLayer: DocumentCanvasLayer? = null,
-    onConfirm: (text: String, textColor: Int, bgColor: Int?, fontSize: Float, isBold: Boolean, isItalic: Boolean) -> Unit,
+    onConfirm: (text: String, textColor: Int, bgColor: Int?, fontSize: Float, isBold: Boolean, isItalic: Boolean, fontFamily: String) -> Unit,
     onDismiss: () -> Unit
 ) {
     var text by remember { mutableStateOf(initialLayer?.text?.ifBlank { "Sample Heading" } ?: "Sample Heading") }
@@ -39,6 +39,7 @@ fun EditTextLayerDialog(
     var fontSize by remember { mutableFloatStateOf(initialLayer?.fontSize ?: 36f) }
     var isBold by remember { mutableStateOf(initialLayer?.isBold ?: true) }
     var isItalic by remember { mutableStateOf(initialLayer?.isItalic ?: false) }
+    var selectedFontFamily by remember { mutableStateOf(initialLayer?.fontFamily ?: "Sans-Serif") }
 
     val colorPalette = listOf(
         AndroidColor.BLACK to "Black",
@@ -104,6 +105,12 @@ fun EditTextLayerDialog(
                         modifier = Modifier.fillMaxSize().padding(8.dp),
                         contentAlignment = Alignment.Center
                     ) {
+                        val composeFamily = when (selectedFontFamily) {
+                            "Serif" -> androidx.compose.ui.text.font.FontFamily.Serif
+                            "Monospace" -> androidx.compose.ui.text.font.FontFamily.Monospace
+                            "Cursive" -> androidx.compose.ui.text.font.FontFamily.Cursive
+                            else -> androidx.compose.ui.text.font.FontFamily.SansSerif
+                        }
                         Surface(
                             color = selectedBgColor?.let { Color(it) } ?: Color.Transparent,
                             shape = RoundedCornerShape(12.dp),
@@ -115,6 +122,7 @@ fun EditTextLayerDialog(
                                 fontSize = (fontSize * 0.55f).coerceIn(14f, 26f).sp,
                                 fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
                                 fontStyle = if (isItalic) FontStyle.Italic else FontStyle.Normal,
+                                fontFamily = composeFamily,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.padding(
                                     horizontal = if (selectedBgColor != null) 16.dp else 4.dp,
@@ -136,6 +144,40 @@ fun EditTextLayerDialog(
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Font Family Selector
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("Font Style", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf("Sans-Serif", "Serif", "Monospace", "Cursive").forEach { family ->
+                            val isSelected = selectedFontFamily == family
+                            Surface(
+                                color = if (isSelected) Color(0xFFEEF2FF) else Color(0xFFF8FAFC),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isSelected) Color(0xFF6366F1) else Color(0xFFE2E8F0)
+                                ),
+                                modifier = Modifier
+                                    .clickable { selectedFontFamily = family }
+                            ) {
+                                Text(
+                                    text = family,
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) Color(0xFF4338CA) else Color(0xFF64748B),
+                                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -238,7 +280,7 @@ fun EditTextLayerDialog(
                 // Confirm Button
                 Button(
                     onClick = {
-                        onConfirm(text, selectedTextColor, selectedBgColor, fontSize, isBold, isItalic)
+                        onConfirm(text, selectedTextColor, selectedBgColor, fontSize, isBold, isItalic, selectedFontFamily)
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1)),
                     shape = RoundedCornerShape(14.dp),

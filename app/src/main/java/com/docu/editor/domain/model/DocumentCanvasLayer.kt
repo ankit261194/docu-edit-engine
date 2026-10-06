@@ -28,7 +28,8 @@ data class DocumentCanvasLayer(
     val backgroundColor: Int? = null,
     val fontSize: Float = 36f,
     val isBold: Boolean = true,
-    val isItalic: Boolean = false
+    val isItalic: Boolean = false,
+    val fontFamily: String = "Sans-Serif"
 ) {
     fun hitTest(docX: Float, docY: Float): Boolean {
         val drawW = bitmap.width * scale
@@ -60,7 +61,8 @@ data class DocumentCanvasLayer(
             backgroundColor: Int? = null,
             fontSize: Float = 36f,
             isBold: Boolean = true,
-            isItalic: Boolean = false
+            isItalic: Boolean = false,
+            fontFamily: String = "Sans-Serif"
         ): Bitmap {
             val safeText = if (text.isBlank()) "Type Here" else text
 
@@ -73,7 +75,14 @@ data class DocumentCanvasLayer(
                     isItalic -> Typeface.ITALIC
                     else -> Typeface.NORMAL
                 }
-                typeface = Typeface.create(Typeface.SANS_SERIF, style)
+                val base = when (fontFamily) {
+                    "Serif" -> Typeface.SERIF
+                    "Monospace" -> Typeface.MONOSPACE
+                    "Cursive" -> Typeface.create("cursive", Typeface.NORMAL)
+                    else -> Typeface.SANS_SERIF
+                }
+                typeface = Typeface.create(base, style)
+                letterSpacing = 0.04f
             }
 
             val fontMetrics = paint.fontMetrics

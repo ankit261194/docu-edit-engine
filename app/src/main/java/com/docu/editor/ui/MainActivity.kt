@@ -1334,8 +1334,8 @@ class MainActivity : ComponentActivity() {
                         if (uiState.showEditTextLayerDialog) {
                             com.docu.editor.ui.dialogs.EditTextLayerDialog(
                                 initialLayer = uiState.editingTextLayer,
-                                onConfirm = { text, textColor, bgColor, fontSize, isBold, isItalic ->
-                                    viewModel.addOrUpdateTextLayer(text, textColor, bgColor, fontSize, isBold, isItalic)
+                                onConfirm = { text, textColor, bgColor, fontSize, isBold, isItalic, fontFamily ->
+                                    viewModel.addOrUpdateTextLayer(text, textColor, bgColor, fontSize, isBold, isItalic, fontFamily)
                                 },
                                 onDismiss = {
                                     viewModel.closeTextLayerDialog()
