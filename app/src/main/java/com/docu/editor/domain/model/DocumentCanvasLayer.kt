@@ -36,7 +36,16 @@ data class DocumentCanvasLayer(
     val shapeStrokeWidth: Float = 6f,
     val shapeFillColor: Int? = null,
     val shapeWidth: Int = 300,
-    val shapeHeight: Int = 300
+    val shapeHeight: Int = 300,
+    val isLocked: Boolean = false,
+    val flipH: Boolean = false,
+    val flipV: Boolean = false,
+    val shadowRadius: Float = 0f,
+    val shadowColor: Int = android.graphics.Color.argb(100, 0, 0, 0),
+    val cornerRadius: Float = 0f,
+    val frameType: CanvaFrameType = CanvaFrameType.NONE,
+    val textEffect: TextEffectType = TextEffectType.NONE,
+    val animationType: CanvaAnimationType = CanvaAnimationType.NONE
 ) {
     fun hitTest(docX: Float, docY: Float): Boolean {
         val drawW = bitmap.width * scale

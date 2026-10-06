@@ -58,6 +58,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale as drawScopeScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
@@ -859,12 +860,16 @@ fun DocumentInteractiveCanvas(
                     val pivot = Offset(lScreenX + lDrawW / 2f, lScreenY + lDrawH / 2f)
 
                     rotate(degrees = layer.rotation, pivot = pivot) {
-                        drawImage(
-                            image = layer.bitmap.asImageBitmap(),
-                            dstOffset = IntOffset(lScreenX.toInt(), lScreenY.toInt()),
-                            dstSize = IntSize(lDrawW, lDrawH),
-                            alpha = layer.alpha
-                        )
+                        val scaleX = if (layer.flipH) -1f else 1f
+                        val scaleY = if (layer.flipV) -1f else 1f
+                        drawScopeScale(scaleX = scaleX, scaleY = scaleY, pivot = pivot) {
+                            drawImage(
+                                image = layer.bitmap.asImageBitmap(),
+                                dstOffset = IntOffset(lScreenX.toInt(), lScreenY.toInt()),
+                                dstSize = IntSize(lDrawW, lDrawH),
+                                alpha = layer.alpha
+                            )
+                        }
 
                         if (isSelected) {
                             val strokeW = 2.dp.toPx()

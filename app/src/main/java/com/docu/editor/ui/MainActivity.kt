@@ -555,7 +555,14 @@ class MainActivity : ComponentActivity() {
                                 onToggleCloudAiEraser = { viewModel.toggleCloudAiEraser() },
                                 onOpenCloudAiSettings = { viewModel.showCloudAiSettingsDialog(true) },
                                 onApplyShadowRemover = { viewModel.applyFilter(com.docu.editor.domain.model.DocumentFilterMode.SHADOW_REMOVER) },
-                                onApplyFingerRemover = { viewModel.applyFilter(com.docu.editor.domain.model.DocumentFilterMode.FINGER_REMOVER) }
+                                onApplyFingerRemover = { viewModel.applyFilter(com.docu.editor.domain.model.DocumentFilterMode.FINGER_REMOVER) },
+                                onCanvaMockupsClicked = { viewModel.showCanvaMockupsDialog(true) },
+                                onCanvaTextStudioClicked = { viewModel.showCanvaTextStudioDialog(true) },
+                                onCanvaBrandKitClicked = { viewModel.showCanvaBrandKitDialog(true) },
+                                onCanvaMagicStudioClicked = { viewModel.showCanvaMagicStudioDialog(true) },
+                                onCanvaAdjustClicked = { viewModel.showCanvaAdjustDialog(true) },
+                                onCanvaAnimateClicked = { viewModel.showCanvaAnimateDialog(true) },
+                                onCanvaLayersClicked = { viewModel.showCanvaLayersDialog(true) }
                             )
                         }
                     }
@@ -1408,6 +1415,110 @@ class MainActivity : ComponentActivity() {
                                 onDismiss = {
                                     viewModel.showBackgroundRemovalDialog(false)
                                 }
+                            )
+                        }
+
+                        // Canva Pro Frames & 3D Mockups Dialog
+                        if (uiState.showCanvaMockupsDialog) {
+                            com.docu.editor.ui.dialogs.CanvaMockupsFramesDialog(
+                                onFrameSelected = { frameType ->
+                                    viewModel.applyCanvaFrame(frameType)
+                                },
+                                onDismiss = {
+                                    viewModel.showCanvaMockupsDialog(false)
+                                }
+                            )
+                        }
+
+                        // Canva Pro Text Studio & Magic Write Dialog
+                        if (uiState.showCanvaTextStudioDialog) {
+                            com.docu.editor.ui.dialogs.CanvaTextStudioDialog(
+                                onAddTextLayer = { text, colorRgb, fontSize, isBold, isItalic, fontFamily, effect ->
+                                    viewModel.addStyledTextLayer(text, colorRgb, fontSize, isBold, isItalic, fontFamily, effect)
+                                },
+                                onDismiss = {
+                                    viewModel.showCanvaTextStudioDialog(false)
+                                }
+                            )
+                        }
+
+                        // Canva Pro Brand Kit Dialog
+                        if (uiState.showCanvaBrandKitDialog) {
+                            com.docu.editor.ui.dialogs.CanvaBrandKitDialog(
+                                currentPaletteId = uiState.activeBrandPaletteId,
+                                onApplyPalette = { palette ->
+                                    viewModel.applyBrandPalette(palette)
+                                },
+                                onDismiss = {
+                                    viewModel.showCanvaBrandKitDialog(false)
+                                }
+                            )
+                        }
+
+                        // Canva Pro Magic Studio Dialog
+                        if (uiState.showCanvaMagicStudioDialog) {
+                            com.docu.editor.ui.dialogs.CanvaMagicStudioDialog(
+                                onTriggerMagicEraser = { viewModel.setActiveToolMode(com.docu.editor.domain.model.EditorToolMode.MAGIC_ERASER) },
+                                onTriggerBgRemover = { viewModel.showBackgroundRemovalDialog(true) },
+                                onTriggerMagicGrab = {
+                                    val bmp = uiState.currentBitmap
+                                    if (bmp != null) {
+                                        val box = android.graphics.RectF(bmp.width * 0.25f, bmp.height * 0.25f, bmp.width * 0.75f, bmp.height * 0.75f)
+                                        viewModel.executeMagicGrab(box)
+                                    }
+                                },
+                                onTriggerGrabText = { viewModel.executeGrabText() },
+                                onTriggerFaceRetouch = { viewModel.executeFaceRetouch() },
+                                onTriggerAutofocus = { viewModel.executeAutofocusBokeh() },
+                                onTriggerUpscale = { viewModel.executeUpscaleSharpen() },
+                                onTriggerMagicExpand = { viewModel.executeMagicExpand() },
+                                onDismiss = { viewModel.showCanvaMagicStudioDialog(false) }
+                            )
+                        }
+
+                        // Canva Pro Adjust Dialog
+                        if (uiState.showCanvaAdjustDialog) {
+                            com.docu.editor.ui.dialogs.CanvaAdjustDialog(
+                                initialPreset = uiState.activeStyleMatchPreset,
+                                onApplyAdjustments = { b, c, s, w, t, cl, v, bl, preset ->
+                                    viewModel.applyCanvaAdjustments(b, c, s, w, t, cl, v, bl, preset)
+                                },
+                                onDismiss = {
+                                    viewModel.showCanvaAdjustDialog(false)
+                                }
+                            )
+                        }
+
+                        // Canva Pro Animate Dialog
+                        if (uiState.showCanvaAnimateDialog) {
+                            com.docu.editor.ui.dialogs.CanvaAnimateDialog(
+                                currentAnimation = uiState.activeAnimationType,
+                                onApplyAnimation = { anim ->
+                                    viewModel.applyCanvaAnimation(anim)
+                                },
+                                onDismiss = {
+                                    viewModel.showCanvaAnimateDialog(false)
+                                }
+                            )
+                        }
+
+                        // Canva Pro Layers Dialog
+                        if (uiState.showCanvaLayersDialog) {
+                            com.docu.editor.ui.dialogs.CanvaLayersDialog(
+                                layers = uiState.canvasLayers,
+                                selectedLayerId = uiState.selectedLayerId,
+                                onSelectLayer = { id -> viewModel.selectCanvasLayer(id) },
+                                onMoveLayerUp = { id -> viewModel.moveLayerUp(id) },
+                                onMoveLayerDown = { id -> viewModel.moveLayerDown(id) },
+                                onBringToFront = { id -> viewModel.bringLayerToFront(id) },
+                                onSendToBack = { id -> viewModel.sendLayerToBack(id) },
+                                onToggleLock = { id -> viewModel.toggleLayerLock(id) },
+                                onToggleFlipH = { id -> viewModel.toggleLayerFlipH(id) },
+                                onToggleFlipV = { id -> viewModel.toggleLayerFlipV(id) },
+                                onUpdateOpacity = { id, alpha -> viewModel.updateLayerOpacity(id, alpha) },
+                                onDuplicateLayer = { id -> viewModel.duplicateLayer(id) },
+                                onDeleteLayer = { id -> viewModel.deleteLayer(id) },
+                                onDismiss = { viewModel.showCanvaLayersDialog(false) }
                             )
                         }
                     }

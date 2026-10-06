@@ -132,7 +132,17 @@ data class DocumentEditorUiState(
     val selectedLayerId: String? = null,
     val showEditTextLayerDialog: Boolean = false,
     val editingTextLayer: DocumentCanvasLayer? = null,
-    val showBackgroundRemovalDialog: Boolean = false
+    val showBackgroundRemovalDialog: Boolean = false,
+    val showCanvaMockupsDialog: Boolean = false,
+    val showCanvaTextStudioDialog: Boolean = false,
+    val showCanvaBrandKitDialog: Boolean = false,
+    val showCanvaMagicStudioDialog: Boolean = false,
+    val showCanvaAdjustDialog: Boolean = false,
+    val showCanvaAnimateDialog: Boolean = false,
+    val showCanvaLayersDialog: Boolean = false,
+    val activeBrandPaletteId: String = "canva_signature",
+    val activeAnimationType: CanvaAnimationType = CanvaAnimationType.NONE,
+    val activeStyleMatchPreset: CanvaStyleMatchPreset = CanvaStyleMatchPreset.NONE
 ) {
     val selectedLayer: DocumentCanvasLayer?
         get() = canvasLayers.firstOrNull { it.id == selectedLayerId }

@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.RotateRight
+import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Block
@@ -29,15 +30,20 @@ import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Compress
+import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FilterFrames
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.ViewInAr
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
@@ -67,17 +73,21 @@ import com.docu.editor.domain.model.EditorToolMode
 import com.docu.editor.domain.model.ShapeType
 
 enum class EditorCategory(val label: String, val icon: ImageVector) {
+    ELEMENTS("Elements", Icons.Default.Category),
+    TEXT("Text", Icons.Default.TextFields),
+    MAGIC("Magic", Icons.Default.AutoAwesome),
+    ADJUST("Adjust", Icons.Default.Tune),
+    BRAND("Brand", Icons.Default.Palette),
+    LAYERS("Layers", Icons.Default.Layers),
+    ANIMATE("Animate", Icons.Default.Animation),
     ENHANCE("Enhance", Icons.Default.AutoFixHigh),
-    CLEAN("Clean", Icons.Default.AutoAwesome),
-    ANNOTATE("Annotate", Icons.Default.Edit),
     TOOLS("Tools", Icons.Default.Description)
 }
 
 /**
- * Premium CamScanner-Grade Document Bottom Bar Dock.
- * Categorized, clean, 2-tier design eliminating cluttered 20-tool horizontal scrolling:
- * Tier 1: Category Navigation (Enhance | Clean | Annotate | Tools + Export)
- * Tier 2: Category-Specific Action Tools & Interactive Sliders
+ * Canva Pro Flagship Obsidian Studio Bottom Dock.
+ * Highly responsive, categorized multi-tab dock with glassmorphic accents,
+ * contextual tool tuning sub-bars, and 1-tap Pro feature triggers.
  */
 @Composable
 fun DocumentBottomBar(
@@ -132,28 +142,35 @@ fun DocumentBottomBar(
     onToggleCloudAiEraser: () -> Unit = {},
     onOpenCloudAiSettings: () -> Unit = {},
     onApplyShadowRemover: () -> Unit = {},
-    onApplyFingerRemover: () -> Unit = {}
+    onApplyFingerRemover: () -> Unit = {},
+    onCanvaMockupsClicked: () -> Unit = {},
+    onCanvaTextStudioClicked: () -> Unit = {},
+    onCanvaBrandKitClicked: () -> Unit = {},
+    onCanvaMagicStudioClicked: () -> Unit = {},
+    onCanvaAdjustClicked: () -> Unit = {},
+    onCanvaAnimateClicked: () -> Unit = {},
+    onCanvaLayersClicked: () -> Unit = {}
 ) {
     var brightness by remember { mutableFloatStateOf(0f) }
     var contrast by remember { mutableFloatStateOf(1f) }
 
-    // Smart Category Auto-Selection based on active mode
     var activeCategory by remember(activeMode, showFiltersRow) {
         mutableStateOf(
             when {
                 showFiltersRow || activeMode == EditorToolMode.FILTERS -> EditorCategory.ENHANCE
-                activeMode in listOf(EditorToolMode.MAGIC_ERASER, EditorToolMode.WHITEOUT, EditorToolMode.REDACTION, EditorToolMode.LASSO_SELECT) -> EditorCategory.CLEAN
-                activeMode in listOf(EditorToolMode.ADD_TEXT, EditorToolMode.TEXT_EDIT, EditorToolMode.SHAPES, EditorToolMode.HIGHLIGHTER, EditorToolMode.MARKUP_PEN) -> EditorCategory.ANNOTATE
-                else -> EditorCategory.ENHANCE
+                activeMode in listOf(EditorToolMode.MAGIC_ERASER, EditorToolMode.WHITEOUT, EditorToolMode.REDACTION, EditorToolMode.LASSO_SELECT) -> EditorCategory.MAGIC
+                activeMode in listOf(EditorToolMode.ADD_TEXT, EditorToolMode.TEXT_EDIT) -> EditorCategory.TEXT
+                activeMode == EditorToolMode.SHAPES -> EditorCategory.ELEMENTS
+                else -> EditorCategory.ELEMENTS
             }
         )
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 16.dp,
-        shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        color = Color(0xFF11131C),
+        shadowElevation = 20.dp,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        border = BorderStroke(1.dp, Color(0xFF26293A)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -161,9 +178,11 @@ fun DocumentBottomBar(
                 .fillMaxWidth()
                 .padding(vertical = 10.dp)
         ) {
-            // Contextual Control Sub-Bars (Only visible when active tool requires fine-tuning)
+            // =========================================================================
+            // 1. Contextual Control Sub-Bars (Visible when fine-tuning active mode)
+            // =========================================================================
 
-            // 1. Magic Filters Row & Sliders
+            // Magic Filters Row
             AnimatedVisibility(visible = showFiltersRow || activeMode == EditorToolMode.FILTERS) {
                 Column(
                     modifier = Modifier
@@ -199,7 +218,7 @@ fun DocumentBottomBar(
                                     }
                                     Text(
                                         text = chipText,
-                                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                        color = if (isSelected) Color.White else Color(0xFF94A3B8),
                                         fontSize = 12.sp,
                                         fontWeight = if (isSelected || isMagicColor) FontWeight.Bold else FontWeight.SemiBold
                                     )
@@ -215,8 +234,8 @@ fun DocumentBottomBar(
                                     }
                                 } else null,
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = if (isMagicColor) Color(0xFF059669) else Color(0xFF2563EB),
-                                    containerColor = if (isMagicColor) Color(0xFFD1FAE5) else MaterialTheme.colorScheme.surfaceVariant
+                                    selectedContainerColor = if (isMagicColor) Color(0xFF059669) else Color(0xFF8B5CF6),
+                                    containerColor = Color(0xFF1E2130)
                                 ),
                                 shape = RoundedCornerShape(10.dp)
                             )
@@ -234,7 +253,7 @@ fun DocumentBottomBar(
                             text = "Bright: ${(brightness * 100).toInt()}%",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = Color(0xFF94A3B8)
                         )
                         Slider(
                             value = brightness,
@@ -248,484 +267,274 @@ fun DocumentBottomBar(
                                 .padding(horizontal = 6.dp),
                             colors = SliderDefaults.colors(
                                 thumbColor = Color(0xFF059669),
-                                activeTrackColor = Color(0xFF059669)
-                            )
-                        )
-                        Text(
-                            text = "Contrast: ${(contrast * 100).toInt()}%",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Slider(
-                            value = contrast,
-                            onValueChange = {
-                                contrast = it
-                                onBrightnessContrastChanged(brightness, contrast)
-                            },
-                            valueRange = 0.5f..2.0f,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 6.dp),
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFF059669),
-                                activeTrackColor = Color(0xFF059669)
+                                activeTrackColor = Color(0xFF059669),
+                                inactiveTrackColor = Color(0xFF2A2D3D)
                             )
                         )
                     }
                 }
             }
 
-            // 2. Whiteout Eraser Brush Slider
-            AnimatedVisibility(visible = activeMode == EditorToolMode.WHITEOUT) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            // Shapes Selector & Config Sub-Bar
+            AnimatedVisibility(visible = activeMode == EditorToolMode.SHAPES) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ShapeType.entries.forEach { shape ->
+                            val isSel = (shape == selectedShapeType)
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { onShapeTypeSelected(shape) },
+                                label = { Text(shape.displayName, fontSize = 11.5.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Color(0xFF8B5CF6),
+                                    selectedLabelColor = Color.White,
+                                    containerColor = Color(0xFF1E2130),
+                                    labelColor = Color(0xFF94A3B8)
+                                )
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Whiteout Brush: ${whiteoutBrushRadius.toInt()}px",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Slider(
-                            value = whiteoutBrushRadius,
-                            onValueChange = onWhiteoutBrushRadiusChanged,
-                            valueRange = 8f..60f,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 8.dp),
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFF059669),
-                                activeTrackColor = Color(0xFF059669)
-                            )
-                        )
-                    }
-                }
-            }
-
-            // 3. Magic Eraser Brush Slider & Cloud AI Pill Toggle
-            AnimatedVisibility(visible = activeMode == EditorToolMode.MAGIC_ERASER) {
-                Surface(
-                    color = Color(0xFF047857).copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFF059669).copy(alpha = 0.4f)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                        Button(
+                            onClick = { onAddShapeLayerClicked(selectedShapeType) },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
+                            modifier = Modifier.height(34.dp)
                         ) {
-                            Text(
-                                text = "🪄 Eraser Brush: ${magicEraserBrushRadius.toInt()}px",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF047857)
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isCloudAiEraserEnabled && hasGeminiApiKey) Color(0xFF059669) else Color(0xFF334155),
-                                modifier = Modifier.clickable {
-                                    if (hasGeminiApiKey) {
-                                        onToggleCloudAiEraser()
-                                    } else {
-                                        onOpenCloudAiSettings()
-                                    }
-                                }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = if (isCloudAiEraserEnabled && hasGeminiApiKey) Icons.Default.AutoAwesome else Icons.Default.AutoFixHigh,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = if (isCloudAiEraserEnabled && hasGeminiApiKey) "✨ Cloud AI Inpaint" else "⚡ Fast Offline (Tap for AI)",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                }
-                            }
+                            Text("+ Add as Moveable Layer", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
                         }
-                        Slider(
-                            value = magicEraserBrushRadius,
-                            onValueChange = onMagicEraserBrushRadiusChanged,
-                            valueRange = 8f..60f,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color(0xFF059669),
-                                activeTrackColor = Color(0xFF10B981)
-                            )
-                        )
-                    }
-                }
-            }
 
-            // 4. Highlighter Sub-Bar: Color Palette + Width Slider
-            AnimatedVisibility(visible = activeMode == EditorToolMode.HIGHLIGHTER) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("🖍️ Highlighter Color:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                val hlColors = listOf(
-                                    Pair("Yellow", android.graphics.Color.rgb(255, 235, 59)),
-                                    Pair("Green", android.graphics.Color.rgb(132, 204, 22)),
-                                    Pair("Pink", android.graphics.Color.rgb(244, 63, 94)),
-                                    Pair("Cyan", android.graphics.Color.rgb(14, 165, 233))
-                                )
-                                hlColors.forEach { (_, rgb) ->
-                                    val isCur = markupColorRgb == rgb
-                                    Box(
-                                        modifier = Modifier
-                                            .size(24.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(rgb))
-                                            .border(if (isCur) 2.5.dp else 1.dp, if (isCur) Color.Black else Color.Gray, CircleShape)
-                                            .clickable { onMarkupColorChanged(rgb) }
-                                    )
-                                }
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Width: ${markupStrokeWidth.toInt()}px", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
-                            Slider(
-                                value = markupStrokeWidth,
-                                onValueChange = onMarkupStrokeWidthChanged,
-                                valueRange = 10f..60f,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = 8.dp),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = Color(0xFFF59E0B),
-                                    activeTrackColor = Color(0xFFF59E0B)
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 5. Pen Drawing Sub-Bar
-            AnimatedVisibility(visible = activeMode == EditorToolMode.MARKUP_PEN) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("✏️ Pen Color:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                val penColors = listOf(
-                                    Pair("Red", android.graphics.Color.rgb(220, 38, 38)),
-                                    Pair("Blue", android.graphics.Color.rgb(37, 99, 235)),
-                                    Pair("Black", android.graphics.Color.rgb(15, 23, 42)),
-                                    Pair("Green", android.graphics.Color.rgb(22, 163, 74))
-                                )
-                                penColors.forEach { (_, rgb) ->
-                                    val isCur = penColorRgb == rgb
-                                    Box(
-                                        modifier = Modifier
-                                            .size(24.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(rgb))
-                                            .border(if (isCur) 2.5.dp else 1.dp, if (isCur) Color.White else Color.Gray, CircleShape)
-                                            .clickable { onPenColorChanged(rgb) }
-                                    )
-                                }
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Pen Size: ${penStrokeWidth.toInt()}px", fontSize = 11.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
-                            Slider(
-                                value = penStrokeWidth,
-                                onValueChange = onPenStrokeWidthChanged,
-                                valueRange = 2f..16f,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = 8.dp),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = Color(0xFFDC2626),
-                                    activeTrackColor = Color(0xFFDC2626)
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 6. Shapes Sub-Bar (Canva Pro Vector Shapes)
-            AnimatedVisibility(visible = activeMode == EditorToolMode.SHAPES) {
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                ) {
-                    Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                        // Shapes selector row (horizontal scroll)
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Shape:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            ShapeType.values().forEach { type ->
-                                val isCur = selectedShapeType == type
+                            listOf(
+                                Color(0xFFDC2626),
+                                Color(0xFF2563EB),
+                                Color(0xFF059669),
+                                Color(0xFFF59E0B),
+                                Color(0xFF8B5CF6),
+                                Color.Black,
+                                Color.White
+                            ).forEach { color ->
+                                val rgb = android.graphics.Color.rgb(
+                                    (color.red * 255).toInt(),
+                                    (color.green * 255).toInt(),
+                                    (color.blue * 255).toInt()
+                                )
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(if (isCur) Color(0xFF059669) else MaterialTheme.colorScheme.surface)
-                                        .border(1.dp, if (isCur) Color(0xFF059669) else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
-                                        .clickable { onShapeTypeSelected(type) }
-                                        .padding(horizontal = 8.dp, vertical = 5.dp)
-                                ) {
-                                    Text(
-                                        text = "${type.icon} ${type.displayName}",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isCur) Color.White else MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Controls row: Stroke color, Fill color, Add Button
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Stroke Color Palette
-                            Text("Border:", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                            val strokeColors = listOf(
-                                android.graphics.Color.rgb(220, 38, 38),   // Red
-                                android.graphics.Color.rgb(37, 99, 235),   // Blue
-                                android.graphics.Color.rgb(5, 150, 105),   // Green
-                                android.graphics.Color.rgb(217, 119, 6),   // Amber
-                                android.graphics.Color.BLACK,
-                                android.graphics.Color.WHITE
-                            )
-                            strokeColors.forEach { col ->
-                                val isCur = shapeStrokeColorRgb == col
-                                Box(
-                                    modifier = Modifier
-                                        .size(20.dp)
+                                        .size(24.dp)
                                         .clip(CircleShape)
-                                        .background(Color(col))
-                                        .border(if (isCur) 2.dp else 1.dp, if (isCur) Color(0xFF059669) else Color.Gray, CircleShape)
-                                        .clickable { onShapeStrokeColorChanged(col) }
+                                        .background(color)
+                                        .border(
+                                            width = if (rgb == shapeStrokeColorRgb) 2.5.dp else 1.dp,
+                                            color = if (rgb == shapeStrokeColorRgb) Color.White else Color(0xFF475569),
+                                            shape = CircleShape
+                                        )
+                                        .clickable { onShapeStrokeColorChanged(rgb) }
                                 )
                             }
-
-                            Spacer(modifier = Modifier.width(6.dp))
-
-                            // Fill Color Palette
-                            Text("Fill:", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
-                            val fillOptions = listOf(
-                                Pair(null, "None"),
-                                Pair(android.graphics.Color.argb(120, 239, 68, 68), "Red"),
-                                Pair(android.graphics.Color.argb(120, 59, 130, 246), "Blue"),
-                                Pair(android.graphics.Color.argb(120, 16, 185, 129), "Green"),
-                                Pair(android.graphics.Color.argb(120, 245, 158, 11), "Amber"),
-                                Pair(android.graphics.Color.argb(180, 255, 255, 255), "White"),
-                                Pair(android.graphics.Color.argb(180, 0, 0, 0), "Black")
-                            )
-                            fillOptions.forEach { (col, label) ->
-                                val isCur = shapeFillColor == col
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(if (isCur) Color(0xFF059669) else Color(col ?: android.graphics.Color.TRANSPARENT))
-                                        .border(1.dp, if (isCur) Color(0xFF059669) else Color.Gray, RoundedCornerShape(4.dp))
-                                        .clickable { onShapeFillColorChanged(col) }
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text(label, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (isCur) Color.White else MaterialTheme.colorScheme.onSurface)
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.width(6.dp))
-
-                            // Add Shape Layer Button
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(Color(0xFF059669))
-                                    .clickable { onAddShapeLayerClicked(selectedShapeType) }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Text("+ Add Layer", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                            }
                         }
                     }
                 }
             }
 
-            // 7. Redaction Sub-Bar
-            AnimatedVisibility(visible = activeMode == EditorToolMode.REDACTION) {
-                Surface(
-                    color = Color(0xFF0F172A),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFF334155)),
+            // Eraser Brush Sub-Bar
+            AnimatedVisibility(visible = activeMode == EditorToolMode.MAGIC_ERASER) {
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
+                    Text("Brush: ${magicEraserBrushRadius.toInt()}px", fontSize = 12.sp, color = Color(0xFF94A3B8))
+                    Slider(
+                        value = magicEraserBrushRadius,
+                        onValueChange = onMagicEraserBrushRadiusChanged,
+                        valueRange = 10f..80f,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Block, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Blackout Redaction",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        }
-                        Text(
-                            text = "Drag box or tap to censor",
-                            fontSize = 11.sp,
-                            color = Color(0xFFFCA5A5)
+                            .weight(1f)
+                            .padding(horizontal = 8.dp),
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFFF59E0B),
+                            activeTrackColor = Color(0xFFF59E0B),
+                            inactiveTrackColor = Color(0xFF2A2D3D)
                         )
-                    }
+                    )
                 }
             }
 
-            // 8. Lasso Selection Action Strip
-            AnimatedVisibility(visible = activeMode == EditorToolMode.LASSO_SELECT && selectedLassoCount > 0) {
-                Surface(
-                    color = Color(0xFFEFF6FF),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Color(0xFFBFDBFE)),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            "$selectedLassoCount blocks selected",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1D4ED8)
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = onMergeEditLasso,
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                                modifier = Modifier.height(32.dp)
-                            ) {
-                                Text("Merge & Edit", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Button(
-                                onClick = onWhiteoutLasso,
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
-                                modifier = Modifier.height(32.dp)
-                            ) {
-                                Text("Erase All", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Button(
-                                onClick = onClearLasso,
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF94A3B8)),
-                                modifier = Modifier.height(32.dp)
-                            ) {
-                                Text("Clear", fontSize = 11.sp)
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Tier 1: Dedicated Category Tools Row (Clean, Smooth, Contextual)
+            // =========================================================================
+            // 2. Action Tools Row (Changes dynamically based on active Category)
+            // =========================================================================
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 when (activeCategory) {
-                    EditorCategory.ENHANCE -> {
+                    EditorCategory.ELEMENTS -> {
                         ToolDockButton(
-                            icon = Icons.Default.Crop,
-                            label = "4-Corner Crop",
-                            isSelected = false,
-                            onClick = onInteractiveCropClicked
+                            icon = Icons.Default.Category,
+                            label = "14 Shapes",
+                            isSelected = activeMode == EditorToolMode.SHAPES,
+                            onClick = { onModeSelected(EditorToolMode.SHAPES) }
                         )
+                        ToolDockButton(
+                            icon = Icons.Default.FilterFrames,
+                            label = "Frames & 3D",
+                            isSelected = false,
+                            onClick = onCanvaMockupsClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Security,
+                            label = "Stickers & Seals",
+                            isSelected = false,
+                            onClick = onCanvaStickersClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.ViewInAr,
+                            label = "Insert Photo",
+                            isSelected = false,
+                            onClick = onInsertImageClicked
+                        )
+                    }
+
+                    EditorCategory.TEXT -> {
+                        ToolDockButton(
+                            icon = Icons.Default.TextFields,
+                            label = "Text Studio",
+                            isSelected = false,
+                            onClick = onCanvaTextStudioClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Edit,
+                            label = "Quick Text",
+                            isSelected = activeMode == EditorToolMode.ADD_TEXT,
+                            onClick = { onModeSelected(EditorToolMode.ADD_TEXT) }
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.AutoAwesome,
+                            label = "Magic Write",
+                            isSelected = false,
+                            onClick = onCanvaTextStudioClicked
+                        )
+                    }
+
+                    EditorCategory.MAGIC -> {
+                        ToolDockButton(
+                            icon = Icons.Default.AutoAwesome,
+                            label = "Magic Studio",
+                            isSelected = false,
+                            onClick = onCanvaMagicStudioClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.AutoFixHigh,
+                            label = "Magic Eraser",
+                            isSelected = activeMode == EditorToolMode.MAGIC_ERASER,
+                            onClick = { onModeSelected(EditorToolMode.MAGIC_ERASER) }
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.ContentCut,
+                            label = "BG Remover",
+                            isSelected = false,
+                            onClick = onBackgroundRemovalClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Clear,
+                            label = "Whiteout",
+                            isSelected = activeMode == EditorToolMode.WHITEOUT,
+                            onClick = { onModeSelected(EditorToolMode.WHITEOUT) }
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Block,
+                            label = "Redact",
+                            isSelected = activeMode == EditorToolMode.REDACTION,
+                            onClick = { onModeSelected(EditorToolMode.REDACTION) }
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.SelectAll,
+                            label = "Lasso Pick",
+                            isSelected = activeMode == EditorToolMode.LASSO_SELECT,
+                            onClick = { onModeSelected(EditorToolMode.LASSO_SELECT) }
+                        )
+                    }
+
+                    EditorCategory.ADJUST -> {
+                        ToolDockButton(
+                            icon = Icons.Default.Tune,
+                            label = "Adjust Sliders",
+                            isSelected = false,
+                            onClick = onCanvaAdjustClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.AutoFixHigh,
+                            label = "Magic Color",
+                            isSelected = activeFilter == DocumentFilterMode.MAGIC_COLOR,
+                            onClick = { onFilterSelected(DocumentFilterMode.MAGIC_COLOR) }
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Clear,
+                            label = "Erase Shadow",
+                            isSelected = false,
+                            onClick = onApplyShadowRemover
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Clear,
+                            label = "Remove Fingers",
+                            isSelected = false,
+                            onClick = onApplyFingerRemover
+                        )
+                    }
+
+                    EditorCategory.BRAND -> {
+                        ToolDockButton(
+                            icon = Icons.Default.Palette,
+                            label = "Brand Kit",
+                            isSelected = false,
+                            onClick = onCanvaBrandKitClicked
+                        )
+                    }
+
+                    EditorCategory.LAYERS -> {
+                        ToolDockButton(
+                            icon = Icons.Default.Layers,
+                            label = "Layer Stack",
+                            isSelected = false,
+                            onClick = onCanvaLayersClicked
+                        )
+                    }
+
+                    EditorCategory.ANIMATE -> {
+                        ToolDockButton(
+                            icon = Icons.Default.Animation,
+                            label = "Motion Presets",
+                            isSelected = false,
+                            onClick = onCanvaAnimateClicked
+                        )
+                    }
+
+                    EditorCategory.ENHANCE -> {
                         ToolDockButton(
                             icon = Icons.Default.AutoFixHigh,
                             label = "Filters",
@@ -739,198 +548,110 @@ fun DocumentBottomBar(
                             onClick = onRotateClicked
                         )
                         ToolDockButton(
-                            icon = Icons.AutoMirrored.Filled.MenuBook,
-                            label = "Book Dewarp",
-                            isSelected = false,
-                            onClick = onBookDewarpClicked
-                        )
-                    }
-                    EditorCategory.CLEAN -> {
-                        ToolDockButton(
-                            icon = Icons.Default.Layers,
-                            label = "BG Eraser",
-                            isSelected = false,
-                            onClick = onBackgroundRemovalClicked
-                        )
-                        ToolDockButton(
                             icon = Icons.Default.AutoAwesome,
-                            label = "Magic Eraser",
-                            isSelected = activeMode == EditorToolMode.MAGIC_ERASER,
-                            onClick = { onModeSelected(EditorToolMode.MAGIC_ERASER) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Clear,
-                            label = "Whiteout",
-                            isSelected = activeMode == EditorToolMode.WHITEOUT,
-                            onClick = { onModeSelected(EditorToolMode.WHITEOUT) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Block,
-                            label = "Blackout Redact",
-                            isSelected = activeMode == EditorToolMode.REDACTION,
-                            onClick = { onModeSelected(EditorToolMode.REDACTION) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.SelectAll,
-                            label = "Lasso Select",
-                            isSelected = activeMode == EditorToolMode.LASSO_SELECT,
-                            onClick = { onModeSelected(EditorToolMode.LASSO_SELECT) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.AutoFixHigh,
-                            label = "Shadow Fix",
-                            isSelected = activeFilter == DocumentFilterMode.SHADOW_REMOVER,
-                            onClick = onApplyShadowRemover
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Security,
-                            label = "Erase Finger",
-                            isSelected = activeFilter == DocumentFilterMode.FINGER_REMOVER,
-                            onClick = onApplyFingerRemover
+                            label = "Auto Orient",
+                            isSelected = false,
+                            onClick = onAutoOrientClicked
                         )
                     }
-                    EditorCategory.ANNOTATE -> {
+
+                    EditorCategory.TOOLS -> {
                         ToolDockButton(
-                            icon = Icons.Default.Edit,
-                            label = "Add Text",
-                            isSelected = activeMode == EditorToolMode.ADD_TEXT,
-                            onClick = { onModeSelected(EditorToolMode.ADD_TEXT) }
+                            icon = Icons.Default.Crop,
+                            label = "Crop",
+                            isSelected = false,
+                            onClick = onInteractiveCropClicked
                         )
                         ToolDockButton(
                             icon = Icons.Default.Description,
-                            label = "Edit Text",
-                            isSelected = activeMode == EditorToolMode.TEXT_EDIT,
-                            onClick = { onModeSelected(EditorToolMode.TEXT_EDIT) }
+                            label = "OCR Text",
+                            isSelected = false,
+                            onClick = onExtractTextClicked
                         )
                         ToolDockButton(
-                            icon = Icons.Default.Draw,
-                            label = "Signature",
+                            icon = Icons.Default.Security,
+                            label = "Sign & Stamp",
                             isSelected = false,
                             onClick = onSignatureClicked
                         )
                         ToolDockButton(
-                            icon = Icons.Default.Security,
+                            icon = Icons.Default.Draw,
                             label = "Watermark",
                             isSelected = false,
                             onClick = onWatermarkClicked
                         )
                         ToolDockButton(
-                            icon = Icons.Default.Category,
-                            label = "Shapes",
-                            isSelected = activeMode == EditorToolMode.SHAPES,
-                            onClick = { onModeSelected(EditorToolMode.SHAPES) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.AutoFixHigh,
-                            label = "Highlighter",
-                            isSelected = activeMode == EditorToolMode.HIGHLIGHTER,
-                            onClick = { onModeSelected(EditorToolMode.HIGHLIGHTER) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Draw,
-                            label = "Pen Draw",
-                            isSelected = activeMode == EditorToolMode.MARKUP_PEN,
-                            onClick = { onModeSelected(EditorToolMode.MARKUP_PEN) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Layers,
-                            label = "Add Photo",
+                            icon = Icons.AutoMirrored.Filled.MenuBook,
+                            label = "Book Dewarp",
                             isSelected = false,
-                            onClick = onInsertImageClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Security,
-                            label = "Badges",
-                            isSelected = false,
-                            onClick = onCanvaStickersClicked
-                        )
-                    }
-                    EditorCategory.TOOLS -> {
-                        ToolDockButton(
-                            icon = Icons.Default.Description,
-                            label = "OCR Extract",
-                            isSelected = false,
-                            onClick = onExtractTextClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Layers,
-                            label = "Pages Overview",
-                            isSelected = false,
-                            onClick = onPagesOverviewClicked
+                            onClick = onBookDewarpClicked
                         )
                         ToolDockButton(
                             icon = Icons.Default.Compress,
-                            label = "PDF Toolbox",
+                            label = "Compress",
                             isSelected = false,
                             onClick = onCompressClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Tune,
-                            label = "Target Size",
-                            isSelected = false,
-                            onClick = onTargetSizeClicked
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            // Tier 2: Category Navigation Anchor Tabs + Quick Share Button
+            // =========================================================================
+            // 3. Category Dock Navigation (Canva Style Category Dock at Bottom)
+            // =========================================================================
             Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(14.dp),
+                color = Color(0xFF161824),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color(0xFF26293A)),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
+                    .padding(horizontal = 10.dp)
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        EditorCategory.values().forEach { category ->
-                            val isSelected = activeCategory == category
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = if (isSelected) Color(0xFF059669) else Color.Transparent,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .clickable { activeCategory = category }
+                    EditorCategory.entries.forEach { category ->
+                        val isSelected = category == activeCategory
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSelected) Color(0xFF8B5CF6) else Color.Transparent,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { activeCategory = category }
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = category.icon,
-                                        contentDescription = null,
-                                        tint = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        text = category.label,
-                                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 11.5.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                                    )
-                                }
+                                Icon(
+                                    imageVector = category.icon,
+                                    contentDescription = null,
+                                    tint = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(
+                                    text = category.label,
+                                    color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
                             }
                         }
                     }
 
-                    // Quick Share / Export Pill Button
+                    // Export Button Pill
                     Surface(
                         shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFF059669).copy(alpha = 0.15f),
-                        border = BorderStroke(1.dp, Color(0xFF059669).copy(alpha = 0.4f)),
+                        color = Color(0xFF059669).copy(alpha = 0.2f),
+                        border = BorderStroke(1.dp, Color(0xFF059669)),
                         modifier = Modifier
                             .clip(RoundedCornerShape(10.dp))
                             .clickable { onExportClicked() }
@@ -942,14 +663,14 @@ fun DocumentBottomBar(
                             Icon(
                                 imageVector = Icons.Default.Share,
                                 contentDescription = "Export Document",
-                                tint = Color(0xFF059669),
+                                tint = Color(0xFF10B981),
                                 modifier = Modifier.size(15.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
                                 text = "Export",
-                                color = Color(0xFF059669),
-                                fontSize = 11.5.sp,
+                                color = Color(0xFF10B981),
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -976,22 +697,27 @@ private fun ToolDockButton(
     ) {
         Box(
             modifier = Modifier
-                .size(42.dp)
+                .size(44.dp)
                 .clip(CircleShape)
-                .background(if (isSelected) Color(0xFF059669) else MaterialTheme.colorScheme.surfaceVariant),
+                .background(if (isSelected) Color(0xFF8B5CF6) else Color(0xFF1E2130))
+                .border(
+                    width = 1.dp,
+                    color = if (isSelected) Color(0xFFC084FC) else Color(0xFF2A2D3D),
+                    shape = CircleShape
+                ),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                tint = if (isSelected) Color.White else Color(0xFFCBD5E1),
                 modifier = Modifier.size(20.dp)
             )
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = label,
-            color = if (isSelected) Color(0xFF059669) else MaterialTheme.colorScheme.onSurface,
+            color = if (isSelected) Color(0xFFC084FC) else Color(0xFF94A3B8),
             fontSize = 11.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
         )

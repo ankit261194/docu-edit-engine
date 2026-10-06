@@ -71,6 +71,17 @@ import com.docu.editor.domain.model.DocumentFilterMode
 import com.docu.editor.domain.model.EditorToolMode
 import com.docu.editor.domain.model.ShapeType
 import com.docu.editor.domain.model.DocumentCanvasLayer
+import com.docu.editor.domain.model.CanvaFrameType
+import com.docu.editor.domain.model.TextEffectType
+import com.docu.editor.domain.model.BrandPalette
+import com.docu.editor.domain.model.CanvaAnimationType
+import com.docu.editor.domain.model.CanvaStyleMatchPreset
+import com.docu.editor.core.scanner.CanvaMockupFramesEngine
+import com.docu.editor.core.scanner.CanvaTextStudioEngine
+import com.docu.editor.core.scanner.CanvaBrandKitEngine
+import com.docu.editor.core.scanner.CanvaMagicStudioEngine
+import com.docu.editor.core.scanner.CanvaAdjustEngine
+import com.docu.editor.core.scanner.CanvaAnimationEngine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -4963,6 +4974,394 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             } finally {
                 progressJob.cancel()
             }
+        }
+    }
+
+    // =========================================================================
+    // CANVA PRO SUITE EXTENSIONS
+    // =========================================================================
+
+    fun showCanvaMockupsDialog(show: Boolean) {
+        _uiState.update { it.copy(showCanvaMockupsDialog = show) }
+    }
+
+    fun showCanvaTextStudioDialog(show: Boolean) {
+        _uiState.update { it.copy(showCanvaTextStudioDialog = show) }
+    }
+
+    fun showCanvaBrandKitDialog(show: Boolean) {
+        _uiState.update { it.copy(showCanvaBrandKitDialog = show) }
+    }
+
+    fun showCanvaMagicStudioDialog(show: Boolean) {
+        _uiState.update { it.copy(showCanvaMagicStudioDialog = show) }
+    }
+
+    fun showCanvaAdjustDialog(show: Boolean) {
+        _uiState.update { it.copy(showCanvaAdjustDialog = show) }
+    }
+
+    fun showCanvaAnimateDialog(show: Boolean) {
+        _uiState.update { it.copy(showCanvaAnimateDialog = show) }
+    }
+
+    fun showCanvaLayersDialog(show: Boolean) {
+        _uiState.update { it.copy(showCanvaLayersDialog = show) }
+    }
+
+    private fun saveUndoForBitmap(bmp: Bitmap) {
+        pushUndoStep(UndoStep.FullBitmap(bmp.copy(Bitmap.Config.ARGB_8888, true)))
+    }
+
+    private fun setEditedBitmap(newBmp: Bitmap) {
+        editedPagesMap[_uiState.value.currentPdfPageIndex] = newBmp
+        _uiState.update { it.copy(currentBitmap = newBmp, hasUnsavedChanges = true) }
+    }
+
+    fun applyCanvaFrame(frameType: CanvaFrameType) {
+        val current = _uiState.value.currentBitmap ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isScanning = true, processingMessage = "Applying Canva Frame...") }
+            saveUndoForBitmap(current)
+            val framed = CanvaMockupFramesEngine.applyFrameOrMockup(current, frameType)
+            setEditedBitmap(framed)
+            _uiState.update {
+                it.copy(
+                    isScanning = false,
+                    processingMessage = null,
+                    successMessage = "Applied ${frameType.displayName}"
+                )
+            }
+        }
+    }
+
+    fun addStyledTextLayer(
+        text: String,
+        colorRgb: Int,
+        fontSize: Float,
+        isBold: Boolean,
+        isItalic: Boolean,
+        fontFamily: String,
+        effect: TextEffectType
+    ) {
+        val current = _uiState.value.currentBitmap ?: return
+        val bmp = CanvaTextStudioEngine.createStyledTypographyBitmap(
+            text = text,
+            textColor = colorRgb,
+            backgroundColor = null,
+            fontSize = fontSize,
+            isBold = isBold,
+            isItalic = isItalic,
+            fontFamily = fontFamily,
+            effect = effect
+        )
+
+        val posX = (current.width - bmp.width) / 2f
+        val posY = (current.height - bmp.height) / 2f
+
+        val layer = DocumentCanvasLayer(
+            bitmap = bmp,
+            x = posX.coerceAtLeast(30f),
+            y = posY.coerceAtLeast(30f),
+            scale = 1.0f,
+            title = "Text",
+            isTextLayer = true,
+            text = text,
+            textColor = colorRgb,
+            fontSize = fontSize,
+            isBold = isBold,
+            isItalic = isItalic,
+            fontFamily = fontFamily,
+            textEffect = effect
+        )
+
+        saveUndoForBitmap(current)
+        val currentLayers = _uiState.value.canvasLayers
+        _uiState.update {
+            it.copy(
+                canvasLayers = currentLayers + layer,
+                selectedLayerId = layer.id,
+                hasUnsavedChanges = true,
+                successMessage = "Text layer added"
+            )
+        }
+    }
+
+    fun applyBrandPalette(palette: BrandPalette) {
+        val current = _uiState.value.currentBitmap
+        if (current != null) saveUndoForBitmap(current)
+        val currentLayers = _uiState.value.canvasLayers
+        val updated = CanvaBrandKitEngine.applyPaletteToLayers(currentLayers, palette)
+        _uiState.update {
+            it.copy(
+                canvasLayers = updated,
+                activeBrandPaletteId = palette.id,
+                hasUnsavedChanges = true,
+                successMessage = "Applied ${palette.name} to all layers"
+            )
+        }
+    }
+
+    fun applyCanvaAdjustments(
+        brightness: Float,
+        contrast: Float,
+        saturation: Float,
+        warmth: Float,
+        tint: Float,
+        clarity: Float,
+        vignette: Float,
+        blur: Float,
+        preset: CanvaStyleMatchPreset
+    ) {
+        val current = _uiState.value.currentBitmap ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isScanning = true, processingMessage = "Tuning Color & Adjustments...") }
+            saveUndoForBitmap(current)
+            val adjusted = CanvaAdjustEngine.applyAdjustments(
+                source = current,
+                brightness = brightness,
+                contrast = contrast,
+                saturation = saturation,
+                warmth = warmth,
+                tint = tint,
+                clarity = clarity,
+                vignette = vignette,
+                blur = blur,
+                preset = preset
+            )
+            setEditedBitmap(adjusted)
+            _uiState.update {
+                it.copy(
+                    isScanning = false,
+                    processingMessage = null,
+                    activeStyleMatchPreset = preset,
+                    successMessage = "Adjustments applied"
+                )
+            }
+        }
+    }
+
+    fun applyCanvaAnimation(animationType: CanvaAnimationType) {
+        _uiState.update {
+            it.copy(
+                activeAnimationType = animationType,
+                hasUnsavedChanges = true,
+                successMessage = "Set page animation: ${animationType.displayName}"
+            )
+        }
+    }
+
+    fun executeGrabText() {
+        val current = _uiState.value.currentBitmap ?: return
+        val detected = _uiState.value.detectedItems
+        if (detected.isEmpty()) {
+            _uiState.update { it.copy(errorMessage = "No text detected on document. Run OCR first.") }
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isScanning = true, processingMessage = "Magic Grab Text to editable layers...") }
+            saveUndoForBitmap(current)
+            val (cleanedBase, textLayers) = CanvaMagicStudioEngine.grabTextToLayers(current, detected)
+            setEditedBitmap(cleanedBase)
+            val existing = _uiState.value.canvasLayers
+            _uiState.update {
+                it.copy(
+                    canvasLayers = existing + textLayers,
+                    isScanning = false,
+                    processingMessage = null,
+                    successMessage = "Grabbed ${textLayers.size} text blocks into editable layers!"
+                )
+            }
+        }
+    }
+
+    fun executeMagicGrab(selectionRect: RectF) {
+        val current = _uiState.value.currentBitmap ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isScanning = true, processingMessage = "Magic Grabbing subject...") }
+            saveUndoForBitmap(current)
+            val (cleanedBase, cutoutLayerBmp) = CanvaMagicStudioEngine.magicGrab(current, selectionRect)
+            setEditedBitmap(cleanedBase)
+
+            val layer = DocumentCanvasLayer(
+                bitmap = cutoutLayerBmp,
+                x = selectionRect.left,
+                y = selectionRect.top,
+                scale = 1.0f,
+                title = "Grabbed Subject"
+            )
+            val existing = _uiState.value.canvasLayers
+            _uiState.update {
+                it.copy(
+                    canvasLayers = existing + layer,
+                    selectedLayerId = layer.id,
+                    isScanning = false,
+                    processingMessage = null,
+                    successMessage = "Subject extracted to layer with seamless background fill!"
+                )
+            }
+        }
+    }
+
+    fun executeFaceRetouch() {
+        val current = _uiState.value.currentBitmap ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isScanning = true, processingMessage = "Applying Face Beauty Retouch...") }
+            saveUndoForBitmap(current)
+            val retouched = CanvaMagicStudioEngine.faceRetouch(current)
+            setEditedBitmap(retouched)
+            _uiState.update {
+                it.copy(
+                    isScanning = false,
+                    processingMessage = null,
+                    successMessage = "Face Retouch applied"
+                )
+            }
+        }
+    }
+
+    fun executeAutofocusBokeh(focusXRatio: Float = 0.5f, focusYRatio: Float = 0.5f) {
+        val current = _uiState.value.currentBitmap ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isScanning = true, processingMessage = "Simulating DSLR Autofocus Bokeh...") }
+            saveUndoForBitmap(current)
+            val focusX = current.width * focusXRatio
+            val focusY = current.height * focusYRatio
+            val bokeh = CanvaMagicStudioEngine.autofocusBokeh(current, focusX, focusY)
+            setEditedBitmap(bokeh)
+            _uiState.update {
+                it.copy(
+                    isScanning = false,
+                    processingMessage = null,
+                    successMessage = "Autofocus Bokeh blur applied"
+                )
+            }
+        }
+    }
+
+    fun executeUpscaleSharpen() {
+        val current = _uiState.value.currentBitmap ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isScanning = true, processingMessage = "Upscaling & Sharpening...") }
+            saveUndoForBitmap(current)
+            val upscaled = CanvaMagicStudioEngine.upscaleSharpen(current)
+            setEditedBitmap(upscaled)
+            _uiState.update {
+                it.copy(
+                    isScanning = false,
+                    processingMessage = null,
+                    successMessage = "Upscaled with high-frequency detail restoration"
+                )
+            }
+        }
+    }
+
+    fun executeMagicExpand() {
+        val current = _uiState.value.currentBitmap ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isScanning = true, processingMessage = "Expanding Canvas Borders...") }
+            saveUndoForBitmap(current)
+            val expanded = CanvaMagicStudioEngine.magicExpand(current)
+            setEditedBitmap(expanded)
+            _uiState.update {
+                it.copy(
+                    isScanning = false,
+                    processingMessage = null,
+                    successMessage = "Canvas expanded with texture synthesis"
+                )
+            }
+        }
+    }
+
+    // Layer Management Helpers
+    fun moveLayerUp(id: String) {
+        val layers = _uiState.value.canvasLayers.toMutableList()
+        val idx = layers.indexOfFirst { it.id == id }
+        if (idx >= 0 && idx < layers.size - 1) {
+            val item = layers.removeAt(idx)
+            layers.add(idx + 1, item)
+            _uiState.update { it.copy(canvasLayers = layers, hasUnsavedChanges = true) }
+        }
+    }
+
+    fun moveLayerDown(id: String) {
+        val layers = _uiState.value.canvasLayers.toMutableList()
+        val idx = layers.indexOfFirst { it.id == id }
+        if (idx > 0) {
+            val item = layers.removeAt(idx)
+            layers.add(idx - 1, item)
+            _uiState.update { it.copy(canvasLayers = layers, hasUnsavedChanges = true) }
+        }
+    }
+
+    fun bringLayerToFront(id: String) {
+        val layers = _uiState.value.canvasLayers.toMutableList()
+        val idx = layers.indexOfFirst { it.id == id }
+        if (idx >= 0 && idx < layers.size - 1) {
+            val item = layers.removeAt(idx)
+            layers.add(item)
+            _uiState.update { it.copy(canvasLayers = layers, hasUnsavedChanges = true) }
+        }
+    }
+
+    fun sendLayerToBack(id: String) {
+        val layers = _uiState.value.canvasLayers.toMutableList()
+        val idx = layers.indexOfFirst { it.id == id }
+        if (idx > 0) {
+            val item = layers.removeAt(idx)
+            layers.add(0, item)
+            _uiState.update { it.copy(canvasLayers = layers, hasUnsavedChanges = true) }
+        }
+    }
+
+    fun toggleLayerLock(id: String) {
+        val layers = _uiState.value.canvasLayers.map {
+            if (it.id == id) it.copy(isLocked = !it.isLocked) else it
+        }
+        _uiState.update { it.copy(canvasLayers = layers, hasUnsavedChanges = true) }
+    }
+
+    fun toggleLayerFlipH(id: String) {
+        val layers = _uiState.value.canvasLayers.map {
+            if (it.id == id) it.copy(flipH = !it.flipH) else it
+        }
+        _uiState.update { it.copy(canvasLayers = layers, hasUnsavedChanges = true) }
+    }
+
+    fun toggleLayerFlipV(id: String) {
+        val layers = _uiState.value.canvasLayers.map {
+            if (it.id == id) it.copy(flipV = !it.flipV) else it
+        }
+        _uiState.update { it.copy(canvasLayers = layers, hasUnsavedChanges = true) }
+    }
+
+    fun updateLayerOpacity(id: String, alpha: Float) {
+        val layers = _uiState.value.canvasLayers.map {
+            if (it.id == id) it.copy(alpha = alpha.coerceIn(0.1f, 1.0f)) else it
+        }
+        _uiState.update { it.copy(canvasLayers = layers, hasUnsavedChanges = true) }
+    }
+
+    fun duplicateLayer(id: String) {
+        val layer = _uiState.value.canvasLayers.firstOrNull { it.id == id } ?: return
+        val newLayer = layer.copy(
+            id = java.util.UUID.randomUUID().toString(),
+            x = layer.x + 40f,
+            y = layer.y + 40f
+        )
+        val layers = _uiState.value.canvasLayers + newLayer
+        _uiState.update { it.copy(canvasLayers = layers, selectedLayerId = newLayer.id, hasUnsavedChanges = true) }
+    }
+
+    fun deleteLayer(id: String) {
+        val layers = _uiState.value.canvasLayers.filter { it.id != id }
+        _uiState.update {
+            it.copy(
+                canvasLayers = layers,
+                selectedLayerId = if (it.selectedLayerId == id) null else it.selectedLayerId,
+                hasUnsavedChanges = true
+            )
         }
     }
 
