@@ -1015,14 +1015,37 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         addCanvasLayer(bitmap, title)
     }
 
+    fun toggleCloudAiEraser() {
+        _uiState.update { it.copy(isCloudAiEraserEnabled = !it.isCloudAiEraserEnabled) }
+    }
+
+    fun setCloudAiEraserEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(isCloudAiEraserEnabled = enabled) }
+    }
+
     fun applyMagicObjectEraser(strokePoints: List<PointF>, brushRadius: Float = _uiState.value.magicEraserBrushRadius) {
         val current = _uiState.value.currentBitmap ?: return
         if (strokePoints.isEmpty()) return
+        val isCloud = _uiState.value.isCloudAiEraserEnabled
+        val apiKey = getGeminiApiKey()
+        val isUsingCloud = isCloud && apiKey.isNotBlank()
+
         viewModelScope.launch {
-            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Magic Inpainting unwanted object...") }
+            _uiState.update { 
+                it.copy(
+                    isApplyingEdit = true, 
+                    processingMessage = if (isUsingCloud) "✨ Cloud AI Inpainting background..." else "🪄 Restoring natural document texture..."
+                ) 
+            }
             try {
                 pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
-                val erased = com.docu.editor.core.scanner.MagicObjectEraserEngine.eraseStroke(current, strokePoints, brushRadius)
+                val erased = com.docu.editor.core.scanner.MagicObjectEraserEngine.eraseStroke(
+                    sourceBitmap = current,
+                    strokePoints = strokePoints,
+                    brushRadius = brushRadius,
+                    useCloudAi = isUsingCloud,
+                    apiKey = apiKey
+                )
                 val items = withContext(Dispatchers.Default) {
                     ocrAnalyzer.detectTextBlocks(erased, TextHierarchyLevel.LINE)
                 }
@@ -1037,7 +1060,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         isApplyingEdit = false,
                         hasUnsavedChanges = true,
                         canvasRevision = it.canvasRevision + 1,
-                        successMessage = "Object erased with natural texture blend"
+                        successMessage = if (isUsingCloud) "✨ Erased with Cloud AI Generative Fill" else "Object erased with natural texture blend"
                     )
                 }
             } catch (e: Exception) {
@@ -4189,6 +4212,13 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             _uiState.update { it.copy(isPerformingHandwritingOcr = true) }
             val result = withContext(Dispatchers.IO) {
+                val customApiKey = getGeminiApiKey()
+                if (customApiKey.isNotBlank()) {
+                    val geminiResult = com.docu.editor.core.cloud.GeminiCloudAiClient.transcribeHandwriting(current, customApiKey)
+                    if (!geminiResult.isNullOrBlank()) {
+                        return@withContext geminiResult
+                    }
+                }
                 try {
                     val baos = ByteArrayOutputStream()
                     val scaled = scaleDownIfNeeded(current, 1600)
@@ -4196,7 +4226,6 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     if (scaled != current) scaled.recycle()
                     val base64Img = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP)
 
-                    val customApiKey = getGeminiApiKey()
                     val payload = JSONObject().apply {
                         put("action", "handwriting_ocr")
                         put("image", base64Img)

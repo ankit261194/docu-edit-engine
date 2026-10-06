@@ -83,6 +83,7 @@ data class DocumentEditorUiState(
     val overlayRotation: Float = 0f,
     val overlayAlpha: Float = 1.0f,
     val magicEraserBrushRadius: Float = 28f,
+    val isCloudAiEraserEnabled: Boolean = true,
     val showCanvaStickersDialog: Boolean = false,
     val whiteoutBrushRadius: Float = 22f,
     val hasUnsavedChanges: Boolean = false,

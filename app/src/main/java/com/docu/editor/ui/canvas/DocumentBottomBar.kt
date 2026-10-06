@@ -120,7 +120,13 @@ fun DocumentBottomBar(
     onInsertImageClicked: () -> Unit = {},
     onCanvaStickersClicked: () -> Unit = {},
     magicEraserBrushRadius: Float = 28f,
-    onMagicEraserBrushRadiusChanged: (Float) -> Unit = {}
+    onMagicEraserBrushRadiusChanged: (Float) -> Unit = {},
+    isCloudAiEraserEnabled: Boolean = true,
+    hasGeminiApiKey: Boolean = false,
+    onToggleCloudAiEraser: () -> Unit = {},
+    onOpenCloudAiSettings: () -> Unit = {},
+    onApplyShadowRemover: () -> Unit = {},
+    onApplyFingerRemover: () -> Unit = {}
 ) {
     var brightness by remember { mutableFloatStateOf(0f) }
     var contrast by remember { mutableFloatStateOf(1f) }
@@ -302,7 +308,7 @@ fun DocumentBottomBar(
                 }
             }
 
-            // 3. Magic Eraser Brush Slider
+            // 3. Magic Eraser Brush Slider & Cloud AI Pill Toggle
             AnimatedVisibility(visible = activeMode == EditorToolMode.MAGIC_ERASER) {
                 Surface(
                     color = Color(0xFF047857).copy(alpha = 0.12f),
@@ -312,25 +318,58 @@ fun DocumentBottomBar(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
                     ) {
-                        Text(
-                            text = "🪄 Magic Eraser: ${magicEraserBrushRadius.toInt()}px",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF047857)
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "🪄 Eraser Brush: ${magicEraserBrushRadius.toInt()}px",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF047857)
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isCloudAiEraserEnabled && hasGeminiApiKey) Color(0xFF059669) else Color(0xFF334155),
+                                modifier = Modifier.clickable {
+                                    if (hasGeminiApiKey) {
+                                        onToggleCloudAiEraser()
+                                    } else {
+                                        onOpenCloudAiSettings()
+                                    }
+                                }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = if (isCloudAiEraserEnabled && hasGeminiApiKey) Icons.Default.AutoAwesome else Icons.Default.AutoFixHigh,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = if (isCloudAiEraserEnabled && hasGeminiApiKey) "✨ Cloud AI Inpaint" else "⚡ Fast Offline (Tap for AI)",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+                            }
+                        }
                         Slider(
                             value = magicEraserBrushRadius,
                             onValueChange = onMagicEraserBrushRadiusChanged,
                             valueRange = 8f..60f,
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(horizontal = 8.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             colors = SliderDefaults.colors(
                                 thumbColor = Color(0xFF059669),
                                 activeTrackColor = Color(0xFF10B981)
@@ -651,6 +690,18 @@ fun DocumentBottomBar(
                             label = "Lasso Select",
                             isSelected = activeMode == EditorToolMode.LASSO_SELECT,
                             onClick = { onModeSelected(EditorToolMode.LASSO_SELECT) }
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.AutoFixHigh,
+                            label = "Shadow Fix",
+                            isSelected = activeFilter == DocumentFilterMode.SHADOW_REMOVER,
+                            onClick = onApplyShadowRemover
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Security,
+                            label = "Erase Finger",
+                            isSelected = activeFilter == DocumentFilterMode.FINGER_REMOVER,
+                            onClick = onApplyFingerRemover
                         )
                     }
                     EditorCategory.ANNOTATE -> {

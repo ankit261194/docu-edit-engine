@@ -531,7 +531,13 @@ class MainActivity : ComponentActivity() {
                                 onInsertImageClicked = { insertImageLauncher.launch(arrayOf("image/*")) },
                                 onCanvaStickersClicked = { viewModel.showCanvaStickersDialog(true) },
                                 magicEraserBrushRadius = uiState.magicEraserBrushRadius,
-                                onMagicEraserBrushRadiusChanged = { viewModel.setMagicEraserBrushRadius(it) }
+                                onMagicEraserBrushRadiusChanged = { viewModel.setMagicEraserBrushRadius(it) },
+                                isCloudAiEraserEnabled = uiState.isCloudAiEraserEnabled,
+                                hasGeminiApiKey = viewModel.getGeminiApiKey().isNotBlank(),
+                                onToggleCloudAiEraser = { viewModel.toggleCloudAiEraser() },
+                                onOpenCloudAiSettings = { viewModel.showCloudAiSettingsDialog(true) },
+                                onApplyShadowRemover = { viewModel.applyFilter(com.docu.editor.domain.model.DocumentFilterMode.SHADOW_REMOVER) },
+                                onApplyFingerRemover = { viewModel.applyFilter(com.docu.editor.domain.model.DocumentFilterMode.FINGER_REMOVER) }
                             )
                         }
                     }
