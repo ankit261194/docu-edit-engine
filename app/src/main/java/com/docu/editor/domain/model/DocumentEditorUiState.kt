@@ -23,11 +23,21 @@ enum class EditorToolMode {
     CANVA_STICKERS
 }
 
-enum class ShapeType(val displayName: String) {
-    RECTANGLE("Rectangle"),
-    ARROW("Arrow"),
-    LINE("Line"),
-    CIRCLE("Circle")
+enum class ShapeType(val displayName: String, val icon: String = "⬛") {
+    RECTANGLE("Rectangle", "⬛"),
+    ROUNDED_RECTANGLE("Rounded Rect", "▢"),
+    CIRCLE("Circle", "⚪"),
+    OVAL("Oval", "⬭"),
+    LINE("Line", "━"),
+    ARROW("Arrow", "➔"),
+    DOUBLE_ARROW("Double Arrow", "↔"),
+    TRIANGLE("Triangle", "▲"),
+    STAR("Star", "★"),
+    HEART("Heart", "♥"),
+    CALLOUT_BUBBLE("Speech Bubble", "💬"),
+    HEXAGON("Hexagon", "⬡"),
+    SHIELD("Shield", "🛡️"),
+    CHECKMARK_BADGE("Checkmark", "✅")
 }
 
 enum class DocumentFilterMode(val displayName: String) {
@@ -116,11 +126,13 @@ data class DocumentEditorUiState(
     val selectedShapeType: ShapeType = ShapeType.RECTANGLE,
     val shapeStrokeWidth: Float = 6f,
     val shapeStrokeColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
+    val shapeFillColor: Int? = null,
     val redactionBrushRadius: Float = 24f,
     val canvasLayers: List<DocumentCanvasLayer> = emptyList(),
     val selectedLayerId: String? = null,
     val showEditTextLayerDialog: Boolean = false,
-    val editingTextLayer: DocumentCanvasLayer? = null
+    val editingTextLayer: DocumentCanvasLayer? = null,
+    val showBackgroundRemovalDialog: Boolean = false
 ) {
     val selectedLayer: DocumentCanvasLayer?
         get() = canvasLayers.firstOrNull { it.id == selectedLayerId }

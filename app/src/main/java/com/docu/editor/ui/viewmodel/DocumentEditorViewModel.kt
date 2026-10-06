@@ -3574,12 +3574,24 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     fun setShapeStrokeColor(colorRgb: Int) {
         _uiState.update { it.copy(shapeStrokeColorRgb = colorRgb) }
+        updateSelectedShapeLayer(strokeColor = colorRgb)
     }
 
     fun setShapeStrokeWidth(width: Float) {
         _uiState.update { it.copy(shapeStrokeWidth = width) }
+        updateSelectedShapeLayer(strokeWidth = width)
     }
 
+    fun setShapeFillColor(colorRgb: Int?) {
+        _uiState.update { it.copy(shapeFillColor = colorRgb) }
+        updateSelectedShapeLayer(fillColor = colorRgb)
+    }
+
+    /**
+     * Canva Pro Interactive Shape Layer Spawner:
+     * When user draws on canvas, creates an interactive DocumentCanvasLayer that can be
+     * dragged, rotated, resized with handles, re-styled, duplicated, or deleted.
+     */
     fun commitShape(
         type: ShapeType,
         start: PointF,
@@ -3593,74 +3605,194 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         val minY = min(start.y, end.y)
         val maxX = max(start.x, end.x)
         val maxY = max(start.y, end.y)
+        val shapeW = (maxX - minX).toInt().coerceAtLeast(80)
+        val shapeH = (maxY - minY).toInt().coerceAtLeast(80)
 
-        val pad = strokeWidth * 4 + 8
-        val patchL = (minX - pad).toInt().coerceIn(0, currentBitmap.width - 1)
-        val patchT = (minY - pad).toInt().coerceIn(0, currentBitmap.height - 1)
-        val patchR = (maxX + pad).toInt().coerceIn(0, currentBitmap.width)
-        val patchB = (maxY + pad).toInt().coerceIn(0, currentBitmap.height)
-        val patchW = max(1, patchR - patchL)
-        val patchH = max(1, patchB - patchT)
+        val fillColor = _uiState.value.shapeFillColor
+        val shapeBmp = com.docu.editor.core.scanner.VectorShapeGenerator.createShapeBitmap(
+            type = type,
+            width = shapeW,
+            height = shapeH,
+            strokeColor = colorRgb,
+            strokeWidth = strokeWidth,
+            fillColor = fillColor
+        )
 
-        val patchBmp = Bitmap.createBitmap(currentBitmap, patchL, patchT, patchW, patchH)
-        pushUndoStep(UndoStep.PixelPatch(patchBmp, patchL, patchT))
+        val newLayer = DocumentCanvasLayer(
+            bitmap = shapeBmp,
+            x = minX,
+            y = minY,
+            scale = 1.0f,
+            rotation = 0f,
+            alpha = 1.0f,
+            title = type.displayName,
+            isShapeLayer = true,
+            shapeType = type,
+            shapeStrokeColor = colorRgb,
+            shapeStrokeWidth = strokeWidth,
+            shapeFillColor = fillColor,
+            shapeWidth = shapeW,
+            shapeHeight = shapeH
+        )
 
-        val canvas = Canvas(currentBitmap)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = colorRgb
-            this.strokeWidth = strokeWidth
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-        }
-
-        when (type) {
-            ShapeType.RECTANGLE -> {
-                canvas.drawRect(minX, minY, maxX, maxY, paint)
-            }
-            ShapeType.LINE -> {
-                canvas.drawLine(start.x, start.y, end.x, end.y, paint)
-            }
-            ShapeType.CIRCLE -> {
-                val oval = RectF(minX, minY, maxX, maxY)
-                canvas.drawOval(oval, paint)
-            }
-            ShapeType.ARROW -> {
-                canvas.drawLine(start.x, start.y, end.x, end.y, paint)
-                val angle = atan2((end.y - start.y).toDouble(), (end.x - start.x).toDouble())
-                val headLength = max(24f, strokeWidth * 3.5f)
-                val arrowAngle = Math.toRadians(30.0)
-
-                val x1 = (end.x - headLength * cos(angle - arrowAngle)).toFloat()
-                val y1 = (end.y - headLength * sin(angle - arrowAngle)).toFloat()
-                val x2 = (end.x - headLength * cos(angle + arrowAngle)).toFloat()
-                val y2 = (end.y - headLength * sin(angle + arrowAngle)).toFloat()
-
-                val headPath = Path().apply {
-                    moveTo(end.x, end.y)
-                    lineTo(x1, y1)
-                    lineTo(x2, y2)
-                    close()
-                }
-                val fillPaint = Paint(paint).apply {
-                    style = Paint.Style.FILL
-                }
-                canvas.drawPath(headPath, fillPaint)
-            }
-        }
-
-        editedPagesMap[_uiState.value.currentPdfPageIndex] = currentBitmap
-
+        val updated = _uiState.value.canvasLayers + newLayer
         _uiState.update {
             it.copy(
+                canvasLayers = updated,
+                selectedLayerId = newLayer.id,
                 canUndo = true,
                 canRedo = false,
                 hasUnsavedChanges = true,
-                successMessage = "Shape added",
+                canvasRevision = it.canvasRevision + 1,
+                successMessage = "Added ${type.displayName} (Drag & Pinch to move)"
+            )
+        }
+    }
+
+    /**
+     * Adds an interactive Canva vector shape directly to the center of the canvas.
+     */
+    fun addShapeLayer(
+        type: ShapeType,
+        strokeColor: Int = _uiState.value.shapeStrokeColorRgb,
+        strokeWidth: Float = _uiState.value.shapeStrokeWidth,
+        fillColor: Int? = _uiState.value.shapeFillColor
+    ) {
+        val currentBitmap = _uiState.value.currentBitmap ?: return
+        val w = 320
+        val h = 320
+        val centerX = (currentBitmap.width - w) / 2f
+        val centerY = (currentBitmap.height - h) / 2f
+
+        val shapeBmp = com.docu.editor.core.scanner.VectorShapeGenerator.createShapeBitmap(
+            type = type,
+            width = w,
+            height = h,
+            strokeColor = strokeColor,
+            strokeWidth = strokeWidth,
+            fillColor = fillColor
+        )
+
+        val newLayer = DocumentCanvasLayer(
+            bitmap = shapeBmp,
+            x = centerX,
+            y = centerY,
+            scale = 1.0f,
+            rotation = 0f,
+            alpha = 1.0f,
+            title = type.displayName,
+            isShapeLayer = true,
+            shapeType = type,
+            shapeStrokeColor = strokeColor,
+            shapeStrokeWidth = strokeWidth,
+            shapeFillColor = fillColor,
+            shapeWidth = w,
+            shapeHeight = h
+        )
+
+        val updated = _uiState.value.canvasLayers + newLayer
+        _uiState.update {
+            it.copy(
+                canvasLayers = updated,
+                selectedLayerId = newLayer.id,
+                canUndo = true,
+                canRedo = false,
+                hasUnsavedChanges = true,
+                canvasRevision = it.canvasRevision + 1,
+                successMessage = "Added ${type.displayName} (Drag & Pinch to adjust)"
+            )
+        }
+    }
+
+    /**
+     * Updates styling on the currently selected shape layer in real-time.
+     */
+    fun updateSelectedShapeLayer(
+        fillColor: Int? = _uiState.value.shapeFillColor,
+        strokeColor: Int? = null,
+        strokeWidth: Float? = null
+    ) {
+        val selected = _uiState.value.selectedLayer ?: return
+        if (!selected.isShapeLayer) return
+
+        val newFill = fillColor
+        val newStroke = strokeColor ?: selected.shapeStrokeColor
+        val newWidth = strokeWidth ?: selected.shapeStrokeWidth
+
+        val newBmp = com.docu.editor.core.scanner.VectorShapeGenerator.createShapeBitmap(
+            type = selected.shapeType,
+            width = selected.shapeWidth,
+            height = selected.shapeHeight,
+            strokeColor = newStroke,
+            strokeWidth = newWidth,
+            fillColor = newFill
+        )
+
+        val updatedLayer = selected.copy(
+            bitmap = newBmp,
+            shapeFillColor = newFill,
+            shapeStrokeColor = newStroke,
+            shapeStrokeWidth = newWidth
+        )
+
+        val newLayers = _uiState.value.canvasLayers.map { if (it.id == selected.id) updatedLayer else it }
+        _uiState.update {
+            it.copy(
+                canvasLayers = newLayers,
                 canvasRevision = it.canvasRevision + 1
             )
         }
-        updateRecentDocumentThumbnail(currentBitmap)
+    }
+
+    /**
+     * Canva Pro 1-Click Background Removal Engine:
+     * Converts background to transparent PNG cutout or normalizes paper to studio white.
+     */
+    fun applyOneClickBackgroundRemoval(
+        mode: com.docu.editor.core.scanner.BackgroundRemovalEngine.RemovalMode = com.docu.editor.core.scanner.BackgroundRemovalEngine.RemovalMode.OBJECT_CUTOUT
+    ) {
+        val current = _uiState.value.currentBitmap ?: return
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = true,
+                    processingMessage = "🪄 Canva Pro: Removing background (Transparent Cutout)...",
+                    showBackgroundRemovalDialog = false
+                )
+            }
+            try {
+                val cutout = com.docu.editor.core.scanner.BackgroundRemovalEngine.removeBackground(current, mode)
+                editedPagesMap[_uiState.value.currentPdfPageIndex] = cutout
+                val items = withContext(Dispatchers.Default) {
+                    ocrAnalyzer.detectTextBlocks(cutout, TextHierarchyLevel.LINE)
+                }
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = cutout,
+                        detectedItems = items,
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        hasUnsavedChanges = true,
+                        canvasRevision = it.canvasRevision + 1,
+                        successMessage = "✨ Background removed successfully (Transparent PNG)"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Background removal failed: ${e.localizedMessage}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun showBackgroundRemovalDialog(show: Boolean) {
+        _uiState.update { it.copy(showBackgroundRemovalDialog = show) }
     }
 
     fun exportTextToFile(text: String): String? {

@@ -646,7 +646,10 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 val fullBitmap = com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(photoFile.absolutePath, 2880)
                 photoFile.delete()
                 if (fullBitmap != null) {
-                    val initialCorners = if (corners != null && analysisFrameW > 0 && analysisFrameH > 0) {
+                    val directDetected = DocumentEdgeDetector.detectCornersOrNull(fullBitmap)
+                    val initialCorners = if (directDetected != null) {
+                        directDetected
+                    } else if (corners != null && analysisFrameW > 0 && analysisFrameH > 0) {
                         val scaleX = fullBitmap.width.toFloat() / analysisFrameW
                         val scaleY = fullBitmap.height.toFloat() / analysisFrameH
                         DocumentCorners(
@@ -760,7 +763,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
                             vibrate()
                         }
                     } else {
-                        val shouldAutoWarp = (corners != null && analysisFrameW > 0 && analysisFrameH > 0) || autoSnapEnabled
+                        val shouldAutoWarp = (directDetected != null) || (corners != null && analysisFrameW > 0 && analysisFrameH > 0) || autoSnapEnabled
                         if (shouldAutoWarp) {
                             val warped = PerspectiveTransformer.warpPerspective(fullBitmap, initialCorners)
                             val outFile = File(cacheDir, "scanned_doc_${System.currentTimeMillis()}.jpg")

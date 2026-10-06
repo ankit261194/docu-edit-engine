@@ -46,7 +46,7 @@ object DocumentFilters {
      * 3. HSV Saturation Boost: Makes colored inks (blue pens, red seals, green signatures) pop with vivid color.
      * 4. Unsharp Masking: Razor-sharp character stroke edges without noise.
      */
-    private fun applyMagicColor(source: Bitmap): Bitmap {
+    fun applyMagicColor(source: Bitmap): Bitmap {
         val srcRgba = Mat()
         val srcRgb = Mat()
         val channels = mutableListOf<Mat>()

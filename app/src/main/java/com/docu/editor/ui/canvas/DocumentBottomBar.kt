@@ -119,6 +119,10 @@ fun DocumentBottomBar(
     onShapeStrokeWidthChanged: (Float) -> Unit = {},
     shapeStrokeColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
     onShapeStrokeColorChanged: (Int) -> Unit = {},
+    shapeFillColor: Int? = null,
+    onShapeFillColorChanged: (Int?) -> Unit = {},
+    onAddShapeLayerClicked: (ShapeType) -> Unit = {},
+    onBackgroundRemovalClicked: () -> Unit = {},
     onInsertImageClicked: () -> Unit = {},
     onCanvaStickersClicked: () -> Unit = {},
     magicEraserBrushRadius: Float = 28f,
@@ -495,7 +499,7 @@ fun DocumentBottomBar(
                 }
             }
 
-            // 6. Shapes Sub-Bar
+            // 6. Shapes Sub-Bar (Canva Pro Vector Shapes)
             AnimatedVisibility(visible = activeMode == EditorToolMode.SHAPES) {
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -506,32 +510,105 @@ fun DocumentBottomBar(
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                 ) {
                     Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        // Shapes selector row (horizontal scroll)
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("Shapes:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                val shapes = listOf(
-                                    Pair(ShapeType.RECTANGLE, "▭ Box"),
-                                    Pair(ShapeType.ARROW, "➔ Arrow"),
-                                    Pair(ShapeType.LINE, "── Line"),
-                                    Pair(ShapeType.CIRCLE, "◯ Circle")
-                                )
-                                shapes.forEach { (type, label) ->
-                                    val isCur = selectedShapeType == type
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(if (isCur) Color(0xFF059669) else MaterialTheme.colorScheme.surface)
-                                            .border(1.dp, if (isCur) Color(0xFF059669) else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
-                                            .clickable { onShapeTypeSelected(type) }
-                                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    ) {
-                                        Text(text = label, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, color = if (isCur) Color.White else MaterialTheme.colorScheme.onSurface)
-                                    }
+                            Text("Shape:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                            ShapeType.values().forEach { type ->
+                                val isCur = selectedShapeType == type
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isCur) Color(0xFF059669) else MaterialTheme.colorScheme.surface)
+                                        .border(1.dp, if (isCur) Color(0xFF059669) else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(6.dp))
+                                        .clickable { onShapeTypeSelected(type) }
+                                        .padding(horizontal = 8.dp, vertical = 5.dp)
+                                ) {
+                                    Text(
+                                        text = "${type.icon} ${type.displayName}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isCur) Color.White else MaterialTheme.colorScheme.onSurface
+                                    )
                                 }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Controls row: Stroke color, Fill color, Add Button
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Stroke Color Palette
+                            Text("Border:", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                            val strokeColors = listOf(
+                                android.graphics.Color.rgb(220, 38, 38),   // Red
+                                android.graphics.Color.rgb(37, 99, 235),   // Blue
+                                android.graphics.Color.rgb(5, 150, 105),   // Green
+                                android.graphics.Color.rgb(217, 119, 6),   // Amber
+                                android.graphics.Color.BLACK,
+                                android.graphics.Color.WHITE
+                            )
+                            strokeColors.forEach { col ->
+                                val isCur = shapeStrokeColorRgb == col
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(col))
+                                        .border(if (isCur) 2.dp else 1.dp, if (isCur) Color(0xFF059669) else Color.Gray, CircleShape)
+                                        .clickable { onShapeStrokeColorChanged(col) }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            // Fill Color Palette
+                            Text("Fill:", fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                            val fillOptions = listOf(
+                                Pair(null, "None"),
+                                Pair(android.graphics.Color.argb(120, 239, 68, 68), "Red"),
+                                Pair(android.graphics.Color.argb(120, 59, 130, 246), "Blue"),
+                                Pair(android.graphics.Color.argb(120, 16, 185, 129), "Green"),
+                                Pair(android.graphics.Color.argb(120, 245, 158, 11), "Amber"),
+                                Pair(android.graphics.Color.argb(180, 255, 255, 255), "White"),
+                                Pair(android.graphics.Color.argb(180, 0, 0, 0), "Black")
+                            )
+                            fillOptions.forEach { (col, label) ->
+                                val isCur = shapeFillColor == col
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(if (isCur) Color(0xFF059669) else Color(col ?: android.graphics.Color.TRANSPARENT))
+                                        .border(1.dp, if (isCur) Color(0xFF059669) else Color.Gray, RoundedCornerShape(4.dp))
+                                        .clickable { onShapeFillColorChanged(col) }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(label, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = if (isCur) Color.White else MaterialTheme.colorScheme.onSurface)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            // Add Shape Layer Button
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF059669))
+                                    .clickable { onAddShapeLayerClicked(selectedShapeType) }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text("+ Add Layer", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
                             }
                         }
                     }
@@ -669,6 +746,12 @@ fun DocumentBottomBar(
                         )
                     }
                     EditorCategory.CLEAN -> {
+                        ToolDockButton(
+                            icon = Icons.Default.Layers,
+                            label = "BG Eraser",
+                            isSelected = false,
+                            onClick = onBackgroundRemovalClicked
+                        )
                         ToolDockButton(
                             icon = Icons.Default.AutoAwesome,
                             label = "Magic Eraser",

@@ -542,6 +542,10 @@ class MainActivity : ComponentActivity() {
                                 onShapeStrokeWidthChanged = { viewModel.setShapeStrokeWidth(it) },
                                 shapeStrokeColorRgb = uiState.shapeStrokeColorRgb,
                                 onShapeStrokeColorChanged = { viewModel.setShapeStrokeColor(it) },
+                                shapeFillColor = uiState.shapeFillColor,
+                                onShapeFillColorChanged = { viewModel.setShapeFillColor(it) },
+                                onAddShapeLayerClicked = { viewModel.addShapeLayer(it) },
+                                onBackgroundRemovalClicked = { viewModel.showBackgroundRemovalDialog(true) },
                                 onInsertImageClicked = { insertImageLauncher.launch(arrayOf("image/*")) },
                                 onCanvaStickersClicked = { viewModel.showCanvaStickersDialog(true) },
                                 magicEraserBrushRadius = uiState.magicEraserBrushRadius,
@@ -1391,6 +1395,18 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onDismiss = {
                                     viewModel.closeTextLayerDialog()
+                                }
+                            )
+                        }
+
+                        // Canva Pro 1-Click Background Removal Dialog
+                        if (uiState.showBackgroundRemovalDialog) {
+                            com.docu.editor.ui.dialogs.BackgroundRemovalDialog(
+                                onApplyRemovalMode = { mode ->
+                                    viewModel.applyOneClickBackgroundRemoval(mode)
+                                },
+                                onDismiss = {
+                                    viewModel.showBackgroundRemovalDialog(false)
                                 }
                             )
                         }

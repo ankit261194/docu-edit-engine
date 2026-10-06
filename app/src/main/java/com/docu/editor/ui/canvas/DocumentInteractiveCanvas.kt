@@ -833,6 +833,18 @@ fun DocumentInteractiveCanvas(
                         drawLine(color = strokeColor, start = c, end = Offset(x1, y1), strokeWidth = strokeW, cap = StrokeCap.Round)
                         drawLine(color = strokeColor, start = c, end = Offset(x2, y2), strokeWidth = strokeW, cap = StrokeCap.Round)
                     }
+                    else -> {
+                        val left = kotlin.math.min(s.x, c.x)
+                        val top = kotlin.math.min(s.y, c.y)
+                        val w = kotlin.math.abs(s.x - c.x)
+                        val h = kotlin.math.abs(s.y - c.y)
+                        drawRect(
+                            color = strokeColor,
+                            topLeft = Offset(left, top),
+                            size = Size(w, h),
+                            style = Stroke(width = strokeW)
+                        )
+                    }
                 }
             }
 

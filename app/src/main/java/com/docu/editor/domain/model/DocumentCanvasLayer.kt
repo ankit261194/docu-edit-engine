@@ -29,7 +29,14 @@ data class DocumentCanvasLayer(
     val fontSize: Float = 36f,
     val isBold: Boolean = true,
     val isItalic: Boolean = false,
-    val fontFamily: String = "Sans-Serif"
+    val fontFamily: String = "Sans-Serif",
+    val isShapeLayer: Boolean = false,
+    val shapeType: ShapeType = ShapeType.RECTANGLE,
+    val shapeStrokeColor: Int = android.graphics.Color.rgb(220, 38, 38),
+    val shapeStrokeWidth: Float = 6f,
+    val shapeFillColor: Int? = null,
+    val shapeWidth: Int = 300,
+    val shapeHeight: Int = 300
 ) {
     fun hitTest(docX: Float, docY: Float): Boolean {
         val drawW = bitmap.width * scale
