@@ -66,9 +66,20 @@ object DocumentEdgeDetector {
                 grayMat.copyTo(smallGray)
             }
 
-            // 1. CLAHE Contrast Equalization (amplifies subtle shadow gradients along paper boundaries on white surfaces)
+            // 0. Morphological Illumination Division (Shadow Annihilation)
+            val bgMat = Mat()
+            val illumKernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(35.0, 35.0))
+            Imgproc.morphologyEx(smallGray, bgMat, Imgproc.MORPH_CLOSE, illumKernel)
+            illumKernel.release()
+
+            val normGray = Mat()
+            org.opencv.core.Core.divide(smallGray, bgMat, normGray, 255.0)
+            bgMat.release()
+
+            // 1. CLAHE Contrast Equalization on shadow-normalized surface
             val clahe = Imgproc.createCLAHE(3.5, Size(8.0, 8.0))
-            clahe.apply(smallGray, claheMat)
+            clahe.apply(normGray, claheMat)
+            normGray.release()
 
             // 2. Morphological Close with 15x15 kernel to completely blend black text characters into white paper
             val textEraseKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(15.0, 15.0))
@@ -132,8 +143,8 @@ object DocumentEdgeDetector {
                 val peri = Imgproc.arcLength(hullMat, true)
                 var foundQuad: Array<Point>? = null
 
-                // Adaptive multi-scale approximation: 0.02, 0.03, 0.045
-                for (eps in doubleArrayOf(0.02, 0.03, 0.045)) {
+                // Adaptive multi-scale approximation: 0.015, 0.02, 0.03, 0.045
+                for (eps in doubleArrayOf(0.015, 0.02, 0.03, 0.045)) {
                     val approx = MatOfPoint2f()
                     Imgproc.approxPolyDP(hullMat, approx, eps * peri, true)
                     if (approx.total() == 4L) {
@@ -152,6 +163,21 @@ object DocumentEdgeDetector {
                     approx.release()
                 }
 
+                // If exact 4 vertices weren't formed (e.g. slight corner fold or shadow curve),
+                // extract 4 corner extrema projections from the convex hull
+                if (foundQuad == null && hullPoints.size >= 4) {
+                    val tl = hullPoints.minByOrNull { it.x + it.y }
+                    val br = hullPoints.maxByOrNull { it.x + it.y }
+                    val tr = hullPoints.maxByOrNull { it.x - it.y }
+                    val bl = hullPoints.minByOrNull { it.x - it.y }
+                    if (tl != null && br != null && tr != null && bl != null) {
+                        val candidateQuad = arrayOf(tl, tr, br, bl)
+                        if (isValidDocumentQuad(candidateQuad, procWidth, procHeight)) {
+                            foundQuad = candidateQuad
+                        }
+                    }
+                }
+
                 if (foundQuad != null && contourArea > maxArea) {
                     maxArea = contourArea
                     bestQuad = foundQuad
@@ -161,7 +187,31 @@ object DocumentEdgeDetector {
                 contour.release()
             }
 
+            // Hough Line Fallback if contours were fragmented by low-contrast lighting
+            if (bestQuad == null) {
+                bestQuad = detectCornersFromHoughLines(dilatedMat, procWidth, procHeight)
+            }
+
             if (bestQuad != null) {
+                // Sub-pixel corner refinement against smallGray gradient
+                try {
+                    val cornersMat = MatOfPoint2f(*bestQuad)
+                    val term = org.opencv.core.TermCriteria(
+                        org.opencv.core.TermCriteria.EPS or org.opencv.core.TermCriteria.COUNT,
+                        30,
+                        0.05
+                    )
+                    Imgproc.cornerSubPix(
+                        smallGray,
+                        cornersMat,
+                        Size(5.0, 5.0),
+                        Size(-1.0, -1.0),
+                        term
+                    )
+                    bestQuad = cornersMat.toArray()
+                    cornersMat.release()
+                } catch (_: Exception) {}
+
                 // Scale back to original resolution
                 val invScale = 1.0 / scale
                 val scaledPoints = bestQuad.map { Point(it.x * invScale, it.y * invScale) }.toTypedArray()
@@ -215,6 +265,62 @@ object DocumentEdgeDetector {
     }
 
     /**
+     * Probabilistic Hough Line detector fallback: detects straight boundary segments and computes their
+     * bounding quadrilateral. Critical for white paper on white desks/bedsheets.
+     */
+    private fun detectCornersFromHoughLines(edgeMat: Mat, w: Int, h: Int): Array<Point>? {
+        val lines = Mat()
+        try {
+            Imgproc.HoughLinesP(edgeMat, lines, 1.0, Math.PI / 180.0, 40, 50.0, 15.0)
+            if (lines.rows() < 4) return null
+
+            var minX = w.toDouble()
+            var maxX = 0.0
+            var minY = h.toDouble()
+            var maxY = 0.0
+
+            val frameMargin = w * 0.03
+            for (i in 0 until lines.rows()) {
+                val data = lines.get(i, 0) ?: continue
+                val x1 = data[0]
+                val y1 = data[1]
+                val x2 = data[2]
+                val y2 = data[3]
+
+                if (x1 > frameMargin && x1 < w - frameMargin && y1 > frameMargin && y1 < h - frameMargin) {
+                    minX = minOf(minX, x1)
+                    maxX = maxOf(maxX, x1)
+                    minY = minOf(minY, y1)
+                    maxY = maxOf(maxY, y1)
+                }
+                if (x2 > frameMargin && x2 < w - frameMargin && y2 > frameMargin && y2 < h - frameMargin) {
+                    minX = minOf(minX, x2)
+                    maxX = maxOf(maxX, x2)
+                    minY = minOf(minY, y2)
+                    maxY = maxOf(maxY, y2)
+                }
+            }
+
+            if (maxX - minX > w * 0.35 && maxY - minY > h * 0.35) {
+                val candidate = arrayOf(
+                    Point(minX, minY),
+                    Point(maxX, minY),
+                    Point(maxX, maxY),
+                    Point(minX, maxY)
+                )
+                if (isValidDocumentQuad(candidate, w, h)) {
+                    return candidate
+                }
+            }
+            return null
+        } catch (_: Exception) {
+            return null
+        } finally {
+            lines.release()
+        }
+    }
+
+    /**
      * Validates that the 4 points form a realistic document quadrilateral (not a narrow sliver or degenerate box).
      */
     private fun isValidDocumentQuad(pts: Array<Point>, w: Int, h: Int): Boolean {
@@ -230,6 +336,26 @@ object DocumentEdgeDetector {
         if (minEdge < 40.0) return false
         // Aspect ratio between max edge and min edge should be reasonable (< 3.0)
         if (maxEdge / minEdge > 3.0) return false
+
+        // Orthogonal Angle Validation: All 4 corner angles must be realistic document angles (~65° to ~115°)
+        for (i in 0..3) {
+            val pPrev = pts[(i + 3) % 4]
+            val pCurr = pts[i]
+            val pNext = pts[(i + 1) % 4]
+
+            val v1x = pPrev.x - pCurr.x
+            val v1y = pPrev.y - pCurr.y
+            val v2x = pNext.x - pCurr.x
+            val v2y = pNext.y - pCurr.y
+
+            val dot = v1x * v2x + v1y * v2y
+            val mag = hypot(v1x, v1y) * hypot(v2x, v2y)
+            if (mag > 0.0) {
+                val cosTheta = kotlin.math.abs(dot / mag)
+                // If cosTheta > 0.45, angle deviates by > 27° from 90° (degenerate or severe perspective artifact)
+                if (cosTheta > 0.45) return false
+            }
+        }
 
         return true
     }

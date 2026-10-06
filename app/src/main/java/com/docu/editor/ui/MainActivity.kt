@@ -280,6 +280,18 @@ class MainActivity : ComponentActivity() {
                     uri?.let { viewModel.importCustomFont(it) }
                 }
 
+                // Canva Insert Image / Photo Layer Launcher
+                val insertImageLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    uri?.let {
+                        val bmp = loadBitmapDirect(it)
+                        bmp?.let { b ->
+                            viewModel.setCustomOverlayImage(b)
+                        }
+                    }
+                }
+
                 // Snackbar notifications
                 LaunchedEffect(uiState.errorMessage) {
                     uiState.errorMessage?.let { snackbarHostState.showSnackbar(it) }
@@ -515,7 +527,11 @@ class MainActivity : ComponentActivity() {
                                 shapeStrokeWidth = uiState.shapeStrokeWidth,
                                 onShapeStrokeWidthChanged = { viewModel.setShapeStrokeWidth(it) },
                                 shapeStrokeColorRgb = uiState.shapeStrokeColorRgb,
-                                onShapeStrokeColorChanged = { viewModel.setShapeStrokeColor(it) }
+                                onShapeStrokeColorChanged = { viewModel.setShapeStrokeColor(it) },
+                                onInsertImageClicked = { insertImageLauncher.launch(arrayOf("image/*")) },
+                                onCanvaStickersClicked = { viewModel.showCanvaStickersDialog(true) },
+                                magicEraserBrushRadius = uiState.magicEraserBrushRadius,
+                                onMagicEraserBrushRadiusChanged = { viewModel.setMagicEraserBrushRadius(it) }
                             )
                         }
                     }
@@ -646,6 +662,16 @@ class MainActivity : ComponentActivity() {
                                 onWhiteoutTouch = { x, y -> viewModel.applyWhiteoutCircle(x, y) },
                                 onInsertTextTouch = { x, y -> viewModel.insertNewTextItem(x, y) },
                                 activeOverlayBitmap = uiState.activeOverlayBitmap,
+                                canvasLayers = uiState.canvasLayers,
+                                selectedLayerId = uiState.selectedLayerId,
+                                onSelectLayer = { viewModel.selectCanvasLayer(it) },
+                                onDuplicateLayer = { viewModel.duplicateSelectedLayer() },
+                                onDeleteLayer = { viewModel.deleteSelectedLayer() },
+                                onBringLayerToFront = { viewModel.bringSelectedLayerToFront() },
+                                onSendLayerToBack = { viewModel.sendSelectedLayerToBack() },
+                                onLayerAlphaChanged = { viewModel.updateSelectedLayerAlpha(it) },
+                                onEditTextLayer = { viewModel.openTextLayerDialog(it) },
+                                onAddTextLayerClicked = { viewModel.openTextLayerDialog(null) },
                                 originalBitmap = uiState.originalBitmap,
                                 overlayPositionX = uiState.overlayPositionX,
                                 overlayPositionY = uiState.overlayPositionY,
@@ -686,6 +712,10 @@ class MainActivity : ComponentActivity() {
                                             rectF.bottom.toInt()
                                         )
                                     )
+                                },
+                                magicEraserBrushRadius = uiState.magicEraserBrushRadius,
+                                onCommitMagicEraserStroke = { pts, radius ->
+                                    viewModel.applyMagicObjectEraser(pts, radius)
                                 }
                             )
 
@@ -1278,6 +1308,31 @@ class MainActivity : ComponentActivity() {
                                     ) {
                                         Text("Cancel")
                                     }
+                                }
+                            )
+                        }
+
+                        // Canva Stickers / Badges Dialog
+                        if (uiState.showCanvaStickersDialog) {
+                            com.docu.editor.ui.dialogs.CanvaStickersDialog(
+                                onBadgeSelected = { badgeBmp ->
+                                    viewModel.setCustomOverlayImage(badgeBmp)
+                                },
+                                onDismiss = {
+                                    viewModel.showCanvaStickersDialog(false)
+                                }
+                            )
+                        }
+
+                        // Canva Live Editable Typography Dialog
+                        if (uiState.showEditTextLayerDialog) {
+                            com.docu.editor.ui.dialogs.EditTextLayerDialog(
+                                initialLayer = uiState.editingTextLayer,
+                                onConfirm = { text, textColor, bgColor, fontSize, isBold, isItalic ->
+                                    viewModel.addOrUpdateTextLayer(text, textColor, bgColor, fontSize, isBold, isItalic)
+                                },
+                                onDismiss = {
+                                    viewModel.closeTextLayerDialog()
                                 }
                             )
                         }

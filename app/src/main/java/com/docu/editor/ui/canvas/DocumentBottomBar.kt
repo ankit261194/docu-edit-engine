@@ -111,7 +111,11 @@ fun DocumentBottomBar(
     shapeStrokeWidth: Float = 6f,
     onShapeStrokeWidthChanged: (Float) -> Unit = {},
     shapeStrokeColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
-    onShapeStrokeColorChanged: (Int) -> Unit = {}
+    onShapeStrokeColorChanged: (Int) -> Unit = {},
+    onInsertImageClicked: () -> Unit = {},
+    onCanvaStickersClicked: () -> Unit = {},
+    magicEraserBrushRadius: Float = 28f,
+    onMagicEraserBrushRadiusChanged: (Float) -> Unit = {}
 ) {
     var brightness by remember { mutableFloatStateOf(0f) }
     var contrast by remember { mutableFloatStateOf(1f) }
@@ -262,6 +266,44 @@ fun DocumentBottomBar(
                             colors = SliderDefaults.colors(
                                 thumbColor = Color(0xFF2563EB),
                                 activeTrackColor = Color(0xFF2563EB)
+                            )
+                        )
+                    }
+                }
+            }
+
+            // Canva Pro Magic Eraser Brush Size Slider
+            AnimatedVisibility(visible = activeMode == EditorToolMode.MAGIC_ERASER) {
+                Surface(
+                    color = Color(0xFF581C87).copy(alpha = 0.90f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFFA855F7)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "🪄 Brush: ${magicEraserBrushRadius.toInt()}px",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Slider(
+                            value = magicEraserBrushRadius,
+                            onValueChange = onMagicEraserBrushRadiusChanged,
+                            valueRange = 8f..60f,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 8.dp),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFFD946EF),
+                                activeTrackColor = Color(0xFFC026D3)
                             )
                         )
                     }
@@ -556,220 +598,177 @@ fun DocumentBottomBar(
 
             Spacer(modifier = Modifier.height(2.dp))
 
-            // Tier 1: Category Selector Pills
-            var selectedCategory by remember { mutableStateOf(BottomBarCategory.EDIT_OCR) }
-
-            // Auto-switch category based on active tools
-            LaunchedEffect(activeMode, showFiltersRow) {
-                if (showFiltersRow) {
-                    selectedCategory = BottomBarCategory.ENHANCE_FILTER
-                } else if (activeMode in listOf(EditorToolMode.TEXT_EDIT, EditorToolMode.ADD_TEXT, EditorToolMode.WHITEOUT, EditorToolMode.LASSO_SELECT, EditorToolMode.HIGHLIGHTER, EditorToolMode.MARKUP_PEN)) {
-                    selectedCategory = BottomBarCategory.EDIT_OCR
-                }
-            }
-
+            // Unified CamScanner & Canva Pro Tool Dock (All 20 tools accessible in 1 unified strip)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                BottomBarCategory.values().forEach { cat ->
-                    val isCatSelected = (selectedCategory == cat)
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (isCatSelected) Color(0xFFEFF6FF) else Color(0xFFF8FAFC))
-                            .border(
-                                1.dp,
-                                if (isCatSelected) Color(0xFF2563EB) else Color(0xFFE2E8F0),
-                                RoundedCornerShape(8.dp)
-                            )
-                            .clickable {
-                                selectedCategory = cat
-                                if (cat == BottomBarCategory.ENHANCE_FILTER && !showFiltersRow) {
-                                    onModeSelected(EditorToolMode.FILTERS)
-                                }
-                            }
-                            .padding(vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = cat.title,
-                            fontSize = 10.5.sp,
-                            fontWeight = if (isCatSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = if (isCatSelected) Color(0xFF1D4ED8) else Color(0xFF64748B),
-                            maxLines = 1
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(4.dp))
-
-            // Tier 2: Category Action Dock
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                when (selectedCategory) {
-                    BottomBarCategory.EDIT_OCR -> {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            ToolDockButton(
-                                icon = Icons.Default.Edit,
-                                label = "Edit Text",
-                                isSelected = activeMode == EditorToolMode.TEXT_EDIT,
-                                onClick = { onModeSelected(EditorToolMode.TEXT_EDIT) }
-                            )
-                            ToolDockButton(
-                                icon = Icons.Default.Description,
-                                label = "Extract OCR",
-                                isSelected = false,
-                                onClick = onExtractTextClicked
-                            )
-                            ToolDockButton(
-                                icon = Icons.Default.Check,
-                                label = "Add Text",
-                                isSelected = activeMode == EditorToolMode.ADD_TEXT,
-                                onClick = { onModeSelected(EditorToolMode.ADD_TEXT) }
-                            )
-                            ToolDockButton(
-                                icon = Icons.Default.Category,
-                                label = "Shapes",
-                                isSelected = activeMode == EditorToolMode.SHAPES,
-                                onClick = { onModeSelected(EditorToolMode.SHAPES) }
-                            )
-                            ToolDockButton(
-                                icon = Icons.Default.AutoFixHigh,
-                                label = "Highlighter",
-                                isSelected = activeMode == EditorToolMode.HIGHLIGHTER,
-                                onClick = { onModeSelected(EditorToolMode.HIGHLIGHTER) }
-                            )
-                            ToolDockButton(
-                                icon = Icons.Default.Draw,
-                                label = "Pen Markup",
-                                isSelected = activeMode == EditorToolMode.MARKUP_PEN,
-                                onClick = { onModeSelected(EditorToolMode.MARKUP_PEN) }
-                            )
-                            ToolDockButton(
-                                icon = Icons.Default.Clear,
-                                label = "Whiteout",
-                                isSelected = activeMode == EditorToolMode.WHITEOUT,
-                                onClick = { onModeSelected(EditorToolMode.WHITEOUT) }
-                            )
-                            ToolDockButton(
-                                icon = Icons.Default.Block,
-                                label = "Blackout",
-                                isSelected = activeMode == EditorToolMode.REDACTION,
-                                onClick = { onModeSelected(EditorToolMode.REDACTION) }
-                            )
-                            ToolDockButton(
-                                icon = Icons.Default.SelectAll,
-                                label = "Lasso",
-                                isSelected = activeMode == EditorToolMode.LASSO_SELECT,
-                                onClick = { onModeSelected(EditorToolMode.LASSO_SELECT) }
-                            )
-                        }
-                    }
-                    BottomBarCategory.ENHANCE_FILTER -> {
-                        ToolDockButton(
-                            icon = Icons.Default.AutoFixHigh,
-                            label = "Magic Filters",
-                            isSelected = showFiltersRow,
-                            onClick = { onModeSelected(EditorToolMode.FILTERS) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Crop,
-                            label = "Crop / Deskew",
-                            isSelected = false,
-                            onClick = onInteractiveCropClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.AutoMirrored.Filled.RotateRight,
-                            label = "Rotate 90°",
-                            isSelected = false,
-                            onClick = onRotateClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.AutoAwesome,
-                            label = "Auto-Orient",
-                            isSelected = false,
-                            onClick = onAutoOrientClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.AutoMirrored.Filled.MenuBook,
-                            label = "Book Dewarp",
-                            isSelected = false,
-                            onClick = onBookDewarpClicked
-                        )
-                    }
-                    BottomBarCategory.SIGN_PROTECT -> {
-                        ToolDockButton(
-                            icon = Icons.Default.Draw,
-                            label = "Sign & Stamp",
-                            isSelected = false,
-                            onClick = onSignatureClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Security,
-                            label = "Watermark",
-                            isSelected = false,
-                            onClick = onWatermarkClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Block,
-                            label = "Blackout",
-                            isSelected = activeMode == EditorToolMode.REDACTION,
-                            onClick = { onModeSelected(EditorToolMode.REDACTION) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Compress,
-                            label = "Compress PDF",
-                            isSelected = false,
-                            onClick = onCompressClicked
-                        )
-                    }
-                    BottomBarCategory.PAGES_SHARE -> {
-                        ToolDockButton(
-                            icon = Icons.Default.Layers,
-                            label = "Pages (${selectedLassoCount.let { "" }})",
-                            isSelected = false,
-                            onClick = onPagesOverviewClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Share,
-                            label = "Save & Share",
-                            isSelected = false,
-                            onClick = onExportClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.CloudUpload,
-                            label = "Cloud Sync",
-                            isSelected = false,
-                            onClick = onCloudSyncClicked
-                        )
-                    }
-                }
+                // 1. Interactive 4-Corner Crop & Deskew
+                ToolDockButton(
+                    icon = Icons.Default.Crop,
+                    label = "Crop",
+                    isSelected = false,
+                    onClick = onInteractiveCropClicked
+                )
+
+                // 2. Magic Filters & Brightness/Contrast
+                ToolDockButton(
+                    icon = Icons.Default.AutoFixHigh,
+                    label = "Filters",
+                    isSelected = showFiltersRow,
+                    onClick = { onModeSelected(EditorToolMode.FILTERS) }
+                )
+
+                // 3. Rotate 90° Clockwise
+                ToolDockButton(
+                    icon = Icons.AutoMirrored.Filled.RotateRight,
+                    label = "Rotate",
+                    isSelected = false,
+                    onClick = onRotateClicked
+                )
+
+                // 4. Magic Object & Watermark Eraser (OpenCV Inpainting)
+                ToolDockButton(
+                    icon = Icons.Default.AutoAwesome,
+                    label = "Magic Eraser",
+                    isSelected = activeMode == EditorToolMode.MAGIC_ERASER,
+                    onClick = { onModeSelected(EditorToolMode.MAGIC_ERASER) }
+                )
+
+                // 5. Add Text Layer (Canva Style)
+                ToolDockButton(
+                    icon = Icons.Default.Edit,
+                    label = "Add Text",
+                    isSelected = activeMode == EditorToolMode.ADD_TEXT,
+                    onClick = { onModeSelected(EditorToolMode.ADD_TEXT) }
+                )
+
+                // 6. Edit Text (OCR Inpainting Replacement)
+                ToolDockButton(
+                    icon = Icons.Default.Description,
+                    label = "Edit Text",
+                    isSelected = activeMode == EditorToolMode.TEXT_EDIT,
+                    onClick = { onModeSelected(EditorToolMode.TEXT_EDIT) }
+                )
+
+                // 7. Add Photo / Logo Layer (Canva Style)
+                ToolDockButton(
+                    icon = Icons.Default.Layers,
+                    label = "Add Photo",
+                    isSelected = false,
+                    onClick = onInsertImageClicked
+                )
+
+                // 8. Canva Official Badges & Stamps
+                ToolDockButton(
+                    icon = Icons.Default.Security,
+                    label = "Badges",
+                    isSelected = false,
+                    onClick = onCanvaStickersClicked
+                )
+
+                // 9. Sign & Stamp (Finger Signature + PKI Digital Sign)
+                ToolDockButton(
+                    icon = Icons.Default.Draw,
+                    label = "Sign",
+                    isSelected = false,
+                    onClick = onSignatureClicked
+                )
+
+                // 10. Anti-Counterfeiting Tiled Watermark
+                ToolDockButton(
+                    icon = Icons.Default.Security,
+                    label = "Watermark",
+                    isSelected = false,
+                    onClick = onWatermarkClicked
+                )
+
+                // 11. Extract OCR Text (Word/Excel/TXT)
+                ToolDockButton(
+                    icon = Icons.Default.Description,
+                    label = "OCR Extract",
+                    isSelected = false,
+                    onClick = onExtractTextClicked
+                )
+
+                // 12. Geometric Shapes (Rectangle, Arrow, Line, Circle)
+                ToolDockButton(
+                    icon = Icons.Default.Category,
+                    label = "Shapes",
+                    isSelected = activeMode == EditorToolMode.SHAPES,
+                    onClick = { onModeSelected(EditorToolMode.SHAPES) }
+                )
+
+                // 13. Fluorescent Highlighter
+                ToolDockButton(
+                    icon = Icons.Default.AutoFixHigh,
+                    label = "Highlighter",
+                    isSelected = activeMode == EditorToolMode.HIGHLIGHTER,
+                    onClick = { onModeSelected(EditorToolMode.HIGHLIGHTER) }
+                )
+
+                // 14. Smooth Pen Markup
+                ToolDockButton(
+                    icon = Icons.Default.Draw,
+                    label = "Pen",
+                    isSelected = activeMode == EditorToolMode.MARKUP_PEN,
+                    onClick = { onModeSelected(EditorToolMode.MARKUP_PEN) }
+                )
+
+                // 15. Paper Whiteout Eraser
+                ToolDockButton(
+                    icon = Icons.Default.Clear,
+                    label = "Whiteout",
+                    isSelected = activeMode == EditorToolMode.WHITEOUT,
+                    onClick = { onModeSelected(EditorToolMode.WHITEOUT) }
+                )
+
+                // 16. Security Redaction / Blackout
+                ToolDockButton(
+                    icon = Icons.Default.Block,
+                    label = "Blackout",
+                    isSelected = activeMode == EditorToolMode.REDACTION,
+                    onClick = { onModeSelected(EditorToolMode.REDACTION) }
+                )
+
+                // 17. Multi-Word Paragraph Lasso
+                ToolDockButton(
+                    icon = Icons.Default.SelectAll,
+                    label = "Lasso",
+                    isSelected = activeMode == EditorToolMode.LASSO_SELECT,
+                    onClick = { onModeSelected(EditorToolMode.LASSO_SELECT) }
+                )
+
+                // 18. Compress & PDF Toolbox
+                ToolDockButton(
+                    icon = Icons.Default.Compress,
+                    label = "PDF Tools",
+                    isSelected = false,
+                    onClick = onCompressClicked
+                )
+
+                // 19. Multi-Page Overview & Reorder
+                ToolDockButton(
+                    icon = Icons.Default.Layers,
+                    label = "Pages",
+                    isSelected = false,
+                    onClick = onPagesOverviewClicked
+                )
+
+                // 20. Export, Print & Share
+                ToolDockButton(
+                    icon = Icons.Default.Share,
+                    label = "Share",
+                    isSelected = false,
+                    onClick = onExportClicked
+                )
             }
         }
     }
-}
-
-enum class BottomBarCategory(val title: String) {
-    EDIT_OCR("✏️ Edit & OCR"),
-    ENHANCE_FILTER("✨ Enhance"),
-    SIGN_PROTECT("🖋️ Sign/Protect"),
-    PAGES_SHARE("📑 Pages/Share")
 }
 
 @Composable

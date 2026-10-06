@@ -17,7 +17,10 @@ enum class EditorToolMode {
     SIGNATURE,
     PDF_TOOLS,
     REDACTION,
-    SHAPES
+    SHAPES,
+    MAGIC_ERASER,
+    INSERT_IMAGE,
+    CANVA_STICKERS
 }
 
 enum class ShapeType(val displayName: String) {
@@ -78,6 +81,9 @@ data class DocumentEditorUiState(
     val overlayPositionY: Float = 100f,
     val overlayScale: Float = 1.0f,
     val overlayRotation: Float = 0f,
+    val overlayAlpha: Float = 1.0f,
+    val magicEraserBrushRadius: Float = 28f,
+    val showCanvaStickersDialog: Boolean = false,
     val whiteoutBrushRadius: Float = 22f,
     val hasUnsavedChanges: Boolean = false,
     val searchQuery: String = "",
@@ -108,6 +114,13 @@ data class DocumentEditorUiState(
     val selectedShapeType: ShapeType = ShapeType.RECTANGLE,
     val shapeStrokeWidth: Float = 6f,
     val shapeStrokeColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
-    val redactionBrushRadius: Float = 24f
-)
+    val redactionBrushRadius: Float = 24f,
+    val canvasLayers: List<DocumentCanvasLayer> = emptyList(),
+    val selectedLayerId: String? = null,
+    val showEditTextLayerDialog: Boolean = false,
+    val editingTextLayer: DocumentCanvasLayer? = null
+) {
+    val selectedLayer: DocumentCanvasLayer?
+        get() = canvasLayers.firstOrNull { it.id == selectedLayerId }
+}
 

@@ -68,6 +68,7 @@ import com.docu.editor.domain.model.DocumentEditorUiState
 import com.docu.editor.domain.model.DocumentFilterMode
 import com.docu.editor.domain.model.EditorToolMode
 import com.docu.editor.domain.model.ShapeType
+import com.docu.editor.domain.model.DocumentCanvasLayer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -144,6 +145,9 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     private val pageRedoStacks = mutableMapOf<Int, Stack<UndoStep>>()
 
     fun saveCurrentPageToCache() {
+        if (_uiState.value.canvasLayers.isNotEmpty() || _uiState.value.activeOverlayBitmap != null) {
+            flattenAllLayersToDocument(saveUndo = false)
+        }
         val state = _uiState.value
         val pageIndex = state.currentPdfPageIndex
         val bmp = state.currentBitmap
@@ -999,6 +1003,49 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(selectedItem = item) }
     }
 
+    fun setMagicEraserBrushRadius(radius: Float) {
+        _uiState.update { it.copy(magicEraserBrushRadius = radius.coerceIn(8f, 80f)) }
+    }
+
+    fun showCanvaStickersDialog(show: Boolean) {
+        _uiState.update { it.copy(showCanvaStickersDialog = show) }
+    }
+
+    fun setCustomOverlayImage(bitmap: Bitmap, title: String = "Sticker / Image") {
+        addCanvasLayer(bitmap, title)
+    }
+
+    fun applyMagicObjectEraser(strokePoints: List<PointF>, brushRadius: Float = _uiState.value.magicEraserBrushRadius) {
+        val current = _uiState.value.currentBitmap ?: return
+        if (strokePoints.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Magic Inpainting unwanted object...") }
+            try {
+                pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+                val erased = com.docu.editor.core.scanner.MagicObjectEraserEngine.eraseStroke(current, strokePoints, brushRadius)
+                val items = withContext(Dispatchers.Default) {
+                    ocrAnalyzer.detectTextBlocks(erased, TextHierarchyLevel.LINE)
+                }
+                val pageIdx = _uiState.value.currentPdfPageIndex
+                editedPagesMap[pageIdx] = erased
+                pageDetectedItemsMap[pageIdx] = items
+                updateRecentDocumentThumbnail(erased)
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = erased,
+                        detectedItems = items,
+                        isApplyingEdit = false,
+                        hasUnsavedChanges = true,
+                        canvasRevision = it.canvasRevision + 1,
+                        successMessage = "Object erased with natural texture blend"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "Eraser failed: ${e.localizedMessage}") }
+            }
+        }
+    }
+
     fun setWhiteoutBrushRadius(radius: Float) {
         _uiState.update { it.copy(whiteoutBrushRadius = radius.coerceIn(8f, 80f)) }
     }
@@ -1373,8 +1420,6 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Applying ${filter.displayName}...") }
-
             val filtered = withContext(Dispatchers.Default) {
                 val filterType = when (filter) {
                     DocumentFilterMode.ORIGINAL -> DocumentFilters.FilterType.ORIGINAL
@@ -1389,46 +1434,51 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 DocumentFilters.applyFilter(base, filterType)
             }
 
-            // Re-detect or update OCR items for the newly enhanced contrast
-            val items = withContext(Dispatchers.Default) {
-                ocrAnalyzer.detectTextBlocks(filtered, TextHierarchyLevel.LINE)
-            }
+            editedPagesMap[_uiState.value.currentPdfPageIndex] = filtered
 
             _uiState.update {
                 it.copy(
                     currentBitmap = filtered,
-                    detectedItems = items,
                     activeFilter = filter,
-                    isApplyingEdit = false,
-                    processingMessage = null,
-                    successMessage = "Applied ${filter.displayName}",
+                    successMessage = "✓ ${filter.displayName} applied",
                     canUndo = true,
                     canRedo = false,
                     canvasRevision = it.canvasRevision + 1
                 )
             }
+
+            // Update OCR items asynchronously in background without freezing UI
+            viewModelScope.launch(Dispatchers.Default) {
+                try {
+                    val items = ocrAnalyzer.detectTextBlocks(filtered, TextHierarchyLevel.LINE)
+                    pageDetectedItemsMap[_uiState.value.currentPdfPageIndex] = items
+                    _uiState.update { it.copy(detectedItems = items) }
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    fun toggleMagicColor() {
+        val currentFilter = _uiState.value.activeFilter
+        if (currentFilter == DocumentFilterMode.MAGIC_COLOR) {
+            applyFilter(DocumentFilterMode.ORIGINAL)
+        } else {
+            applyFilter(DocumentFilterMode.MAGIC_COLOR)
         }
     }
 
     fun applyBrightnessContrast(brightness: Float, contrast: Float) {
         val base = _uiState.value.originalBitmap ?: return
         val current = _uiState.value.currentBitmap ?: return
-        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Tuning brightness & contrast...") }
             val adjusted = withContext(Dispatchers.Default) {
                 DocumentFilters.adjustBrightnessContrast(base, brightness, contrast)
             }
-            val items = withContext(Dispatchers.Default) {
-                ocrAnalyzer.detectTextBlocks(adjusted, TextHierarchyLevel.LINE)
-            }
+            editedPagesMap[_uiState.value.currentPdfPageIndex] = adjusted
             _uiState.update {
                 it.copy(
                     currentBitmap = adjusted,
-                    detectedItems = items,
-                    isApplyingEdit = false,
-                    processingMessage = null,
                     canUndo = true,
                     canRedo = false,
                     canvasRevision = it.canvasRevision + 1
@@ -2149,94 +2199,445 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    // --- Signature & Stamp Interactive Placement ---
+    // --- Canva Pro Multi-Layer Engine & Overlay Placement ---
 
-    fun startPlacingOverlay(bitmap: Bitmap) {
-        val current = _uiState.value.currentBitmap ?: return
-        val startX = (current.width * 0.35f)
-        val startY = (current.height * 0.45f)
+    fun openTextLayerDialog(layer: DocumentCanvasLayer? = null) {
         _uiState.update {
             it.copy(
-                activeOverlayBitmap = bitmap,
-                overlayPositionX = startX,
-                overlayPositionY = startY,
-                overlayScale = 1.0f,
-                successMessage = "Drag to position. Tap Checkmark to Stamp permanently."
+                showEditTextLayerDialog = true,
+                editingTextLayer = layer
             )
         }
     }
 
-    fun updateOverlayPosition(deltaX: Float, deltaY: Float) {
-        val current = _uiState.value.currentBitmap ?: return
-        val newX = (_uiState.value.overlayPositionX + deltaX).coerceIn(0f, current.width.toFloat())
-        val newY = (_uiState.value.overlayPositionY + deltaY).coerceIn(0f, current.height.toFloat())
+    fun closeTextLayerDialog() {
         _uiState.update {
-            it.copy(overlayPositionX = newX, overlayPositionY = newY)
+            it.copy(
+                showEditTextLayerDialog = false,
+                editingTextLayer = null
+            )
+        }
+    }
+
+    fun addOrUpdateTextLayer(
+        text: String,
+        textColor: Int = android.graphics.Color.BLACK,
+        bgColor: Int? = null,
+        fontSize: Float = 36f,
+        isBold: Boolean = true,
+        isItalic: Boolean = false
+    ) {
+        val existing = _uiState.value.editingTextLayer
+        val bmp = DocumentCanvasLayer.createTypographyBitmap(
+            text = text,
+            textColor = textColor,
+            backgroundColor = bgColor,
+            fontSize = fontSize,
+            isBold = isBold,
+            isItalic = isItalic
+        )
+
+        if (existing != null) {
+            _uiState.update { state ->
+                val updatedLayers = state.canvasLayers.map { layer ->
+                    if (layer.id == existing.id) {
+                        layer.copy(
+                            bitmap = bmp,
+                            text = text,
+                            textColor = textColor,
+                            backgroundColor = bgColor,
+                            fontSize = fontSize,
+                            isBold = isBold,
+                            isItalic = isItalic
+                        )
+                    } else layer
+                }
+                state.copy(
+                    canvasLayers = updatedLayers,
+                    activeOverlayBitmap = bmp,
+                    showEditTextLayerDialog = false,
+                    editingTextLayer = null,
+                    canvasRevision = state.canvasRevision + 1,
+                    successMessage = "Text layer updated!"
+                )
+            }
+        } else {
+            val current = _uiState.value.currentBitmap
+            val startX = if (current != null) current.width * 0.25f else 100f
+            val startY = if (current != null) current.height * 0.35f else 150f
+            val newLayer = DocumentCanvasLayer(
+                id = java.util.UUID.randomUUID().toString(),
+                bitmap = bmp,
+                x = startX,
+                y = startY,
+                scale = 1.0f,
+                rotation = 0f,
+                alpha = 1.0f,
+                title = "Text: ${text.take(12)}",
+                isTextLayer = true,
+                text = text,
+                textColor = textColor,
+                backgroundColor = bgColor,
+                fontSize = fontSize,
+                isBold = isBold,
+                isItalic = isItalic
+            )
+            _uiState.update {
+                it.copy(
+                    canvasLayers = it.canvasLayers + newLayer,
+                    selectedLayerId = newLayer.id,
+                    activeOverlayBitmap = bmp,
+                    overlayPositionX = startX,
+                    overlayPositionY = startY,
+                    overlayScale = 1.0f,
+                    overlayRotation = 0f,
+                    overlayAlpha = 1.0f,
+                    showEditTextLayerDialog = false,
+                    editingTextLayer = null,
+                    canvasRevision = it.canvasRevision + 1,
+                    successMessage = "Text layer added to canvas!"
+                )
+            }
+        }
+    }
+
+    fun addCanvasLayer(bitmap: Bitmap, title: String = "Layer") {
+        val current = _uiState.value.currentBitmap ?: return
+        // Dual-Pipeline Memory Guard: clamp layer bitmap dimension to avoid OOM
+        val safeBmp = scaleDownIfNeeded(bitmap, maxDimension = 1600)
+        val layerCount = _uiState.value.canvasLayers.size
+        val startX = ((current.width * 0.25f) + (layerCount * 30f)).coerceAtMost(current.width * 0.7f)
+        val startY = ((current.height * 0.35f) + (layerCount * 30f)).coerceAtMost(current.height * 0.7f)
+
+        val initialScale = if (safeBmp.width > current.width * 0.6f) {
+            ((current.width * 0.5f) / safeBmp.width).coerceIn(0.2f, 1.0f)
+        } else {
+            1.0f
+        }
+
+        val layerTitle = if (title.contains("#")) title else "$title #${layerCount + 1}"
+        val newLayer = DocumentCanvasLayer(
+            id = java.util.UUID.randomUUID().toString(),
+            bitmap = safeBmp,
+            x = startX,
+            y = startY,
+            scale = initialScale,
+            rotation = 0f,
+            alpha = 1.0f,
+            title = layerTitle
+        )
+
+        _uiState.update {
+            it.copy(
+                canvasLayers = it.canvasLayers + newLayer,
+                selectedLayerId = newLayer.id,
+                activeOverlayBitmap = safeBmp,
+                overlayPositionX = startX,
+                overlayPositionY = startY,
+                overlayScale = initialScale,
+                overlayRotation = 0f,
+                overlayAlpha = 1.0f,
+                showCanvaStickersDialog = false,
+                canvasRevision = it.canvasRevision + 1,
+                successMessage = "Added ${newLayer.title}. Drag, pinch or use tools to customize."
+            )
+        }
+    }
+
+    fun selectCanvasLayer(id: String?) {
+        _uiState.update { state ->
+            val layer = state.canvasLayers.firstOrNull { it.id == id }
+            state.copy(
+                selectedLayerId = id,
+                activeOverlayBitmap = layer?.bitmap,
+                overlayPositionX = layer?.x ?: state.overlayPositionX,
+                overlayPositionY = layer?.y ?: state.overlayPositionY,
+                overlayScale = layer?.scale ?: state.overlayScale,
+                overlayRotation = layer?.rotation ?: state.overlayRotation,
+                overlayAlpha = layer?.alpha ?: 1f,
+                canvasRevision = state.canvasRevision + 1
+            )
+        }
+    }
+
+    fun startPlacingOverlay(bitmap: Bitmap) {
+        addCanvasLayer(bitmap, "Signature / Stamp")
+    }
+
+    fun updateOverlayPosition(deltaX: Float, deltaY: Float) {
+        val selId = _uiState.value.selectedLayerId
+        val current = _uiState.value.currentBitmap ?: return
+        if (selId == null) {
+            val newX = (_uiState.value.overlayPositionX + deltaX).coerceIn(0f, current.width.toFloat())
+            val newY = (_uiState.value.overlayPositionY + deltaY).coerceIn(0f, current.height.toFloat())
+            _uiState.update { it.copy(overlayPositionX = newX, overlayPositionY = newY) }
+            return
+        }
+        _uiState.update { state ->
+            val updated = state.canvasLayers.map { layer ->
+                if (layer.id == selId) {
+                    val newX = (layer.x + deltaX).coerceIn(-layer.bitmap.width * 0.8f, current.width.toFloat())
+                    val newY = (layer.y + deltaY).coerceIn(-layer.bitmap.height * 0.8f, current.height.toFloat())
+                    layer.copy(x = newX, y = newY)
+                } else layer
+            }
+            val activeL = updated.firstOrNull { it.id == selId }
+            state.copy(
+                canvasLayers = updated,
+                overlayPositionX = activeL?.x ?: state.overlayPositionX,
+                overlayPositionY = activeL?.y ?: state.overlayPositionY,
+                canvasRevision = state.canvasRevision + 1
+            )
         }
     }
 
     fun updateOverlayScale(scaleMultiplier: Float) {
-        val newScale = (_uiState.value.overlayScale * scaleMultiplier).coerceIn(0.25f, 4.0f)
-        _uiState.update {
-            it.copy(overlayScale = newScale)
+        val selId = _uiState.value.selectedLayerId
+        if (selId == null) {
+            val newScale = (_uiState.value.overlayScale * scaleMultiplier).coerceIn(0.25f, 4.0f)
+            _uiState.update { it.copy(overlayScale = newScale) }
+            return
+        }
+        _uiState.update { state ->
+            val updated = state.canvasLayers.map { layer ->
+                if (layer.id == selId) {
+                    val newScale = (layer.scale * scaleMultiplier).coerceIn(0.15f, 5.0f)
+                    layer.copy(scale = newScale)
+                } else layer
+            }
+            val activeL = updated.firstOrNull { it.id == selId }
+            state.copy(
+                canvasLayers = updated,
+                overlayScale = activeL?.scale ?: state.overlayScale,
+                canvasRevision = state.canvasRevision + 1
+            )
         }
     }
 
     fun updateOverlayRotation(rotation: Float) {
-        _uiState.update { it.copy(overlayRotation = rotation % 360f) }
+        val selId = _uiState.value.selectedLayerId
+        if (selId == null) {
+            _uiState.update { it.copy(overlayRotation = rotation % 360f) }
+            return
+        }
+        _uiState.update { state ->
+            val updated = state.canvasLayers.map { layer ->
+                if (layer.id == selId) {
+                    layer.copy(rotation = rotation % 360f)
+                } else layer
+            }
+            val activeL = updated.firstOrNull { it.id == selId }
+            state.copy(
+                canvasLayers = updated,
+                overlayRotation = activeL?.rotation ?: state.overlayRotation,
+                canvasRevision = state.canvasRevision + 1
+            )
+        }
     }
 
     fun rotateOverlayBy(deltaDegrees: Float) {
-        val newRot = (_uiState.value.overlayRotation + deltaDegrees) % 360f
-        _uiState.update { it.copy(overlayRotation = newRot) }
+        val selId = _uiState.value.selectedLayerId
+        if (selId == null) {
+            val newRot = (_uiState.value.overlayRotation + deltaDegrees) % 360f
+            _uiState.update { it.copy(overlayRotation = newRot) }
+            return
+        }
+        _uiState.update { state ->
+            val updated = state.canvasLayers.map { layer ->
+                if (layer.id == selId) {
+                    layer.copy(rotation = (layer.rotation + deltaDegrees) % 360f)
+                } else layer
+            }
+            val activeL = updated.firstOrNull { it.id == selId }
+            state.copy(
+                canvasLayers = updated,
+                overlayRotation = activeL?.rotation ?: state.overlayRotation,
+                canvasRevision = state.canvasRevision + 1
+            )
+        }
     }
 
-    fun commitOverlayToDocument() {
-        val current = _uiState.value.currentBitmap ?: return
-        val overlay = _uiState.value.activeOverlayBitmap ?: return
+    fun updateSelectedLayerAlpha(newAlpha: Float) {
+        val selId = _uiState.value.selectedLayerId ?: return
+        _uiState.update { state ->
+            val clamped = newAlpha.coerceIn(0.1f, 1.0f)
+            val updated = state.canvasLayers.map { layer ->
+                if (layer.id == selId) {
+                    layer.copy(alpha = clamped)
+                } else layer
+            }
+            state.copy(
+                canvasLayers = updated,
+                overlayAlpha = clamped,
+                canvasRevision = state.canvasRevision + 1
+            )
+        }
+    }
 
-        pushUndoStep(UndoStep.FullBitmap(current))
+    fun duplicateSelectedLayer() {
+        val selId = _uiState.value.selectedLayerId ?: return
+        val target = _uiState.value.canvasLayers.firstOrNull { it.id == selId } ?: return
+        val duplicated = target.copy(
+            id = java.util.UUID.randomUUID().toString(),
+            x = target.x + 35f,
+            y = target.y + 35f,
+            title = "${target.title} (Copy)"
+        )
+        _uiState.update { state ->
+            state.copy(
+                canvasLayers = state.canvasLayers + duplicated,
+                selectedLayerId = duplicated.id,
+                activeOverlayBitmap = duplicated.bitmap,
+                canvasRevision = state.canvasRevision + 1,
+                successMessage = "Layer duplicated!"
+            )
+        }
+    }
+
+    fun deleteSelectedLayer() {
+        val selId = _uiState.value.selectedLayerId
+        if (selId == null) {
+            cancelOverlay()
+            return
+        }
+        _uiState.update { state ->
+            val remaining = state.canvasLayers.filter { it.id != selId }
+            state.copy(
+                canvasLayers = remaining,
+                selectedLayerId = remaining.lastOrNull()?.id,
+                activeOverlayBitmap = remaining.lastOrNull()?.bitmap,
+                canvasRevision = state.canvasRevision + 1,
+                successMessage = "Layer removed."
+            )
+        }
+    }
+
+    fun bringSelectedLayerToFront() {
+        val selId = _uiState.value.selectedLayerId ?: return
+        _uiState.update { state ->
+            val target = state.canvasLayers.firstOrNull { it.id == selId } ?: return@update state
+            val others = state.canvasLayers.filter { it.id != selId }
+            state.copy(
+                canvasLayers = others + target,
+                canvasRevision = state.canvasRevision + 1
+            )
+        }
+    }
+
+    fun sendSelectedLayerToBack() {
+        val selId = _uiState.value.selectedLayerId ?: return
+        _uiState.update { state ->
+            val target = state.canvasLayers.firstOrNull { it.id == selId } ?: return@update state
+            val others = state.canvasLayers.filter { it.id != selId }
+            state.copy(
+                canvasLayers = listOf(target) + others,
+                canvasRevision = state.canvasRevision + 1
+            )
+        }
+    }
+
+    fun flattenAllLayersToDocument(saveUndo: Boolean = true): Bitmap? {
+        val current = _uiState.value.currentBitmap ?: return null
+        val layers = _uiState.value.canvasLayers
+
+        if (layers.isEmpty()) {
+            if (_uiState.value.activeOverlayBitmap != null) {
+                val overlay = _uiState.value.activeOverlayBitmap ?: return current
+                if (saveUndo) pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+                val res = current.copy(Bitmap.Config.ARGB_8888, true)
+                val c = Canvas(res)
+                val posX = _uiState.value.overlayPositionX
+                val posY = _uiState.value.overlayPositionY
+                val scale = _uiState.value.overlayScale
+                val rotation = _uiState.value.overlayRotation
+                val dstW = (overlay.width * scale).toInt().coerceAtLeast(1)
+                val dstH = (overlay.height * scale).toInt().coerceAtLeast(1)
+                val dstRect = Rect(posX.toInt(), posY.toInt(), posX.toInt() + dstW, posY.toInt() + dstH)
+                val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+                if (rotation != 0f) {
+                    c.save()
+                    c.rotate(rotation, posX + dstW / 2f, posY + dstH / 2f)
+                    c.drawBitmap(overlay, null, dstRect, paint)
+                    c.restore()
+                } else {
+                    c.drawBitmap(overlay, null, dstRect, paint)
+                }
+                val pageIdx = _uiState.value.currentPdfPageIndex
+                editedPagesMap[pageIdx] = res
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = res,
+                        activeOverlayBitmap = null,
+                        overlayRotation = 0f,
+                        canUndo = true,
+                        canRedo = false,
+                        hasUnsavedChanges = true,
+                        canvasRevision = it.canvasRevision + 1,
+                        successMessage = "Overlay stamped permanently!"
+                    )
+                }
+                updateRecentDocumentThumbnail(res)
+                return res
+            }
+            return current
+        }
+
+        if (saveUndo) {
+            pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+        }
 
         val resultBitmap = current.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(resultBitmap)
 
-        val posX = _uiState.value.overlayPositionX
-        val posY = _uiState.value.overlayPositionY
-        val scale = _uiState.value.overlayScale
-        val rotation = _uiState.value.overlayRotation
+        layers.forEach { layer ->
+            val dstW = (layer.bitmap.width * layer.scale).toInt().coerceAtLeast(1)
+            val dstH = (layer.bitmap.height * layer.scale).toInt().coerceAtLeast(1)
+            val dstRect = Rect(layer.x.toInt(), layer.y.toInt(), layer.x.toInt() + dstW, layer.y.toInt() + dstH)
 
-        val dstW = (overlay.width * scale).toInt()
-        val dstH = (overlay.height * scale).toInt()
-        val dstRect = Rect(posX.toInt(), posY.toInt(), posX.toInt() + dstW, posY.toInt() + dstH)
+            val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG).apply {
+                alpha = (layer.alpha * 255).toInt().coerceIn(0, 255)
+            }
 
-        val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
-        if (rotation != 0f) {
-            canvas.save()
-            canvas.rotate(rotation, posX + dstW / 2f, posY + dstH / 2f)
-            canvas.drawBitmap(overlay, null, dstRect, paint)
-            canvas.restore()
-        } else {
-            canvas.drawBitmap(overlay, null, dstRect, paint)
+            if (layer.rotation != 0f) {
+                canvas.save()
+                canvas.rotate(layer.rotation, layer.x + dstW / 2f, layer.y + dstH / 2f)
+                canvas.drawBitmap(layer.bitmap, null, dstRect, paint)
+                canvas.restore()
+            } else {
+                canvas.drawBitmap(layer.bitmap, null, dstRect, paint)
+            }
         }
 
-        editedPagesMap[_uiState.value.currentPdfPageIndex] = resultBitmap
+        val pageIdx = _uiState.value.currentPdfPageIndex
+        editedPagesMap[pageIdx] = resultBitmap
 
         _uiState.update {
             it.copy(
                 currentBitmap = resultBitmap,
+                canvasLayers = emptyList(),
+                selectedLayerId = null,
                 activeOverlayBitmap = null,
                 overlayRotation = 0f,
                 canUndo = true,
                 canRedo = false,
                 hasUnsavedChanges = true,
                 canvasRevision = it.canvasRevision + 1,
-                successMessage = "Signature stamped permanently!"
+                successMessage = "Layers flattened to document successfully!"
             )
         }
         updateRecentDocumentThumbnail(resultBitmap)
+        return resultBitmap
+    }
+
+    fun commitOverlayToDocument() {
+        flattenAllLayersToDocument()
     }
 
     fun cancelOverlay() {
+        if (_uiState.value.canvasLayers.isNotEmpty()) {
+            deleteSelectedLayer()
+            return
+        }
         _uiState.update {
             it.copy(
                 activeOverlayBitmap = null,
@@ -3894,14 +4295,38 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun closeActiveDocumentImmediately() {
+        val oldCurrent = _uiState.value.currentBitmap
+        val oldOriginal = _uiState.value.originalBitmap
         _uiState.update {
             DocumentEditorUiState()
         }
         clearUndoRedo()
+        for (bmp in editedPagesMap.values) {
+            if (bmp != oldCurrent && bmp != oldOriginal && !bmp.isRecycled) {
+                try { bmp.recycle() } catch (_: Exception) {}
+            }
+        }
         editedPagesMap.clear()
         pageDetectedItemsMap.clear()
+        pageUndoStacks.values.forEach { stack ->
+            while (stack.isNotEmpty()) {
+                recycleStep(stack.pop())
+            }
+        }
         pageUndoStacks.clear()
+        pageRedoStacks.values.forEach { stack ->
+            while (stack.isNotEmpty()) {
+                recycleStep(stack.pop())
+            }
+        }
         pageRedoStacks.clear()
+        if (oldCurrent != null && !oldCurrent.isRecycled) {
+            try { oldCurrent.recycle() } catch (_: Exception) {}
+        }
+        if (oldOriginal != null && oldOriginal != oldCurrent && !oldOriginal.isRecycled) {
+            try { oldOriginal.recycle() } catch (_: Exception) {}
+        }
+        System.gc()
     }
 
     fun closeActiveDocument() {
