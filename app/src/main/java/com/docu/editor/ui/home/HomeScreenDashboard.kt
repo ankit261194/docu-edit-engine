@@ -2,10 +2,11 @@ package com.docu.editor.ui.home
 
 import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,7 +30,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CameraAlt
@@ -39,24 +41,22 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -87,10 +87,11 @@ import com.docu.editor.core.history.SavedDocumentItem
 import com.docu.editor.core.util.ThumbnailCache
 
 /**
- * High-performance, clean CamScanner-grade Home Screen Dashboard.
- * Fast, responsive, 60 FPS scrolling, clean documents library front & center,
- * with signature CamScanner floating Camera button.
+ * Premium CamScanner-Grade Home Screen Dashboard.
+ * Clean, modern, responsive 60 FPS documents library,
+ * gesture-friendly bottom sheets, and signature CamScanner floating Camera button.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreenDashboard(
     recentDocuments: List<SavedDocumentItem> = emptyList(),
@@ -131,51 +132,110 @@ fun HomeScreenDashboard(
         }
     }
 
+    // Modern Gesture-Friendly Bottom Sheet for Document Rename (Replaces crude AlertDialog)
     val activeDocToRename = docToRename
     if (activeDocToRename != null) {
-        AlertDialog(
+        ModalBottomSheet(
             onDismissRequest = { docToRename = null },
-            title = { Text("Rename Document", fontWeight = FontWeight.Bold, fontSize = 16.sp) },
-            text = {
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .navigationBarsPadding()
+                    .padding(bottom = 24.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFD1FAE5)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = null,
+                                tint = Color(0xFF059669),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Rename Document",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    IconButton(onClick = { docToRename = null }) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 OutlinedTextField(
                     value = renameInput,
                     onValueChange = { renameInput = it },
                     singleLine = true,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    label = { Text("Document Title") },
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF059669),
+                        unfocusedBorderColor = Color(0xFFCBD5E1)
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (renameInput.isNotBlank()) {
-                            onRenameDocument(activeDocToRename.id, renameInput.trim())
-                        }
-                        docToRename = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669))
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("Rename")
-                }
-            },
-            dismissButton = {
-                OutlinedButton(onClick = { docToRename = null }) {
-                    Text("Cancel")
+                    OutlinedButton(
+                        onClick = { docToRename = null },
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Cancel", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Button(
+                        onClick = {
+                            if (renameInput.isNotBlank()) {
+                                onRenameDocument(activeDocToRename.id, renameInput.trim())
+                            }
+                            docToRename = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Save Changes", fontWeight = FontWeight.Bold, color = Color.White)
+                    }
                 }
             }
-        )
+        }
     }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF8FAFC))
+            .background(MaterialTheme.colorScheme.background)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // 1. Clean CamScanner Header Bar
+            // 1. Sleek CamScanner Top Header Bar
             Surface(
-                color = Color.White,
-                shadowElevation = 2.dp,
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 3.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -187,11 +247,11 @@ fun HomeScreenDashboard(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(36.dp)
+                                    .size(38.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(
                                         Brush.linearGradient(
-                                            listOf(Color(0xFF059669), Color(0xFF10B981))
+                                            listOf(Color(0xFF047857), Color(0xFF10B981))
                                         )
                                     ),
                                 contentAlignment = Alignment.Center
@@ -206,9 +266,9 @@ fun HomeScreenDashboard(
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = "DocuEdit",
-                                fontSize = 19.sp,
+                                fontSize = 20.sp,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = Color(0xFF0F172A)
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Surface(
@@ -220,20 +280,20 @@ fun HomeScreenDashboard(
                                     color = Color(0xFF047857),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Black,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
                             Spacer(modifier = Modifier.width(4.dp))
                             Surface(
                                 shape = RoundedCornerShape(4.dp),
-                                color = Color(0xFFE2E8F0)
+                                color = MaterialTheme.colorScheme.surfaceVariant
                             ) {
                                 Text(
                                     text = "v${com.docu.editor.BuildConfig.VERSION_NAME}",
-                                    color = Color(0xFF475569),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                 )
                             }
                         }
@@ -243,10 +303,11 @@ fun HomeScreenDashboard(
                                 Icon(
                                     imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
                                     contentDescription = "Search",
-                                    tint = Color(0xFF475569)
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            // Cloud Backups Quick View
+
+                            // Cloud Backups Quick View Badge
                             Surface(
                                 shape = RoundedCornerShape(8.dp),
                                 color = Color(0xFFEFF6FF),
@@ -257,13 +318,13 @@ fun HomeScreenDashboard(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
                                 ) {
                                     Icon(
                                         Icons.Default.CloudDone,
                                         contentDescription = null,
                                         tint = Color(0xFF2563EB),
-                                        modifier = Modifier.size(14.dp)
+                                        modifier = Modifier.size(15.dp)
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
@@ -277,29 +338,33 @@ fun HomeScreenDashboard(
                         }
                     }
 
-                    // Collapsible Search Input
-                    AnimatedVisibility(visible = isSearchExpanded) {
+                    // Collapsible Search Input with Smooth Animation
+                    AnimatedVisibility(
+                        visible = isSearchExpanded,
+                        enter = fadeIn(),
+                        exit = fadeOut()
+                    ) {
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("Search by document title or OCR text...", fontSize = 13.sp) },
+                            placeholder = { Text("Search title or OCR text...", fontSize = 13.sp) },
                             singleLine = true,
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(12.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = Color(0xFF059669),
                                 unfocusedBorderColor = Color(0xFFCBD5E1),
-                                focusedContainerColor = Color(0xFFF8FAFC),
-                                unfocusedContainerColor = Color(0xFFF8FAFC)
+                                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 8.dp)
+                                .padding(top = 10.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    // 2. Category Navigation Tabs (CamScanner Horizontal Pills)
+                    // 2. Category Navigation Tabs (Sleek Horizontal Capsules)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -310,14 +375,14 @@ fun HomeScreenDashboard(
                             val isSelected = selectedCategory == cat
                             Surface(
                                 shape = RoundedCornerShape(20.dp),
-                                color = if (isSelected) Color(0xFF059669) else Color(0xFFF1F5F9),
+                                color = if (isSelected) Color(0xFF059669) else MaterialTheme.colorScheme.surfaceVariant,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(20.dp))
                                     .clickable { selectedCategory = cat }
                             ) {
                                 Text(
                                     text = cat,
-                                    color = if (isSelected) Color.White else Color(0xFF475569),
+                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 12.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
@@ -328,67 +393,64 @@ fun HomeScreenDashboard(
                 }
             }
 
-            // 3. Main Document Section & Quick Action Strip
+            // 3. Main Document Section & Quick Action Cards
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
-                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 96.dp),
+                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 100.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.fillMaxSize()
             ) {
-                // Quick Tools Strip (Compact, Elegant, Clean)
+                // Top Action Studio Cards (Clean, Spacious, Vibrant)
                 item(span = { GridItemSpan(2) }) {
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = Color.White,
-                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                        modifier = Modifier.fillMaxWidth()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            QuickToolItem(
-                                icon = Icons.Default.CameraAlt,
-                                label = "Scan",
-                                color = Color(0xFF059669),
-                                onClick = onCameraScanClicked
-                            )
-                            QuickToolItem(
-                                icon = Icons.Default.PhotoLibrary,
-                                label = "Import",
-                                color = Color(0xFF2563EB),
-                                onClick = onOpenFileClicked
-                            )
-                            QuickToolItem(
-                                icon = Icons.Default.Badge,
-                                label = "ID Card",
-                                color = Color(0xFF0D9488),
-                                onClick = onIdCardClicked
-                            )
-                            QuickToolItem(
-                                icon = Icons.Default.Draw,
-                                label = "Sign",
-                                color = Color(0xFFE11D48),
-                                onClick = onSignatureClicked
-                            )
-                            QuickToolItem(
-                                icon = Icons.Default.PictureAsPdf,
-                                label = "PDF Tools",
-                                color = Color(0xFFD97706),
-                                onClick = onPdfToolsClicked
-                            )
-                            QuickToolItem(
-                                icon = Icons.Default.AutoAwesome,
-                                label = "Batch OCR",
-                                color = Color(0xFF7C3AED),
-                                onClick = onBulkBatchOcrClicked
-                            )
-                        }
+                        StudioActionCard(
+                            title = "Camera Scan",
+                            subtitle = "AI Edge & Dewarp",
+                            icon = Icons.Default.CameraAlt,
+                            gradient = listOf(Color(0xFF059669), Color(0xFF10B981)),
+                            onClick = onCameraScanClicked
+                        )
+                        StudioActionCard(
+                            title = "Import Files",
+                            subtitle = "PDF & Gallery",
+                            icon = Icons.Default.PhotoLibrary,
+                            gradient = listOf(Color(0xFF2563EB), Color(0xFF3B82F6)),
+                            onClick = onOpenFileClicked
+                        )
+                        StudioActionCard(
+                            title = "ID Card Mode",
+                            subtitle = "Front & Back Page",
+                            icon = Icons.Default.Badge,
+                            gradient = listOf(Color(0xFF0D9488), Color(0xFF14B8A6)),
+                            onClick = onIdCardClicked
+                        )
+                        StudioActionCard(
+                            title = "Batch OCR",
+                            subtitle = "Multi-Doc Extract",
+                            icon = Icons.Default.AutoAwesome,
+                            gradient = listOf(Color(0xFF7C3AED), Color(0xFF8B5CF6)),
+                            onClick = onBulkBatchOcrClicked
+                        )
+                        StudioActionCard(
+                            title = "Sign & Stamp",
+                            subtitle = "Vector Signatures",
+                            icon = Icons.Default.Draw,
+                            gradient = listOf(Color(0xFFE11D48), Color(0xFFF43F5E)),
+                            onClick = onSignatureClicked
+                        )
+                        StudioActionCard(
+                            title = "PDF Tools",
+                            subtitle = "Merge & Compress",
+                            icon = Icons.Default.PictureAsPdf,
+                            gradient = listOf(Color(0xFFD97706), Color(0xFFF59E0B)),
+                            onClick = onPdfToolsClicked
+                        )
                     }
                 }
 
@@ -397,25 +459,25 @@ fun HomeScreenDashboard(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(start = 4.dp, end = 4.dp, top = 4.dp),
+                            .padding(start = 4.dp, end = 4.dp, top = 6.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = if (selectedCategory == "All") "Recent Scans (${filteredDocs.size})" else "$selectedCategory (${filteredDocs.size})",
-                            fontSize = 14.sp,
+                            text = if (selectedCategory == "All") "My Documents (${filteredDocs.size})" else "$selectedCategory (${filteredDocs.size})",
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF1E293B)
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         if (filteredDocs.isNotEmpty()) {
                             TextButton(
                                 onClick = onClearAllRecentDocuments,
-                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
                             ) {
                                 Text(
                                     text = "Clear All",
                                     color = Color(0xFFEF4444),
-                                    fontSize = 11.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
@@ -423,13 +485,13 @@ fun HomeScreenDashboard(
                     }
                 }
 
-                // If empty: Clean CamScanner Empty State
+                // If empty: Clean CamScanner Studio Empty State
                 if (filteredDocs.isEmpty()) {
                     item(span = { GridItemSpan(2) }) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(260.dp),
+                                .height(280.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(
@@ -438,38 +500,47 @@ fun HomeScreenDashboard(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(64.dp)
+                                        .size(68.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xFFE2E8F0)),
+                                        .background(Color(0xFFD1FAE5)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Description,
                                         contentDescription = null,
-                                        tint = Color(0xFF94A3B8),
-                                        modifier = Modifier.size(32.dp)
+                                        tint = Color(0xFF059669),
+                                        modifier = Modifier.size(34.dp)
                                     )
                                 }
-                                Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(14.dp))
                                 Text(
                                     text = if (searchQuery.isNotBlank()) "No documents match '$searchQuery'" else "No documents yet",
-                                    fontSize = 14.sp,
+                                    fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF475569)
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = "Tap the Camera button below to scan your first document",
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF94A3B8)
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = onCameraScanClicked,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Start Scanning", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
                                 OutlinedButton(
                                     onClick = onTryDemoClicked,
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF059669))
+                                    shape = RoundedCornerShape(10.dp)
                                 ) {
-                                    Text("Load Demo Invoice", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text("Load Sample Invoice", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -507,11 +578,11 @@ fun HomeScreenDashboard(
                 // Secondary Mini Gallery FAB
                 Surface(
                     shape = CircleShape,
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.surface,
                     shadowElevation = 6.dp,
-                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(46.dp)
                         .clip(CircleShape)
                         .clickable { onOpenFileClicked() }
                 ) {
@@ -532,12 +603,12 @@ fun HomeScreenDashboard(
                     contentColor = Color.White,
                     shape = CircleShape,
                     elevation = androidx.compose.material3.FloatingActionButtonDefaults.elevation(8.dp),
-                    modifier = Modifier.size(62.dp)
+                    modifier = Modifier.size(64.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.CameraAlt,
                         contentDescription = "Scan Document",
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(30.dp)
                     )
                 }
             }
@@ -545,43 +616,67 @@ fun HomeScreenDashboard(
     }
 }
 
+/**
+ * Modern High-Contrast Studio Action Card with Gradient Accent.
+ */
 @Composable
-private fun QuickToolItem(
+private fun StudioActionCard(
+    title: String,
+    subtitle: String,
     icon: ImageVector,
-    label: String,
-    color: Color,
+    gradient: List<Color>,
     onClick: () -> Unit
 ) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         modifier = Modifier
+            .width(135.dp)
             .clickable { onClick() }
-            .padding(horizontal = 4.dp, vertical = 2.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(38.dp)
-                .clip(CircleShape)
-                .background(color.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center
+        Column(
+            modifier = Modifier.padding(12.dp)
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = color,
-                modifier = Modifier.size(19.dp)
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Brush.linearGradient(gradient)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = title,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = title,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                fontSize = 10.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = label,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = Color(0xFF334155)
-        )
     }
 }
 
+/**
+ * Clean Document Card with Responsive Thumbnails & Options Menu.
+ */
 @Composable
 private fun CamScannerDocCard(
     document: SavedDocumentItem,
@@ -596,27 +691,26 @@ private fun CamScannerDocCard(
     var thumbBmp by remember { mutableStateOf<Bitmap?>(null) }
     val categoryList = listOf("ID Cards", "Invoices", "Office", "Personal")
 
-    // Asynchronous non-blocking thumbnail loading via ThumbnailCache
     LaunchedEffect(document.thumbnailPath) {
         thumbBmp = ThumbnailCache.loadThumbnail(document.thumbnailPath, targetSize = 280)
     }
 
     Card(
         shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
     ) {
         Column {
-            // Thumbnail Area with Badges
+            // Thumbnail Preview Container
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(135.dp)
-                    .background(Color(0xFFF1F5F9)),
+                    .height(140.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentAlignment = Alignment.Center
             ) {
                 val currentThumb = thumbBmp
@@ -631,8 +725,8 @@ private fun CamScannerDocCard(
                     Icon(
                         imageVector = Icons.Default.Description,
                         contentDescription = null,
-                        tint = Color(0xFF94A3B8),
-                        modifier = Modifier.size(40.dp)
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.size(42.dp)
                     )
                 }
 
@@ -657,7 +751,7 @@ private fun CamScannerDocCard(
                 if (document.category.isNotBlank() && document.category != "All") {
                     Surface(
                         shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFF059669).copy(alpha = 0.85f),
+                        color = Color(0xFF059669).copy(alpha = 0.90f),
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .padding(6.dp)
@@ -684,17 +778,17 @@ private fun CamScannerDocCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = document.title,
-                        fontSize = 12.5.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0F172A),
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = document.formattedDate,
-                        fontSize = 10.sp,
-                        color = Color(0xFF64748B)
+                        fontSize = 10.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -706,7 +800,7 @@ private fun CamScannerDocCard(
                         Icon(
                             imageVector = Icons.Default.MoreVert,
                             contentDescription = "Options",
-                            tint = Color(0xFF64748B),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -743,7 +837,7 @@ private fun CamScannerDocCard(
                             if (cat != document.category) {
                                 DropdownMenuItem(
                                     text = { Text("Move to $cat", fontSize = 12.sp) },
-                                    leadingIcon = { Icon(Icons.Default.Label, contentDescription = null, modifier = Modifier.size(14.dp)) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, contentDescription = null, modifier = Modifier.size(14.dp)) },
                                     onClick = {
                                         showMenu = false
                                         onUpdateCategory(cat)
