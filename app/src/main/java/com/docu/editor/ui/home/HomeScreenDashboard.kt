@@ -5,9 +5,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,9 +37,11 @@ import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.CollectionsBookmark
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Draw
@@ -44,11 +49,13 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -115,6 +122,12 @@ fun HomeScreenDashboard(
     onSaveToGoogleDrive: (SavedDocumentItem) -> Unit = {},
     onBackupToCloud: (SavedDocumentItem) -> Unit = {},
     onViewCloudBackupsClicked: () -> Unit = {},
+    onMergeSelectedDocuments: (List<SavedDocumentItem>) -> Unit = {},
+    onShareSelectedDocuments: (List<SavedDocumentItem>) -> Unit = {},
+    onBackupSelectedDocuments: (List<SavedDocumentItem>) -> Unit = {},
+    onDeleteSelectedDocuments: (Set<String>) -> Unit = {},
+    onBatchScanClicked: () -> Unit = {},
+    onBookScanClicked: () -> Unit = {},
     onCameraScanClicked: () -> Unit,
     onOpenFileClicked: () -> Unit,
     onIdCardClicked: () -> Unit,
@@ -162,6 +175,8 @@ fun HomeScreenDashboard(
     var selectedCategory by remember { mutableStateOf("All") }
     var docToRename by remember { mutableStateOf<SavedDocumentItem?>(null) }
     var renameInput by remember { mutableStateOf("") }
+    var isSelectionMode by remember { mutableStateOf(false) }
+    var selectedDocIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
     val categories = listOf("All", "ID Cards", "Invoices", "Office", "Personal")
 
@@ -463,6 +478,20 @@ fun HomeScreenDashboard(
                                     onClick = onCameraScanClicked
                                 )
                                 StudioActionCard(
+                                    title = "Batch Scan",
+                                    subtitle = "Multi-Page Rapid",
+                                    icon = Icons.Default.CollectionsBookmark,
+                                    gradient = listOf(Color(0xFF0D9488), Color(0xFF059669)),
+                                    onClick = onBatchScanClicked
+                                )
+                                StudioActionCard(
+                                    title = "Book Scan",
+                                    subtitle = "Split Left & Right",
+                                    icon = Icons.Default.MenuBook,
+                                    gradient = listOf(Color(0xFF4F46E5), Color(0xFF6366F1)),
+                                    onClick = onBookScanClicked
+                                )
+                                StudioActionCard(
                                     title = "Import Files",
                                     subtitle = "PDF & Gallery",
                                     icon = Icons.Default.PhotoLibrary,
@@ -560,10 +589,95 @@ fun HomeScreenDashboard(
                                 }
                             }
                         } else {
+                            // Document Selection Header
+                            item(span = { GridItemSpan(2) }) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (isSelectionMode) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            IconButton(
+                                                onClick = {
+                                                    isSelectionMode = false
+                                                    selectedDocIds = emptySet()
+                                                },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = "Cancel Selection",
+                                                    tint = MaterialTheme.colorScheme.onSurface,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "${selectedDocIds.size} of ${filteredDocs.size} selected",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.5.sp,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                        TextButton(
+                                            onClick = {
+                                                selectedDocIds = if (selectedDocIds.size == filteredDocs.size) {
+                                                    emptySet()
+                                                } else {
+                                                    filteredDocs.map { it.id }.toSet()
+                                                }
+                                            }
+                                        ) {
+                                            Text(
+                                                text = if (selectedDocIds.size == filteredDocs.size) "Deselect All" else "Select All",
+                                                color = Color(0xFF059669),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 12.5.sp
+                                            )
+                                        }
+                                    } else {
+                                        Text(
+                                            text = "Recent Documents (${filteredDocs.size})",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        TextButton(
+                                            onClick = { isSelectionMode = true }
+                                        ) {
+                                            Text(
+                                                text = "Select",
+                                                color = Color(0xFF059669),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
                             items(filteredDocs, key = { it.id }) { doc ->
+                                val isSelected = selectedDocIds.contains(doc.id)
                                 CamScannerDocCard(
                                     document = doc,
-                                    onClick = { onOpenSavedDocument(doc.filePath) },
+                                    isSelectionMode = isSelectionMode,
+                                    isSelected = isSelected,
+                                    onClick = {
+                                        if (isSelectionMode) {
+                                            selectedDocIds = if (isSelected) selectedDocIds - doc.id else selectedDocIds + doc.id
+                                        } else {
+                                            onOpenSavedDocument(doc.filePath)
+                                        }
+                                    },
+                                    onLongClick = {
+                                        if (!isSelectionMode) {
+                                            isSelectionMode = true
+                                            selectedDocIds = setOf(doc.id)
+                                        }
+                                    },
                                     onDelete = { onDeleteRecentDocument(doc.id) },
                                     onUpdateCategory = { newCat -> onUpdateCategory(doc.id, newCat) },
                                     onRename = {
@@ -578,49 +692,51 @@ fun HomeScreenDashboard(
                     }
                 }
 
-                // Floating Action Buttons (Camera + Gallery)
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 20.dp, bottom = 78.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                // Floating Action Buttons (Camera + Gallery) - Visible when not in multi-selection mode
+                if (!isSelectionMode) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 20.dp, bottom = 78.dp)
                     ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surface,
-                            shadowElevation = 6.dp,
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                            modifier = Modifier
-                                .size(46.dp)
-                                .clip(CircleShape)
-                                .clickable { onOpenFileClicked() }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surface,
+                                shadowElevation = 6.dp,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier
+                                    .size(46.dp)
+                                    .clip(CircleShape)
+                                    .clickable { onOpenFileClicked() }
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.PhotoLibrary,
+                                        contentDescription = "Import Gallery",
+                                        tint = Color(0xFF2563EB),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+
+                            FloatingActionButton(
+                                onClick = onCameraScanClicked,
+                                containerColor = Color(0xFF059669),
+                                contentColor = Color.White,
+                                shape = CircleShape,
+                                elevation = androidx.compose.material3.FloatingActionButtonDefaults.elevation(8.dp),
+                                modifier = Modifier.size(64.dp)
+                            ) {
                                 Icon(
-                                    imageVector = Icons.Default.PhotoLibrary,
-                                    contentDescription = "Import Gallery",
-                                    tint = Color(0xFF2563EB),
-                                    modifier = Modifier.size(20.dp)
+                                    imageVector = Icons.Default.CameraAlt,
+                                    contentDescription = "Scan Document",
+                                    modifier = Modifier.size(30.dp)
                                 )
                             }
-                        }
-
-                        FloatingActionButton(
-                            onClick = onCameraScanClicked,
-                            containerColor = Color(0xFF059669),
-                            contentColor = Color.White,
-                            shape = CircleShape,
-                            elevation = androidx.compose.material3.FloatingActionButtonDefaults.elevation(8.dp),
-                            modifier = Modifier.size(64.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CameraAlt,
-                                contentDescription = "Scan Document",
-                                modifier = Modifier.size(30.dp)
-                            )
                         }
                     }
                 }
@@ -705,48 +821,123 @@ fun HomeScreenDashboard(
             }
         }
 
-        // Signature CamScanner Bottom Navigation Bar (Home, Files, Tools, Me)
-        Surface(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 10.dp,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-        ) {
-            Row(
+        if (isSelectionMode) {
+            // CamScanner Multi-Action Dock Bar
+            Surface(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .height(58.dp),
-                horizontalArrangement = Arrangement.SpaceAround,
-                verticalAlignment = Alignment.CenterVertically
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 16.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
-                BottomNavItem(
-                    label = "Home",
-                    icon = Icons.Default.Home,
-                    isSelected = activeNavTab == HomeNavTab.HOME,
-                    onClick = { activeNavTab = HomeNavTab.HOME }
-                )
-                BottomNavItem(
-                    label = "Files",
-                    icon = Icons.Default.Description,
-                    isSelected = activeNavTab == HomeNavTab.FILES,
-                    onClick = { activeNavTab = HomeNavTab.FILES }
-                )
-                BottomNavItem(
-                    label = "Tools",
-                    icon = Icons.Default.GridView,
-                    isSelected = activeNavTab == HomeNavTab.TOOLS,
-                    onClick = { activeNavTab = HomeNavTab.TOOLS }
-                )
-                BottomNavItem(
-                    label = "Me",
-                    icon = Icons.Default.Person,
-                    isSelected = activeNavTab == HomeNavTab.ME,
-                    hasEduBadge = true,
-                    onClick = { activeNavTab = HomeNavTab.ME }
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceAround,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val selectedCount = selectedDocIds.size
+                    val hasSelection = selectedCount > 0
+
+                    // 1. Merge PDF
+                    BatchDockItem(
+                        icon = Icons.Default.PictureAsPdf,
+                        label = "Merge PDF",
+                        enabled = selectedCount >= 2,
+                        tint = if (selectedCount >= 2) Color(0xFF059669) else Color(0xFF94A3B8),
+                        onClick = {
+                            val list = recentDocuments.filter { it.id in selectedDocIds }
+                            onMergeSelectedDocuments(list)
+                            isSelectionMode = false
+                            selectedDocIds = emptySet()
+                        }
+                    )
+
+                    // 2. Share
+                    BatchDockItem(
+                        icon = Icons.Default.Share,
+                        label = "Share",
+                        enabled = hasSelection,
+                        tint = if (hasSelection) Color(0xFF2563EB) else Color(0xFF94A3B8),
+                        onClick = {
+                            val list = recentDocuments.filter { it.id in selectedDocIds }
+                            onShareSelectedDocuments(list)
+                        }
+                    )
+
+                    // 3. Cloud Backup
+                    BatchDockItem(
+                        icon = Icons.Default.CloudUpload,
+                        label = "Backup",
+                        enabled = hasSelection,
+                        tint = if (hasSelection) Color(0xFF7C3AED) else Color(0xFF94A3B8),
+                        onClick = {
+                            val list = recentDocuments.filter { it.id in selectedDocIds }
+                            onBackupSelectedDocuments(list)
+                        }
+                    )
+
+                    // 4. Delete
+                    BatchDockItem(
+                        icon = Icons.Default.Delete,
+                        label = "Delete",
+                        enabled = hasSelection,
+                        tint = if (hasSelection) Color(0xFFEF4444) else Color(0xFF94A3B8),
+                        onClick = {
+                            onDeleteSelectedDocuments(selectedDocIds)
+                            isSelectionMode = false
+                            selectedDocIds = emptySet()
+                        }
+                    )
+                }
+            }
+        } else {
+            // Signature CamScanner Bottom Navigation Bar (Home, Files, Tools, Me)
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 10.dp,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .height(58.dp),
+                    horizontalArrangement = Arrangement.SpaceAround,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    BottomNavItem(
+                        label = "Home",
+                        icon = Icons.Default.Home,
+                        isSelected = activeNavTab == HomeNavTab.HOME,
+                        onClick = { activeNavTab = HomeNavTab.HOME }
+                    )
+                    BottomNavItem(
+                        label = "Files",
+                        icon = Icons.Default.Description,
+                        isSelected = activeNavTab == HomeNavTab.FILES,
+                        onClick = { activeNavTab = HomeNavTab.FILES }
+                    )
+                    BottomNavItem(
+                        label = "Tools",
+                        icon = Icons.Default.GridView,
+                        isSelected = activeNavTab == HomeNavTab.TOOLS,
+                        onClick = { activeNavTab = HomeNavTab.TOOLS }
+                    )
+                    BottomNavItem(
+                        label = "Me",
+                        icon = Icons.Default.Person,
+                        isSelected = activeNavTab == HomeNavTab.ME,
+                        hasEduBadge = true,
+                        onClick = { activeNavTab = HomeNavTab.ME }
+                    )
+                }
             }
         }
     }
@@ -867,10 +1058,14 @@ private fun StudioActionCard(
 /**
  * Clean Document Card with Responsive Thumbnails & Options Menu.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun CamScannerDocCard(
     document: SavedDocumentItem,
+    isSelectionMode: Boolean = false,
+    isSelected: Boolean = false,
     onClick: () -> Unit,
+    onLongClick: () -> Unit = {},
     onDelete: () -> Unit,
     onUpdateCategory: (String) -> Unit = {},
     onRename: () -> Unit = {},
@@ -888,11 +1083,18 @@ private fun CamScannerDocCard(
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = if (isSelectionMode && isSelected) {
+            BorderStroke(2.dp, Color(0xFF059669))
+        } else {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        },
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 4.dp else 1.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() }
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
     ) {
         Column {
             Box(
@@ -943,6 +1145,30 @@ private fun CamScannerDocCard(
                                 color = Color.White,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                if (isSelectionMode) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(if (isSelected) Color(0xFF059669) else Color.Black.copy(alpha = 0.45f))
+                            .then(
+                                if (!isSelected) Modifier.border(1.5.dp, Color.White, CircleShape) else Modifier
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Selected",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
                             )
                         }
                     }
@@ -1003,69 +1229,102 @@ private fun CamScannerDocCard(
                         )
                     }
 
-                    IconButton(
-                        onClick = { showMenu = true },
-                        modifier = Modifier.size(24.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Options",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Rename", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                            onClick = {
-                                showMenu = false
-                                onRename()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Save to Google Drive", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(16.dp)) },
-                            onClick = {
-                                showMenu = false
-                                onSaveToGoogleDrive()
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Backup to Cloud", fontSize = 13.sp) },
-                            leadingIcon = { Icon(Icons.Default.CloudDone, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(16.dp)) },
-                            onClick = {
-                                showMenu = false
-                                onBackupToCloud()
-                            }
-                        )
-                        for (cat in categoryList) {
-                            if (cat != document.category) {
-                                DropdownMenuItem(
-                                    text = { Text("Move to $cat", fontSize = 12.sp) },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, contentDescription = null, modifier = Modifier.size(14.dp)) },
-                                    onClick = {
-                                        showMenu = false
-                                        onUpdateCategory(cat)
-                                    }
-                                )
-                            }
+                    if (!isSelectionMode) {
+                        IconButton(
+                            onClick = { showMenu = true },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Options",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
-                        DropdownMenuItem(
-                            text = { Text("Delete", color = Color(0xFFEF4444), fontSize = 13.sp, fontWeight = FontWeight.Bold) },
-                            leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp)) },
-                            onClick = {
-                                showMenu = false
-                                onDelete()
+
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Rename", fontSize = 13.sp) },
+                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                onClick = {
+                                    showMenu = false
+                                    onRename()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Save to Google Drive", fontSize = 13.sp) },
+                                leadingIcon = { Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(16.dp)) },
+                                onClick = {
+                                    showMenu = false
+                                    onSaveToGoogleDrive()
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Backup to Cloud", fontSize = 13.sp) },
+                                leadingIcon = { Icon(Icons.Default.CloudDone, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(16.dp)) },
+                                onClick = {
+                                    showMenu = false
+                                    onBackupToCloud()
+                                }
+                            )
+                            for (cat in categoryList) {
+                                if (cat != document.category) {
+                                    DropdownMenuItem(
+                                        text = { Text("Move to $cat", fontSize = 12.sp) },
+                                        leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, contentDescription = null, modifier = Modifier.size(14.dp)) },
+                                        onClick = {
+                                            showMenu = false
+                                            onUpdateCategory(cat)
+                                        }
+                                    )
+                                }
                             }
-                        )
+                            DropdownMenuItem(
+                                text = { Text("Delete", color = Color(0xFFEF4444), fontSize = 13.sp, fontWeight = FontWeight.Bold) },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp)) },
+                                onClick = {
+                                    showMenu = false
+                                    onDelete()
+                                }
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun BatchDockItem(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean,
+    tint: Color,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(enabled = enabled) { onClick() }
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = tint,
+            modifier = Modifier.size(24.dp)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = tint
+        )
     }
 }

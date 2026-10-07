@@ -378,12 +378,34 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                var pendingScannerMode by remember { mutableStateOf<LiveCameraScannerActivity.ScannerMode?>(null) }
+
                 val cameraPermissionLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestPermission()
                 ) { isGranted ->
                     if (isGranted) {
-                        val intent = Intent(this@MainActivity, LiveCameraScannerActivity::class.java)
+                        val mode = pendingScannerMode ?: LiveCameraScannerActivity.ScannerMode.SINGLE
+                        val intent = Intent(this@MainActivity, LiveCameraScannerActivity::class.java).apply {
+                            putExtra(LiveCameraScannerActivity.EXTRA_INITIAL_MODE, mode.name)
+                        }
                         liveScannerLauncher.launch(intent)
+                        pendingScannerMode = null
+                    }
+                }
+
+                val launchScannerWithMode: (LiveCameraScannerActivity.ScannerMode) -> Unit = { mode ->
+                    if (ContextCompat.checkSelfPermission(
+                            this@MainActivity,
+                            Manifest.permission.CAMERA
+                        ) == PackageManager.PERMISSION_GRANTED
+                    ) {
+                        val intent = Intent(this@MainActivity, LiveCameraScannerActivity::class.java).apply {
+                            putExtra(LiveCameraScannerActivity.EXTRA_INITIAL_MODE, mode.name)
+                        }
+                        liveScannerLauncher.launch(intent)
+                    } else {
+                        pendingScannerMode = mode
+                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
                     }
                 }
 
@@ -1045,17 +1067,14 @@ class MainActivity : ComponentActivity() {
                                 onSaveToGoogleDrive = { doc -> viewModel.saveSavedDocumentToGoogleDrive(this@MainActivity, doc) },
                                 onBackupToCloud = { doc -> viewModel.backupSavedDocumentToCloud(doc) },
                                 onViewCloudBackupsClicked = { viewModel.showCloudBackupsListDialog(true) },
+                                onMergeSelectedDocuments = { list -> viewModel.mergeMultipleDocumentsToPdf(list) },
+                                onShareSelectedDocuments = { list -> shareMultipleSavedDocuments(list) },
+                                onBackupSelectedDocuments = { list -> list.forEach { doc -> viewModel.backupSavedDocumentToCloud(doc) } },
+                                onDeleteSelectedDocuments = { ids -> viewModel.deleteMultipleDocuments(ids) },
+                                onBatchScanClicked = { launchScannerWithMode(LiveCameraScannerActivity.ScannerMode.BATCH) },
+                                onBookScanClicked = { launchScannerWithMode(LiveCameraScannerActivity.ScannerMode.BOOK) },
                                 onCameraScanClicked = {
-                                    if (ContextCompat.checkSelfPermission(
-                                            this@MainActivity,
-                                            Manifest.permission.CAMERA
-                                        ) == PackageManager.PERMISSION_GRANTED
-                                    ) {
-                                        val intent = Intent(this@MainActivity, LiveCameraScannerActivity::class.java)
-                                        liveScannerLauncher.launch(intent)
-                                    } else {
-                                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                                    }
+                                    launchScannerWithMode(LiveCameraScannerActivity.ScannerMode.SINGLE)
                                 },
                                 onOpenFileClicked = {
                                     filePickerLauncher.launch(arrayOf("image/*", "application/pdf"))
@@ -1241,16 +1260,13 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onSlidesScan = {
-                                    val intent = Intent(this@MainActivity, LiveCameraScannerActivity::class.java)
-                                    liveScannerLauncher.launch(intent)
+                                    launchScannerWithMode(LiveCameraScannerActivity.ScannerMode.SINGLE)
                                 },
                                 onWhiteboardScan = {
-                                    val intent = Intent(this@MainActivity, LiveCameraScannerActivity::class.java)
-                                    liveScannerLauncher.launch(intent)
+                                    launchScannerWithMode(LiveCameraScannerActivity.ScannerMode.WHITEBOARD)
                                 },
                                 onTimestampScan = {
-                                    val intent = Intent(this@MainActivity, LiveCameraScannerActivity::class.java)
-                                    liveScannerLauncher.launch(intent)
+                                    launchScannerWithMode(LiveCameraScannerActivity.ScannerMode.SINGLE)
                                 },
                                 onScanCode = {
                                     if (uiState.currentBitmap != null) {
@@ -2129,6 +2145,41 @@ class MainActivity : ComponentActivity() {
             file
         )
         onUriReady(uri)
+    }
+
+
+    private fun shareMultipleSavedDocuments(docs: List<com.docu.editor.core.history.SavedDocumentItem>) {
+        if (docs.isEmpty()) return
+        val uris = ArrayList<Uri>()
+        for (doc in docs) {
+            val file = File(doc.filePath)
+            if (file.exists()) {
+                val uri = FileProvider.getUriForFile(
+                    this,
+                    "${applicationContext.packageName}.fileprovider",
+                    file
+                )
+                uris.add(uri)
+            }
+        }
+        if (uris.isEmpty()) {
+            Toast.makeText(this, "No valid files found to share", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = if (uris.size == 1) {
+            Intent(Intent.ACTION_SEND).apply {
+                type = if (docs.first().filePath.endsWith(".pdf", ignoreCase = true)) "application/pdf" else "image/*"
+                putExtra(Intent.EXTRA_STREAM, uris.first())
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        } else {
+            Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                type = "*/*"
+                putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }
+        startActivity(Intent.createChooser(intent, "Share ${docs.size} Document(s)"))
     }
 
     private fun loadBitmapDirect(uri: Uri): android.graphics.Bitmap? {

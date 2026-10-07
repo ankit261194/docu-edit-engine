@@ -259,6 +259,17 @@ object DocumentHistoryManager {
         }
     }
 
+    suspend fun deleteMultipleDocuments(context: Context, ids: Set<String>) = withContext(Dispatchers.IO) {
+        val currentList = getSavedDocuments(context).toMutableList()
+        val toRemove = currentList.filter { it.id in ids }
+        for (item in toRemove) {
+            File(item.filePath).delete()
+            File(item.thumbnailPath).delete()
+        }
+        currentList.removeAll(toRemove)
+        saveIndex(context, currentList)
+    }
+
     suspend fun clearAllDocuments(context: Context) = withContext(Dispatchers.IO) {
         val currentList = getSavedDocuments(context)
         for (item in currentList) {

@@ -31,6 +31,9 @@ import androidx.lifecycle.viewModelScope
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import org.json.JSONObject
 import com.docu.editor.core.cv.BackgroundInpainter
 import com.docu.editor.core.history.DocumentHistoryManager
@@ -3605,6 +3608,88 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch(Dispatchers.IO) {
             DocumentHistoryManager.renameDocument(context, id, newTitle)
             refreshRecentDocuments()
+        }
+    }
+
+    fun deleteMultipleDocuments(ids: Set<String>) {
+        val context = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            DocumentHistoryManager.deleteMultipleDocuments(context, ids)
+            refreshRecentDocuments()
+        }
+    }
+
+    fun mergeMultipleDocumentsToPdf(documents: List<SavedDocumentItem>) {
+        if (documents.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Merging ${documents.size} documents into PDF...") }
+            try {
+                val context = getApplication<Application>()
+                val allBitmaps = mutableListOf<Bitmap>()
+                withContext(Dispatchers.IO) {
+                    for (doc in documents) {
+                        val file = File(doc.filePath)
+                        if (!file.exists()) continue
+                        if (doc.filePath.endsWith(".pdf", ignoreCase = true)) {
+                            val uri = Uri.fromFile(file)
+                            val pageCount = PdfPageLoader.getPageCount(context, uri)
+                            for (p in 0 until pageCount) {
+                                val bmp = PdfPageLoader.renderPageToBitmap(context, uri, p)
+                                if (bmp != null) allBitmaps.add(bmp)
+                            }
+                        } else {
+                            val bmp = com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(doc.filePath, 2880)
+                            if (bmp != null) allBitmaps.add(bmp)
+                        }
+                    }
+                }
+
+                if (allBitmaps.isEmpty()) {
+                    _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "No valid pages found to merge") }
+                    return@launch
+                }
+
+                val title = "Merged_${SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())}"
+                val docsDir = File(context.filesDir, "saved_documents").apply { mkdirs() }
+                val mergedPdfFile = File(docsDir, "${title}.pdf")
+
+                withContext(Dispatchers.Default) {
+                    PdfExportEngine.exportBitmapsToMultiPagePdf(
+                        bitmaps = allBitmaps,
+                        outputFile = mergedPdfFile,
+                        fitToA4 = true
+                    )
+                }
+
+                DocumentHistoryManager.saveExistingDocumentFile(
+                    context = context,
+                    title = title,
+                    filePath = mergedPdfFile.absolutePath,
+                    thumbnailBitmap = allBitmaps.firstOrNull(),
+                    pageCount = allBitmaps.size,
+                    category = "Office"
+                )
+
+                refreshRecentDocuments()
+
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        successMessage = "✓ Merged ${allBitmaps.size} pages into $title.pdf"
+                    )
+                }
+
+                loadDocumentUri(Uri.fromFile(mergedPdfFile))
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Merge failed: ${e.localizedMessage}"
+                    )
+                }
+            }
         }
     }
 

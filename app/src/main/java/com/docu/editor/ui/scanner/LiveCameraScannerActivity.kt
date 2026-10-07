@@ -561,6 +561,14 @@ class LiveCameraScannerActivity : ComponentActivity() {
         rootLayout.addView(filterReviewPanel)
 
         setContentView(rootLayout)
+
+        val initMode = intent.getStringExtra(EXTRA_INITIAL_MODE)
+        if (initMode != null) {
+            try {
+                setScannerMode(ScannerMode.valueOf(initMode))
+            } catch (_: Exception) {}
+        }
+
         startCamera()
     }
 
@@ -1136,7 +1144,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
     }
 
     private fun toggleBatchMode() {
-        scannerMode = when (scannerMode) {
+        val nextMode = when (scannerMode) {
             ScannerMode.SINGLE -> ScannerMode.BATCH
             ScannerMode.BATCH -> ScannerMode.ID_CARD
             ScannerMode.ID_CARD -> ScannerMode.BOOK
@@ -1144,6 +1152,11 @@ class LiveCameraScannerActivity : ComponentActivity() {
             ScannerMode.WHITEBOARD -> ScannerMode.PASSPORT
             ScannerMode.PASSPORT -> ScannerMode.SINGLE
         }
+        setScannerMode(nextMode)
+    }
+
+    fun setScannerMode(mode: ScannerMode) {
+        scannerMode = mode
         isBatchMode = (scannerMode == ScannerMode.BATCH)
 
         when (scannerMode) {
@@ -1422,5 +1435,6 @@ class LiveCameraScannerActivity : ComponentActivity() {
         const val EXTRA_SCANNED_PATH = "extra_scanned_path"
         const val EXTRA_BATCH_PATHS = "extra_batch_paths"
         const val EXTRA_AUTO_MAGIC_COLOR = "extra_auto_magic_color"
+        const val EXTRA_INITIAL_MODE = "extra_initial_mode"
     }
 }
