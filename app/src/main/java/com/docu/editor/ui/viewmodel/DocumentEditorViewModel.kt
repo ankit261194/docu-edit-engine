@@ -360,12 +360,20 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(showPasswordPromptDialog = false, pendingEncryptedPdfUri = null, isScanning = false) }
     }
 
-    fun passwordProtectAndExport(password: String) {
+    fun passwordProtectAndExport(
+        userPassword: String,
+        ownerPassword: String = userPassword + "_owner",
+        canPrint: Boolean = true,
+        canExtractContent: Boolean = false,
+        canModify: Boolean = false,
+        canFillInForm: Boolean = true,
+        keyLength: Int = 128
+    ) {
         val context = getApplication<Application>()
         saveCurrentPageToCache()
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Encrypting PDF with AES-128...", showPdfToolboxDialog = false) }
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Encrypting PDF with AES-$keyLength...", showPdfToolboxDialog = false) }
             try {
                 val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 val time = System.currentTimeMillis()
@@ -411,7 +419,13 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
                 PdfToolbox(context).passwordProtectPdf(
                     sourceUri = Uri.fromFile(tempSource),
-                    userPassword = password,
+                    userPassword = userPassword,
+                    ownerPassword = ownerPassword,
+                    canPrint = canPrint,
+                    canExtractContent = canExtractContent,
+                    canModify = canModify,
+                    canFillInForm = canFillInForm,
+                    keyLength = keyLength,
                     outputFile = outFile
                 )
                 tempSource.delete()
@@ -1989,27 +2003,39 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     // --- PDF Tools ---
 
-    fun compressCurrentDocument(targetDpi: Int = 150) {
+    fun compressCurrentDocument(targetDpi: Int = 150, quality: Int = 75) {
         val current = _uiState.value.currentBitmap ?: return
+        val context = getApplication<Application>()
         viewModelScope.launch {
-            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Compressing document to ${targetDpi} DPI...") }
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Compressing PDF ($targetDpi DPI, Q$quality)...") }
             try {
-                val compressed = withContext(Dispatchers.Default) {
-                    val scale = when {
-                        targetDpi <= 150 -> 0.7f
-                        targetDpi <= 200 -> 0.85f
-                        else -> 1.0f
-                    }
-                    val w = (current.width * scale).toInt().coerceAtLeast(100)
-                    val h = (current.height * scale).toInt().coerceAtLeast(100)
-                    Bitmap.createScaledBitmap(current, w, h, true)
-                }
+                val tempPdf = getOrGenerateConsolidatedPdf() ?: throw IllegalStateException("Could not generate document PDF")
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val outFile = File(downloadsDir, "DocuEdit_Compressed_${System.currentTimeMillis()}.pdf")
+                val compressionEngine = PdfCompressionEngine(context)
+                val result = compressionEngine.compressPdfDirect(
+                    sourceUri = Uri.fromFile(tempPdf),
+                    outputFile = outFile,
+                    dpi = targetDpi,
+                    jpegQuality = quality
+                )
+                tempPdf.delete()
+
+                val formattedSaved = String.format(
+                    java.util.Locale.US,
+                    "%.1f MB -> %.1f MB (-%.0f%%)",
+                    result.originalBytes / (1024f * 1024f),
+                    result.compressedBytes / (1024f * 1024f),
+                    result.reductionPercent
+                )
+
                 _uiState.update {
                     it.copy(
-                        currentBitmap = compressed,
                         isApplyingEdit = false,
+                        showPdfToolboxDialog = false,
                         processingMessage = null,
-                        successMessage = "Document compressed to ${targetDpi} DPI (size reduced by ~70%)"
+                        exportUri = outFile.absolutePath,
+                        successMessage = "Compressed PDF saved: $formattedSaved"
                     )
                 }
             } catch (e: Exception) {
@@ -4134,6 +4160,89 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "Split failed: ${e.localizedMessage}") }
+            }
+        }
+    }
+
+    fun splitCurrentDocumentByRange(rangeSpec: String) {
+        val context = getApplication<Application>()
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Extracting pages ($rangeSpec)...") }
+            try {
+                val tempPdf = getOrGenerateConsolidatedPdf() ?: throw IllegalStateException("Could not generate document PDF")
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val outFile = File(downloadsDir, "DocuEdit_Range_${System.currentTimeMillis()}.pdf")
+                val toolbox = PdfToolbox(context)
+                toolbox.splitByRange(Uri.fromFile(tempPdf), rangeSpec, outFile)
+                tempPdf.delete()
+
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        showPdfToolboxDialog = false,
+                        successMessage = "Extracted range saved: ${outFile.name}"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "Range split failed: ${e.localizedMessage}") }
+            }
+        }
+    }
+
+    fun splitCurrentDocumentIntoChunks(chunkSize: Int) {
+        val context = getApplication<Application>()
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Splitting into chunks of $chunkSize pages...") }
+            try {
+                val tempPdf = getOrGenerateConsolidatedPdf() ?: throw IllegalStateException("Could not generate document PDF")
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val toolbox = PdfToolbox(context)
+                val files = toolbox.splitIntoFixedChunks(Uri.fromFile(tempPdf), chunkSize, downloadsDir)
+                tempPdf.delete()
+
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        showPdfToolboxDialog = false,
+                        successMessage = "Split into ${files.size} document parts in Downloads!"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "Chunk split failed: ${e.localizedMessage}") }
+            }
+        }
+    }
+
+    fun unlockPasswordProtectedDocument(password: String) {
+        val context = getApplication<Application>()
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Unlocking PDF document...") }
+            try {
+                val tempPdf = getOrGenerateConsolidatedPdf() ?: throw IllegalStateException("Could not generate document PDF")
+                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val outFile = File(downloadsDir, "DocuEdit_Unlocked_${System.currentTimeMillis()}.pdf")
+                val toolbox = PdfToolbox(context)
+                val success = toolbox.decryptPdf(Uri.fromFile(tempPdf), password, outFile)
+                tempPdf.delete()
+
+                if (success) {
+                    _uiState.update {
+                        it.copy(
+                            isApplyingEdit = false,
+                            showPdfToolboxDialog = false,
+                            successMessage = "Unlocked PDF saved to Downloads: ${outFile.name}"
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isApplyingEdit = false,
+                            errorMessage = "Incorrect password or decryption failed"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "Unlock failed: ${e.localizedMessage}") }
             }
         }
     }

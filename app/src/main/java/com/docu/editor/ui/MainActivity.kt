@@ -241,9 +241,9 @@ class MainActivity : ComponentActivity() {
                     if (uris.size >= 2) {
                         lifecycleScope.launch {
                             try {
-                                Toast.makeText(this@MainActivity, "Merging ${uris.size} PDFs...", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(this@MainActivity, "Merging ${uris.size} files...", Toast.LENGTH_SHORT).show()
                                 val outFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Merged_Doc_${System.currentTimeMillis()}.pdf")
-                                PdfToolbox(applicationContext).mergePdfs(uris, outFile)
+                                PdfToolbox(applicationContext).mergeFiles(uris, outFile)
                                 Toast.makeText(this@MainActivity, "Merged successfully: ${outFile.name}", Toast.LENGTH_LONG).show()
                                 viewModel.loadScannedDocument(outFile.absolutePath)
                             } catch (e: Exception) {
@@ -251,7 +251,7 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     } else {
-                        Toast.makeText(this@MainActivity, "Select at least 2 PDF files to merge", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, "Select at least 2 files (PDF or images) to merge", Toast.LENGTH_SHORT).show()
                     }
                 }
 
@@ -1517,29 +1517,45 @@ class MainActivity : ComponentActivity() {
                         // PDF Toolbox Dialog
                         if (uiState.showPdfToolboxDialog) {
                             PdfToolboxDialog(
-                                onCompressSelected = { dpi ->
+                                onCompressSelected = { dpi, quality ->
                                     viewModel.showPdfToolboxDialog(false)
-                                    viewModel.compressCurrentDocument(dpi)
+                                    viewModel.compressCurrentDocument(dpi, quality)
                                 },
-                                onPasswordProtectSelected = { pass ->
+                                onPasswordProtectSelected = { userPass, ownerPass, canPrint, canExtract, canModify, canFillIn, keyLength ->
                                     viewModel.showPdfToolboxDialog(false)
-                                    viewModel.passwordProtectAndExport(pass)
+                                    viewModel.passwordProtectAndExport(userPass, ownerPass, canPrint, canExtract, canModify, canFillIn, keyLength)
+                                },
+                                onUnlockPdfSelected = { pass ->
+                                    viewModel.showPdfToolboxDialog(false)
+                                    viewModel.unlockPasswordProtectedDocument(pass)
                                 },
                                 onPkiSignSelected = {
                                     viewModel.showPdfToolboxDialog(false)
                                     viewModel.prepareAndLaunchPkiSign()
                                 },
-                                onSplitPdfSelected = {
+                                onSplitAllSelected = {
                                     viewModel.showPdfToolboxDialog(false)
                                     viewModel.splitCurrentDocument()
                                 },
-                                onExtractImagesSelected = {
+                                onSplitByRangeSelected = { range ->
                                     viewModel.showPdfToolboxDialog(false)
-                                    viewModel.extractPagesAsImages()
+                                    viewModel.splitCurrentDocumentByRange(range)
                                 },
-                                onAddWatermarkSelected = { watermark ->
+                                onSplitIntoChunksSelected = { chunkSize ->
                                     viewModel.showPdfToolboxDialog(false)
-                                    viewModel.addWatermarkAndExport(watermark)
+                                    viewModel.splitCurrentDocumentIntoChunks(chunkSize)
+                                },
+                                onExtractImagesSelected = { quality ->
+                                    viewModel.showPdfToolboxDialog(false)
+                                    viewModel.extractPagesAsImages(quality)
+                                },
+                                onMergeFilesSelected = {
+                                    viewModel.showPdfToolboxDialog(false)
+                                    mergeFilesPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
+                                },
+                                onOpenPageStudioSelected = {
+                                    viewModel.showPdfToolboxDialog(false)
+                                    viewModel.showPagesOverview(true)
                                 },
                                 onDismiss = { viewModel.showPdfToolboxDialog(false) }
                             )
