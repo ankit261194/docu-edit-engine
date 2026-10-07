@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Environment
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -18,17 +19,147 @@ class AutoUpdateManager(
     private val githubRepo: String = "docu-edit-engine"
 ) {
 
+    private val tag = "AutoUpdateManager"
+
     suspend fun checkForUpdates(): UpdateInfo = withContext(Dispatchers.IO) {
         val currentVersion = getInstalledVersionName()
         val currentVersionCode = getInstalledVersionCode()
 
-        // 1. Instant Local Check: Scan Downloads directory for newer APK
+        // 1. Instant Local Check: Scan Downloads directory for newer APK transferred or downloaded
         val localUpdate = checkLocalDownloadsForUpdate(currentVersion, currentVersionCode)
         if (localUpdate != null && localUpdate.hasUpdate) {
+            Log.i(tag, "Update found locally in Downloads: ${localUpdate.latestVersion}")
             return@withContext localUpdate
         }
 
-        // 2. Remote GitHub Release Check
+        // 2. High-Availability CDN Check: version.json (Zero rate limit, fast global CDN)
+        val cdnUpdate = checkViaVersionJson(currentVersion)
+        if (cdnUpdate != null && cdnUpdate.hasUpdate) {
+            Log.i(tag, "Update found via CDN version.json: ${cdnUpdate.latestVersion}")
+            return@withContext cdnUpdate
+        }
+
+        // 3. GitHub Web Redirect Check: /releases/latest -> /releases/tag/v... (No API rate limits)
+        val webUpdate = checkViaWebRedirect(currentVersion)
+        if (webUpdate != null && webUpdate.hasUpdate) {
+            Log.i(tag, "Update found via Web Redirect: ${webUpdate.latestVersion}")
+            return@withContext webUpdate
+        }
+
+        // 4. Remote GitHub REST API Check (Standard API fallback)
+        val apiUpdate = checkViaGithubApi(currentVersion)
+        if (apiUpdate != null && apiUpdate.hasUpdate) {
+            Log.i(tag, "Update found via GitHub REST API: ${apiUpdate.latestVersion}")
+            return@withContext apiUpdate
+        }
+
+        UpdateInfo(
+            hasUpdate = false,
+            currentVersion = currentVersion,
+            latestVersion = currentVersion,
+            releaseTitle = "",
+            changelog = "",
+            apkDownloadUrl = null,
+            apkFileName = null
+        )
+    }
+
+    /**
+     * Tier 2: Fetches version.json directly via raw GitHub content / jsdelivr CDN.
+     * Bypasses GitHub API rate limits completely.
+     */
+    private fun checkViaVersionJson(currentVersion: String): UpdateInfo? {
+        val cdnUrls = listOf(
+            "https://raw.githubusercontent.com/$githubOwner/$githubRepo/main/version.json?t=${System.currentTimeMillis()}",
+            "https://cdn.jsdelivr.net/gh/$githubOwner/$githubRepo@main/version.json"
+        )
+
+        for (endpoint in cdnUrls) {
+            try {
+                val url = URL(endpoint)
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    setRequestProperty("User-Agent", "DocuEditEngine-AndroidApp")
+                    connectTimeout = 7000
+                    readTimeout = 7000
+                    useCaches = false
+                }
+
+                if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                    val response = conn.inputStream.bufferedReader().use(BufferedReader::readText)
+                    val json = JSONObject(response)
+                    val tagName = json.getString("versionName").removePrefix("v").trim()
+                    val title = json.optString("releaseTitle", "New Update Available (v$tagName)")
+                    val changelog = json.optString("changelog", "Bug fixes and performance improvements.")
+                    val apkUrl = json.optString("apkArm64Url", json.optString("apkUrl", ""))
+                    val fileName = json.optString("apkFileName", "DocuEdit-v$tagName-arm64.apk")
+                    val sizeMb = json.optDouble("apkSizeMb", 60.5).toFloat()
+
+                    if (isSemanticVersionNewer(currentVersion, tagName) && apkUrl.isNotBlank()) {
+                        return UpdateInfo(
+                            hasUpdate = true,
+                            currentVersion = currentVersion,
+                            latestVersion = tagName,
+                            releaseTitle = title,
+                            changelog = changelog,
+                            apkDownloadUrl = apkUrl,
+                            apkFileName = fileName,
+                            apkSizeMb = sizeMb
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "CDN version.json check failed on $endpoint: ${e.message}")
+            }
+        }
+        return null
+    }
+
+    /**
+     * Tier 3: Follows standard HTTP 302 redirect on the releases/latest web page.
+     * Web requests are NOT subject to GitHub API 60 req/hr rate limits.
+     */
+    private fun checkViaWebRedirect(currentVersion: String): UpdateInfo? {
+        try {
+            val url = URL("https://github.com/$githubOwner/$githubRepo/releases/latest")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                instanceFollowRedirects = false
+                setRequestProperty("User-Agent", "DocuEditEngine-AndroidApp")
+                connectTimeout = 7000
+                readTimeout = 7000
+            }
+
+            val status = conn.responseCode
+            if (status == HttpURLConnection.HTTP_MOVED_TEMP || status == HttpURLConnection.HTTP_MOVED_PERM || status == 307 || status == 308) {
+                val location = conn.getHeaderField("Location")
+                if (!location.isNullOrBlank() && location.contains("/tag/")) {
+                    val tagName = location.substringAfterLast("/tag/").removePrefix("v").trim()
+                    if (isSemanticVersionNewer(currentVersion, tagName)) {
+                        val apkUrl = "https://github.com/$githubOwner/$githubRepo/releases/download/v$tagName/DocuEdit-v$tagName-arm64.apk"
+                        return UpdateInfo(
+                            hasUpdate = true,
+                            currentVersion = currentVersion,
+                            latestVersion = tagName,
+                            releaseTitle = "DocuEdit Engine v$tagName Pro Update",
+                            changelog = "A new official version (v$tagName) is available with major performance and feature upgrades.",
+                            apkDownloadUrl = apkUrl,
+                            apkFileName = "DocuEdit-v$tagName-arm64.apk",
+                            apkSizeMb = 60.5f
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "Web redirect check failed: ${e.message}")
+        }
+        return null
+    }
+
+    /**
+     * Tier 4: GitHub REST API endpoint check.
+     */
+    private fun checkViaGithubApi(currentVersion: String): UpdateInfo? {
         val apiUrl = "https://api.github.com/repos/$githubOwner/$githubRepo/releases/latest"
         try {
             val url = URL(apiUrl)
@@ -36,8 +167,8 @@ class AutoUpdateManager(
                 requestMethod = "GET"
                 setRequestProperty("Accept", "application/vnd.github.v3+json")
                 setRequestProperty("User-Agent", "DocuEditEngine-AndroidApp")
-                connectTimeout = 6000
-                readTimeout = 6000
+                connectTimeout = 7000
+                readTimeout = 7000
             }
 
             if (connection.responseCode == HttpURLConnection.HTTP_OK) {
@@ -45,13 +176,13 @@ class AutoUpdateManager(
                 val json = JSONObject(response)
 
                 val tagName = json.getString("tag_name").removePrefix("v").trim()
-                val releaseTitle = json.optString("name", "New Update Available")
-                val changelog = json.optString("body", "Bug fixes, Pi7 smart compression and performance enhancements.")
+                val releaseTitle = json.optString("name", "New Update Available (v$tagName)")
+                val changelog = json.optString("body", "Bug fixes and performance enhancements.")
 
                 val assetsArray = json.getJSONArray("assets")
                 var apkUrl: String? = null
                 var apkName: String? = null
-                var apkSizeMb = 0f
+                var apkSizeMb = 60.5f
 
                 for (i in 0 until assetsArray.length()) {
                     val asset = assetsArray.getJSONObject(i)
@@ -60,13 +191,16 @@ class AutoUpdateManager(
                         apkUrl = asset.getString("browser_download_url")
                         apkName = name
                         apkSizeMb = (asset.optLong("size", 0L) / (1024f * 1024f))
-                        break
+                        // Prefer arm64 if available
+                        if (name.contains("arm64", ignoreCase = true)) {
+                            break
+                        }
                     }
                 }
 
                 val isNewer = isSemanticVersionNewer(currentVersion, tagName)
                 if (isNewer && apkUrl != null) {
-                    return@withContext UpdateInfo(
+                    return UpdateInfo(
                         hasUpdate = true,
                         currentVersion = currentVersion,
                         latestVersion = tagName,
@@ -78,17 +212,10 @@ class AutoUpdateManager(
                     )
                 }
             }
-        } catch (_: Exception) {}
-
-        UpdateInfo(
-            hasUpdate = false,
-            currentVersion = currentVersion,
-            latestVersion = currentVersion,
-            releaseTitle = "",
-            changelog = "",
-            apkDownloadUrl = null,
-            apkFileName = null
-        )
+        } catch (e: Exception) {
+            Log.w(tag, "GitHub REST API check failed: ${e.message}")
+        }
+        return null
     }
 
     /**
