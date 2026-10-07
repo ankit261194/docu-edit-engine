@@ -161,16 +161,20 @@ class FontMatcher(private val context: Context) {
             val charAspectRatio = avgCharWidth / max(1f, height)
 
             return when {
-                // 1. Monospace: fixed pitch typewriter numbers/code
+                // 1. Serif: Times New Roman / Formal documents, legal certificates, agreements
+                metrics.isSerif -> {
+                    FontClassification.SERIF
+                }
+                // 2. Monospace: fixed pitch typewriter numbers/code
                 (metrics.strokeWidthRatio < 0.10f && metrics.letterSpacingEm > 0.14f) ||
                 (text.all { it.isDigit() || it == '-' || it == '/' || it == '.' } && charAspectRatio > 0.58f) -> {
                     FontClassification.MONOSPACE
                 }
-                // 2. Calibri: compact modern office font (narrower proportions)
+                // 3. Calibri: compact modern office font (narrower proportions)
                 charAspectRatio < 0.44f -> {
                     FontClassification.CALIBRI
                 }
-                // 3. Sans-serif: standard Arial (default for 95%+ of business invoices, forms, and documents)
+                // 4. Sans-serif: standard Arial (default for business invoices, forms, and documents)
                 else -> {
                     FontClassification.SANS_SERIF
                 }

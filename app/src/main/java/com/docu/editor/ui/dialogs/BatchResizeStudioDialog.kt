@@ -112,6 +112,7 @@ fun BatchResizeStudioDialog(
     var targetKbText by remember { mutableStateOf("50") }
     var selectedAdjustMode by remember { mutableStateOf(BatchAdjustMode.DECREASE_TO_MAX) }
     var selectedOutputFormat by remember { mutableStateOf(BatchOutputFormat.KEEP_ORIGINAL) }
+    var selectedTargetDpi by remember { mutableIntStateOf(300) }
     var isProcessing by remember { mutableStateOf(false) }
     var progressState by remember { mutableStateOf<BatchProgressState?>(null) }
     var overallResult by remember { mutableStateOf<BatchOverallResult?>(null) }
@@ -577,6 +578,85 @@ fun BatchResizeStudioDialog(
                                 }
                             }
                         }
+
+                        // 4. DPI Resolution Compliance Section (Govt Standard)
+                        item {
+                            Surface(
+                                shape = RoundedCornerShape(16.dp),
+                                color = Color(0xFFF8FAFC),
+                                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "📐 DPI Resolution Compliance",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            color = Color(0xFF0F172A)
+                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(6.dp),
+                                            color = Color(0xFFDBEAFE)
+                                        ) {
+                                            Text(
+                                                text = "UPSC/SSC Ready",
+                                                color = Color(0xFF1D4ED8),
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    val dpiOptions = listOf(
+                                        Pair(300, "300 DPI (High Quality)"),
+                                        Pair(200, "200 DPI (Govt Standard)"),
+                                        Pair(150, "150 DPI (Compact Web)")
+                                    )
+
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        dpiOptions.forEach { (dpi, label) ->
+                                            val isSelected = selectedTargetDpi == dpi
+                                            Surface(
+                                                shape = RoundedCornerShape(10.dp),
+                                                color = if (isSelected) Color(0xFF1E40AF) else Color.White,
+                                                border = BorderStroke(1.dp, if (isSelected) Color(0xFF1E40AF) else Color(0xFFCBD5E1)),
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .clickable { selectedTargetDpi = dpi }
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    if (isSelected) {
+                                                        Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                    }
+                                                    Text(
+                                                        text = label,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                        color = if (isSelected) Color.White else Color(0xFF334155)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -604,6 +684,7 @@ fun BatchResizeStudioDialog(
                                     targetKb = targetKbInt,
                                     outputFormat = selectedOutputFormat,
                                     adjustMode = selectedAdjustMode,
+                                    targetDpi = selectedTargetDpi,
                                     onProgress = { progress ->
                                         progressState = progress
                                     }

@@ -43,7 +43,8 @@ object CamScannerToolsEngine {
 
     /**
      * Counts repetitive objects (steel rods, pipes, dots, pills, coins, boxes)
-     * using adaptive thresholding and contour blob analysis.
+     * using Distance Transform Euclidean peak segmentation and Connected Components.
+     * Accurately segments touching objects (pipes, rebar, pills) that would otherwise merge.
      */
     fun countObjects(sourceBitmap: Bitmap, minSize: Int = 12, maxSize: Int = 400): CountResult {
         val mat = Mat()
@@ -53,27 +54,76 @@ object CamScannerToolsEngine {
         Imgproc.cvtColor(mat, gray, Imgproc.COLOR_RGBA2GRAY)
         Imgproc.GaussianBlur(gray, gray, Size(5.0, 5.0), 0.0)
 
+        // 1. Adaptive Otsu Binarization
         val binary = Mat()
-        Imgproc.adaptiveThreshold(
-            gray, binary, 255.0,
-            Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
-            Imgproc.THRESH_BINARY_INV,
-            15, 4.0
-        )
+        Imgproc.threshold(gray, binary, 0.0, 255.0, Imgproc.THRESH_BINARY_INV or Imgproc.THRESH_OTSU)
 
-        // Morphological open to remove noise
+        // Morphological open to eliminate tiny noise specks
         val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(3.0, 3.0))
         Imgproc.morphologyEx(binary, binary, Imgproc.MORPH_OPEN, kernel)
 
-        val contours = mutableListOf<MatOfPoint>()
-        val hierarchy = Mat()
-        Imgproc.findContours(
-            binary, contours, hierarchy,
-            Imgproc.RETR_EXTERNAL,
-            Imgproc.CHAIN_APPROX_SIMPLE
-        )
+        // 2. Euclidean Distance Transform: Touching pipes/rods produce local distance peaks
+        val dist = Mat()
+        Imgproc.distanceTransform(binary, dist, Imgproc.DIST_L2, 5)
+
+        val minMax = org.opencv.core.Core.minMaxLoc(dist)
+        val maxDist = minMax.maxVal
+
+        val peaks = Mat()
+        val peaks8 = Mat()
+        val labels = Mat()
+        val stats = Mat()
+        val centroids = Mat()
 
         val detectedCenters = mutableListOf<android.graphics.Point>()
+        val detectedRadii = mutableListOf<Float>()
+
+        if (maxDist > 3.0) {
+            // Distance threshold isolates centroids of individual touching objects
+            val peakThreshold = (maxDist * 0.38).coerceIn(3.0, 60.0)
+            Imgproc.threshold(dist, peaks, peakThreshold, 255.0, Imgproc.THRESH_BINARY)
+            peaks.convertTo(peaks8, CvType.CV_8U)
+
+            val numComponents = Imgproc.connectedComponentsWithStats(peaks8, labels, stats, centroids)
+
+            for (i in 1 until numComponents) {
+                val cx = centroids.get(i, 0)[0].toInt()
+                val cy = centroids.get(i, 1)[0].toInt()
+                val area = stats.get(i, Imgproc.CC_STAT_AREA)[0].toInt()
+                val w = stats.get(i, Imgproc.CC_STAT_WIDTH)[0].toInt()
+                val h = stats.get(i, Imgproc.CC_STAT_HEIGHT)[0].toInt()
+
+                if (cx in 0 until sourceBitmap.width && cy in 0 until sourceBitmap.height) {
+                    val r = dist.get(cy, cx)[0].toFloat().coerceAtLeast(minSize / 2f).coerceAtMost(maxSize / 2f)
+                    if (area >= 4 && r >= (minSize / 2f)) {
+                        detectedCenters.add(android.graphics.Point(cx, cy))
+                        detectedRadii.add(r + 3f)
+                    }
+                }
+            }
+        }
+
+        // Fallback to contour detection if distance transform had too few objects
+        if (detectedCenters.isEmpty()) {
+            val contours = mutableListOf<MatOfPoint>()
+            val hierarchy = Mat()
+            Imgproc.findContours(binary, contours, hierarchy, Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_SIMPLE)
+            for (contour in contours) {
+                val rect = Imgproc.boundingRect(contour)
+                val w = rect.width
+                val h = rect.height
+                val area = Imgproc.contourArea(contour)
+                if (w in minSize..maxSize && h in minSize..maxSize && area > 50) {
+                    val cx = rect.x + (w / 2)
+                    val cy = rect.y + (h / 2)
+                    val radius = (max(w, h) / 2f) + 4f
+                    detectedCenters.add(android.graphics.Point(cx, cy))
+                    detectedRadii.add(radius)
+                }
+            }
+            hierarchy.release()
+        }
+
         val outputBitmap = sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(outputBitmap)
 
@@ -102,41 +152,34 @@ object CamScannerToolsEngine {
             style = Paint.Style.FILL
         }
 
-        var counter = 0
-        for (contour in contours) {
-            val rect = Imgproc.boundingRect(contour)
-            val w = rect.width
-            val h = rect.height
-            val area = Imgproc.contourArea(contour)
+        for (idx in detectedCenters.indices) {
+            val pt = detectedCenters[idx]
+            val radius = if (idx < detectedRadii.size) detectedRadii[idx] else (minSize * 1.5f)
 
-            if (w >= minSize && h >= minSize && w <= maxSize && h <= maxSize && area > 50) {
-                counter++
-                val cx = rect.x + (rect.width / 2)
-                val cy = rect.y + (rect.height / 2)
-                val radius = (max(w, h) / 2f) + 4f
+            // Draw bounding circle
+            canvas.drawCircle(pt.x.toFloat(), pt.y.toFloat(), radius, fillPaint)
+            canvas.drawCircle(pt.x.toFloat(), pt.y.toFloat(), radius, circlePaint)
 
-                detectedCenters.add(android.graphics.Point(cx, cy))
-
-                // Draw bounding circle
-                canvas.drawCircle(cx.toFloat(), cy.toFloat(), radius, fillPaint)
-                canvas.drawCircle(cx.toFloat(), cy.toFloat(), radius, circlePaint)
-
-                // Draw number tag badge
-                val badgeRadius = max(14f, textPaint.textSize * 0.75f)
-                canvas.drawCircle(cx.toFloat(), cy.toFloat(), badgeRadius, badgePaint)
-                val textOffset = (textPaint.descent() + textPaint.ascent()) / 2
-                canvas.drawText("$counter", cx.toFloat(), cy.toFloat() - textOffset, textPaint)
-            }
+            // Draw number tag badge
+            val badgeRadius = max(14f, textPaint.textSize * 0.75f)
+            canvas.drawCircle(pt.x.toFloat(), pt.y.toFloat(), badgeRadius, badgePaint)
+            val textOffset = (textPaint.descent() + textPaint.ascent()) / 2
+            canvas.drawText("${idx + 1}", pt.x.toFloat(), pt.y.toFloat() - textOffset, textPaint)
         }
 
         mat.release()
         gray.release()
         binary.release()
-        hierarchy.release()
+        dist.release()
+        peaks.release()
+        peaks8.release()
+        labels.release()
+        stats.release()
+        centroids.release()
         kernel.release()
 
         return CountResult(
-            count = counter,
+            count = detectedCenters.size,
             annotatedBitmap = outputBitmap,
             detectedCenters = detectedCenters
         )
@@ -437,19 +480,41 @@ object CamScannerToolsEngine {
      */
     fun formatToLatexFormula(rawOcr: String): String {
         var latex = rawOcr.trim()
-        // Basic replacements for mathematical symbols
-        latex = latex.replace("x^2", "x^{2}")
-        latex = latex.replace("x^3", "x^{3}")
-        latex = latex.replace("pi", "\\pi")
-        latex = latex.replace("sqrt", "\\sqrt")
+        // Greek letters
+        latex = latex.replace(Regex("""\balpha\b""", RegexOption.IGNORE_CASE), "\\alpha")
+        latex = latex.replace(Regex("""\bbeta\b""", RegexOption.IGNORE_CASE), "\\beta")
+        latex = latex.replace(Regex("""\bgamma\b""", RegexOption.IGNORE_CASE), "\\gamma")
+        latex = latex.replace(Regex("""\bdelta\b""", RegexOption.IGNORE_CASE), "\\delta")
+        latex = latex.replace(Regex("""\btheta\b""", RegexOption.IGNORE_CASE), "\\theta")
+        latex = latex.replace(Regex("""\blambda\b""", RegexOption.IGNORE_CASE), "\\lambda")
+        latex = latex.replace(Regex("""\bsigma\b""", RegexOption.IGNORE_CASE), "\\sigma")
+        latex = latex.replace(Regex("""\bomega\b""", RegexOption.IGNORE_CASE), "\\omega")
+        latex = latex.replace(Regex("""\bmu\b""", RegexOption.IGNORE_CASE), "\\mu")
+        latex = latex.replace(Regex("""\bpi\b""", RegexOption.IGNORE_CASE), "\\pi")
+        latex = latex.replace(Regex("""\bDelta\b"""), "\\Delta")
+
+        // Operators & Relations
         latex = latex.replace("<=", "\\le")
         latex = latex.replace(">=", "\\ge")
         latex = latex.replace("!=", "\\neq")
-        latex = latex.replace("alpha", "\\alpha")
-        latex = latex.replace("beta", "\\beta")
-        latex = latex.replace("theta", "\\theta")
-        latex = latex.replace("sum", "\\sum")
-        latex = latex.replace("integral", "\\int")
+        latex = latex.replace("==", "\\equiv")
+        latex = latex.replace("+/-", "\\pm")
+        latex = latex.replace("+-", "\\pm")
+        latex = latex.replace("*", "\\times")
+        latex = latex.replace("->", "\\rightarrow")
+        latex = latex.replace("<->", "\\leftrightarrow")
+
+        // Calculus, Roots & Integrals
+        latex = latex.replace(Regex("""\bsum\b""", RegexOption.IGNORE_CASE), "\\sum")
+        latex = latex.replace(Regex("""\bintegral\b""", RegexOption.IGNORE_CASE), "\\int")
+        latex = latex.replace(Regex("""\binf(inity)?\b""", RegexOption.IGNORE_CASE), "\\infty")
+        latex = latex.replace(Regex("""sqrt\(([^)]+)\)"""), "\\sqrt{$1}")
+
+        // Exponents & Subscripts
+        latex = latex.replace("x^2", "x^{2}")
+        latex = latex.replace("x^3", "x^{3}")
+        latex = latex.replace("y^2", "y^{2}")
+
         return "$$ $latex $$"
     }
 }

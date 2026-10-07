@@ -2193,7 +2193,13 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             } else {
                                 pagesList.add(current)
                             }
-                            com.docu.editor.core.export.PptxExportEngine.generatePptx(pagesList, outFile, rawName)
+                            val pagesItemsMap = resolvePagesDetectedItems(effectivePages, state, current, context)
+                            com.docu.editor.core.export.PptxExportEngine.generatePptx(
+                                pages = pagesList,
+                                outputFile = outFile,
+                                presentationTitle = rawName,
+                                pagesDetectedItems = pagesItemsMap
+                            )
                             outFile
                         }
                         "CSV", "XLS" -> {

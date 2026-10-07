@@ -16,12 +16,19 @@ object TypographyEstimator {
         val width = max(1, bounds.width()).toFloat()
         val charCount = max(1, text.replace(" ", "").length)
 
-        val strokeWidth = estimateHorizontalStrokeWidth(
+        val verticalStemWidth = estimateHorizontalStrokeWidth(
             foregroundResult.foregroundMask,
             foregroundResult.cropWidth,
             foregroundResult.cropHeight
         )
-        val strokeRatio = strokeWidth / height
+        val horizontalBarWidth = estimateVerticalStrokeWidth(
+            foregroundResult.foregroundMask,
+            foregroundResult.cropWidth,
+            foregroundResult.cropHeight
+        )
+        val strokeRatio = verticalStemWidth / height
+        val strokeContrast = if (horizontalBarWidth > 0.5f) verticalStemWidth / horizontalBarWidth else 1.0f
+        val isSerif = strokeContrast >= 1.38f && charCount >= 3
 
         val density = foregroundResult.foregroundRatio
         val weight = when {
@@ -49,7 +56,8 @@ object TypographyEstimator {
             strokeWidthRatio = strokeRatio,
             glyphDensity = density,
             letterSpacingEm = trackingEm,
-            estimatedFontSizePx = height * 0.82f
+            estimatedFontSizePx = height * 0.82f,
+            isSerif = isSerif
         )
     }
 
@@ -77,6 +85,38 @@ object TypographyEstimator {
                 }
             }
             if (currentRun in 2 until (width * 0.4f).toInt()) {
+                runLengths.add(currentRun)
+            }
+        }
+
+        if (runLengths.isEmpty()) return 2f
+        runLengths.sort()
+        return runLengths[runLengths.size / 2].toFloat()
+    }
+
+    private fun estimateVerticalStrokeWidth(
+        mask: BooleanArray,
+        width: Int,
+        height: Int
+    ): Float {
+        if (width <= 0 || height <= 0 || mask.isEmpty()) return 2f
+
+        val runLengths = mutableListOf<Int>()
+        val stepX = max(1, width / 10)
+
+        for (x in 0 until width step stepX) {
+            var currentRun = 0
+            for (y in 0 until height) {
+                if (mask[y * width + x]) {
+                    currentRun++
+                } else if (currentRun > 0) {
+                    if (currentRun > 1 && currentRun < height * 0.4f) {
+                        runLengths.add(currentRun)
+                    }
+                    currentRun = 0
+                }
+            }
+            if (currentRun in 2 until (height * 0.4f).toInt()) {
                 runLengths.add(currentRun)
             }
         }

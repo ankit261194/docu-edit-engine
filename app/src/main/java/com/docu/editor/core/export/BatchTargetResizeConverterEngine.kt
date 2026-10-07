@@ -146,6 +146,7 @@ object BatchTargetResizeConverterEngine {
         targetKb: Int,
         outputFormat: BatchOutputFormat,
         adjustMode: BatchAdjustMode,
+        targetDpi: Int = 300,
         onProgress: (BatchProgressState) -> Unit
     ): BatchOverallResult = withContext(Dispatchers.Default) {
         val timeStamp = System.currentTimeMillis()
@@ -174,14 +175,14 @@ object BatchTargetResizeConverterEngine {
                         if (isSourcePdf) {
                             processPdfToPdf(context, item, targetKb, adjustMode, outDir, "$baseName.pdf")
                         } else {
-                            processImageToImage(context, item, targetKb, adjustMode, outDir, "$baseName.jpg")
+                            processImageToImage(context, item, targetKb, adjustMode, outDir, "$baseName.jpg", targetDpi)
                         }
                     }
                     BatchOutputFormat.TO_JPG -> {
                         if (isSourcePdf) {
-                            processPdfToImage(context, item, targetKb, adjustMode, outDir, "$baseName.jpg", Bitmap.CompressFormat.JPEG)
+                            processPdfToImage(context, item, targetKb, adjustMode, outDir, "$baseName.jpg", Bitmap.CompressFormat.JPEG, targetDpi)
                         } else {
-                            processImageToImage(context, item, targetKb, adjustMode, outDir, "$baseName.jpg")
+                            processImageToImage(context, item, targetKb, adjustMode, outDir, "$baseName.jpg", targetDpi)
                         }
                     }
                     BatchOutputFormat.TO_PDF -> {
@@ -261,7 +262,8 @@ object BatchTargetResizeConverterEngine {
         targetKb: Int,
         adjustMode: BatchAdjustMode,
         outDir: File,
-        outFileName: String
+        outFileName: String,
+        targetDpi: Int = 300
     ): BatchSingleResult = withContext(Dispatchers.IO) {
         val outFile = File(outDir, outFileName)
         val bitmap = ExifBitmapUtil.decodeUriWithExif(context, item.uri, maxDim = 2880)
@@ -273,10 +275,10 @@ object BatchTargetResizeConverterEngine {
                 FileOutputStream(tempJpg).use { fos ->
                     bitmap.compress(Bitmap.CompressFormat.JPEG, 92, fos)
                 }
-                TargetFileSizeEngine.increaseJpegToTargetKb(tempJpg, targetKb, outFile)
+                TargetFileSizeEngine.increaseJpegToTargetKb(tempJpg, targetKb, outFile, targetDpi)
                 tempJpg.delete()
             } else {
-                TargetFileSizeEngine.compressBitmapToTargetKb(bitmap, targetKb, outFile)
+                TargetFileSizeEngine.compressBitmapToTargetKb(bitmap, targetKb, outFile, targetDpi)
             }
         } finally {
             bitmap.recycle()
@@ -362,7 +364,8 @@ object BatchTargetResizeConverterEngine {
         adjustMode: BatchAdjustMode,
         outDir: File,
         outFileName: String,
-        compressFormat: Bitmap.CompressFormat
+        compressFormat: Bitmap.CompressFormat,
+        targetDpi: Int = 300
     ): BatchSingleResult = withContext(Dispatchers.IO) {
         val outFile = File(outDir, outFileName)
         val bitmap = PdfPageLoader.renderPageToBitmap(context, item.uri, 0)
@@ -374,10 +377,10 @@ object BatchTargetResizeConverterEngine {
                     FileOutputStream(tempJpg).use { fos ->
                         bitmap.compress(Bitmap.CompressFormat.JPEG, 90, fos)
                     }
-                    TargetFileSizeEngine.increaseJpegToTargetKb(tempJpg, targetKb, outFile)
+                    TargetFileSizeEngine.increaseJpegToTargetKb(tempJpg, targetKb, outFile, targetDpi)
                     tempJpg.delete()
                 } else {
-                    TargetFileSizeEngine.compressBitmapToTargetKb(bitmap, targetKb, outFile)
+                    TargetFileSizeEngine.compressBitmapToTargetKb(bitmap, targetKb, outFile, targetDpi)
                 }
             } else {
                 // Non-JPEG format

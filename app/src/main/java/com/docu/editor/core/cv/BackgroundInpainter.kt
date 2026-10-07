@@ -194,11 +194,13 @@ class BackgroundInpainter {
                 }
             }
 
-            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(3.0, 3.0))
+            // 5x5 dilation eliminates all anti-aliased subpixel edge halos around previous text
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(5.0, 5.0))
             Imgproc.dilate(maskMat, maskMat, kernel)
             kernel.release()
 
-            Photo.inpaint(rgbMat, maskMat, inpaintMat, 3.0, Photo.INPAINT_TELEA)
+            // Navier-Stokes/Telea inpainting with 5.0 radius for zero-halo paper texture continuity
+            Photo.inpaint(rgbMat, maskMat, inpaintMat, 5.0, Photo.INPAINT_TELEA)
             Imgproc.cvtColor(inpaintMat, restoredCrop, Imgproc.COLOR_RGB2RGBA)
 
             val outCropBitmap = Bitmap.createBitmap(cropW, cropH, Bitmap.Config.ARGB_8888)

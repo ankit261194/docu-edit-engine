@@ -1,12 +1,12 @@
 {
-  "versionCode": 37,
-  "versionName": "10.1.0",
+  "versionCode": 38,
+  "versionName": "10.2.0",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.1.0 (Govt Exam Batch Resizer & Text Autofetch Pro Fix)",
-  "changelog": "🚀 Major Upgrade v10.1.0:\n• Fixed In-Place Text Editor Autofetch: Exact chromatic ink color sampling (blue pen, red seals, pencil toner preserved), precise typographical cap-height font scaling, zero coordinate drift, and jitter-tolerant tap detection.\n• Govt Exam Batch Target Resizer & Converter Studio: Upload 20+ mixed JPG/PDF files, compress/pad to exact target KB (20KB signature, 50KB photo, 100KB ID, 200KB PDF), cross-convert formats, and 1-Click ZIP Archive & WhatsApp Share.\n• Intuitive 4-Hub Dashboard: Flagship Hero Studio Banner and 4 prominent, high-contrast category action cards eliminating hidden sub-menus.",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.1.0/DocuEdit-v10.1.0-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.1.0/DocuEdit-v10.1.0-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.1.0/DocuEdit-v10.1.0-arm64.apk",
-  "apkFileName": "DocuEdit-v10.1.0-arm64.apk",
+  "releaseTitle": "DocuEdit Pro v10.2.0 (CamScanner-Grade Full Pro Suite)",
+  "changelog": "🚀 Flagship Master Release v10.2.0:\n• In-Place Text Editor Pro: Exact stroke contrast Serif/Sans font classifier, 5x5 zero-halo inpainting, and true chromatic ink autofetch.\n• Govt Exam Batch Studio: Strict 20/50/100KB target resizing, authentic JFIF & Exif 200/300 DPI metadata injection, CR80 duplex ID alignment, and UIDAI legal Aadhaar/PAN auto-redaction.\n• Real Office OpenXML Export: Fully editable PowerPoint text shapes (<p:sp>), structured Word tables, and typed Excel cells.\n• Official Signature & Rubber Stamp Studio: LAB color vector ink extraction with notebook ruled-line suppression, circular double-ring seals with arc text, and legal PKI X.509 cryptographic PDF signing.\n• On-Device Local AI CountCam: Offline Euclidean Distance Transform peak segmentation separating touching pipes/rebar/pills/coins with zero cloud API keys needed.\n• Master UI Overhaul: Clean 2x2 grid quick-hubs where all tools are 100% visible at one glance with zero hidden scrolling.",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.2.0/DocuEdit-v10.2.0-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.2.0/DocuEdit-v10.2.0-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.2.0/DocuEdit-v10.2.0-arm64.apk",
+  "apkFileName": "DocuEdit-v10.2.0-arm64.apk",
   "apkSizeMb": 60.8
 }

@@ -63,6 +63,18 @@ object SignatureExtractor {
             val normBytes = ByteArray(width * height)
             norm8.get(0, 0, normBytes)
 
+            // 3. Notebook Ruled Line Detection (Detects faint printed horizontal lines on notebook paper)
+            val hLineKernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(45.0, 1.0))
+            val hLinesMat = Mat()
+            val binNorm = Mat()
+            Imgproc.threshold(norm8, binNorm, 220.0, 255.0, Imgproc.THRESH_BINARY_INV)
+            Imgproc.morphologyEx(binNorm, hLinesMat, Imgproc.MORPH_OPEN, hLineKernel)
+            val hLineBytes = ByteArray(width * height)
+            hLinesMat.get(0, 0, hLineBytes)
+            hLineKernel.release()
+            hLinesMat.release()
+            binNorm.release()
+
             val origPixels = IntArray(width * height)
             sourceBitmap.getPixels(origPixels, 0, width, 0, 0, width, height)
 
@@ -75,7 +87,10 @@ object SignatureExtractor {
 
             for (i in outputPixels.indices) {
                 val v = normBytes[i].toInt() and 0xFF
-                if (v >= paperThreshold) {
+                val isRuledLine = (hLineBytes[i].toInt() and 0xFF) > 128
+
+                // Suppress faint notebook ruled lines unless overlaid with heavy signature ink
+                if (v >= paperThreshold || (isRuledLine && v > 150)) {
                     outputPixels[i] = Color.TRANSPARENT
                 } else {
                     // Smooth feathered alpha transition along stroke boundaries

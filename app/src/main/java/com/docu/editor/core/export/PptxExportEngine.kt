@@ -20,7 +20,8 @@ object PptxExportEngine {
     suspend fun generatePptx(
         pages: List<Bitmap>,
         outputFile: File,
-        presentationTitle: String = "Presentation"
+        presentationTitle: String = "Presentation",
+        pagesDetectedItems: Map<Int, List<com.docu.editor.core.ocr.model.DetectedTextItem>> = emptyMap()
     ): Boolean = withContext(Dispatchers.IO) {
         if (pages.isEmpty()) return@withContext false
 
@@ -45,12 +46,13 @@ object PptxExportEngine {
                     // 5. Slides and media images
                     for (i in 1..pageCount) {
                         val bmp = pages[i - 1]
+                        val items = pagesDetectedItems[i - 1] ?: emptyList()
 
                         // ppt/slides/_rels/slide{i}.xml.rels
                         writeZipEntry(zos, "ppt/slides/_rels/slide$i.xml.rels", buildSlideRelsXml(i))
 
                         // ppt/slides/slide{i}.xml
-                        writeZipEntry(zos, "ppt/slides/slide$i.xml", buildSlideXml(i, bmp.width, bmp.height))
+                        writeZipEntry(zos, "ppt/slides/slide$i.xml", buildSlideXml(i, bmp.width, bmp.height, items))
 
                         // ppt/media/image{i}.jpeg
                         val entry = ZipEntry("ppt/media/image$i.jpeg")
@@ -134,7 +136,12 @@ object PptxExportEngine {
 </Relationships>"""
     }
 
-    private fun buildSlideXml(slideIndex: Int, bmpWidth: Int, bmpHeight: Int): String {
+    private fun buildSlideXml(
+        slideIndex: Int,
+        bmpWidth: Int,
+        bmpHeight: Int,
+        textItems: List<com.docu.editor.core.ocr.model.DetectedTextItem> = emptyList()
+    ): String {
         // Slide canvas dimensions in EMUs: 12192000 x 6858000 (16:9)
         val canvasW = 12192000L
         val canvasH = 6858000L
@@ -158,6 +165,57 @@ object PptxExportEngine {
             fitW = (canvasH * imgAspect).toLong()
             offX = (canvasW - fitW) / 2L
             offY = 0L
+        }
+
+        val textShapesXml = StringBuilder()
+        textItems.forEachIndexed { itemIdx, item ->
+            if (item.text.isNotBlank() && bmpWidth > 0 && bmpHeight > 0) {
+                val spX = (offX + (item.boundingBox.left.toDouble() / bmpWidth * fitW)).toLong()
+                val spY = (offY + (item.boundingBox.top.toDouble() / bmpHeight * fitH)).toLong()
+                val spW = ((item.boundingBox.width().toDouble() / bmpWidth * fitW)).toLong().coerceAtLeast(120000L)
+                val spH = ((item.boundingBox.height().toDouble() / bmpHeight * fitH)).toLong().coerceAtLeast(100000L)
+
+                val lineHPoints = (item.boundingBox.height().toDouble() / bmpHeight * fitH) / 12700.0 * 0.78
+                val fontSizeHundredths = (lineHPoints * 100).toInt().coerceIn(600, 7200)
+                val isBold = item.typography.estimatedFontWeight == com.docu.editor.core.ocr.model.FontWeightEstimate.BOLD ||
+                             item.typography.estimatedFontWeight == com.docu.editor.core.ocr.model.FontWeightEstimate.EXTRA_BOLD
+                val hexColor = String.format("%06X", item.inkColorRgb and 0xFFFFFF)
+                val escapedText = escapeXml(item.text)
+
+                textShapesXml.append("""
+      <p:sp>
+        <p:nvSpPr>
+          <p:cNvPr id="${100 + itemIdx}" name="Text_${itemIdx + 1}"/>
+          <p:cNvSpPr txBox="1"/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm>
+            <a:off x="$spX" y="$spY"/>
+            <a:ext cx="$spW" cy="$spH"/>
+          </a:xfrm>
+          <a:prstGeom prst="rect">
+            <a:avLst/>
+          </a:prstGeom>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr wrap="none" rtlCol="0">
+            <a:spAutoFit/>
+          </a:bodyPr>
+          <a:lstStyle/>
+          <a:p>
+            <a:r>
+              <a:rPr lang="en-US" sz="$fontSizeHundredths" b="${if (isBold) "1" else "0"}">
+                <a:solidFill>
+                  <a:srgbClr val="$hexColor"/>
+                </a:solidFill>
+              </a:rPr>
+              <a:t>$escapedText</a:t>
+            </a:r>
+          </a:p>
+        </p:txBody>
+      </p:sp>""")
+            }
         }
 
         return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -200,9 +258,17 @@ object PptxExportEngine {
             <a:avLst/>
           </a:prstGeom>
         </p:spPr>
-      </p:pic>
+      </p:pic>$textShapesXml
     </p:spTree>
   </p:cSld>
 </p:sld>"""
+    }
+
+    private fun escapeXml(str: String): String {
+        return str.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&apos;")
     }
 }

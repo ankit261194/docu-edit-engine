@@ -23,7 +23,8 @@ data class TypographyMetrics(
     val strokeWidthRatio: Float,
     val glyphDensity: Float,
     val letterSpacingEm: Float,
-    val estimatedFontSizePx: Float
+    val estimatedFontSizePx: Float,
+    val isSerif: Boolean = false
 )
 
 data class DetectedTextItem(
