@@ -110,4 +110,30 @@ object AcroFormManager {
             false
         }
     }
+
+    /**
+     * Bakes all interactive AcroForm form fields permanently into the PDF page stream,
+     * converting filled data into non-editable, tamper-proof archival print vectors.
+     */
+    suspend fun flattenFormFields(
+        context: Context,
+        pdfUri: Uri,
+        outputFile: File
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            outputFile.parentFile?.mkdirs()
+            context.contentResolver.openInputStream(pdfUri)?.use { inputStream ->
+                PDDocument.load(inputStream).use { doc ->
+                    val acroForm = doc.documentCatalog.acroForm ?: return@withContext false
+                    acroForm.flatten()
+                    FileOutputStream(outputFile).use { out ->
+                        doc.save(out)
+                    }
+                    true
+                }
+            } ?: false
+        } catch (_: Exception) {
+            false
+        }
+    }
 }
