@@ -1608,6 +1608,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 EraseMarksEngine.EraseMode.ALL_MARKS -> "All handwriting & stamps erased"
                 EraseMarksEngine.EraseMode.RUBBER_STAMPS -> "Rubber stamps erased"
                 EraseMarksEngine.EraseMode.BLUE_PEN -> "Blue pen ink erased"
+                EraseMarksEngine.EraseMode.BLACK_PEN -> "Black handwriting erased"
                 EraseMarksEngine.EraseMode.CUSTOM_COLOR -> "Custom ink marks erased"
             }
 
