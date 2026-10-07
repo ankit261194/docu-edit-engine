@@ -198,10 +198,23 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 selectedItems = emptyList(),
                 isScanning = false,
                 processingMessage = null,
+                activeToolMode = EditorToolMode.TEXT_EDIT,
                 canUndo = undoStack.isNotEmpty(),
                 canRedo = redoStack.isNotEmpty(),
                 canvasRevision = it.canvasRevision + 1
             )
+        }
+
+        if (cachedItems.isEmpty()) {
+            viewModelScope.launch(Dispatchers.Default) {
+                try {
+                    val detected = ocrAnalyzer.detectTextBlocks(cachedBmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE)
+                    pageDetectedItemsMap[pageIndex] = detected
+                    if (_uiState.value.currentPdfPageIndex == pageIndex) {
+                        _uiState.update { it.copy(detectedItems = detected) }
+                    }
+                } catch (_: Exception) {}
+            }
         }
         return true
     }
@@ -983,21 +996,39 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             it.copy(
                 originalBitmap = optimized,
                 currentBitmap = effectiveBitmap,
-                detectedItems = emptyList(), // Clean canvas by default - no annoying bounding boxes!
+                detectedItems = emptyList(),
                 selectedItem = null,
                 selectedItems = emptyList(),
-                isScanning = false,
-                processingMessage = null,
+                isScanning = true,
+                processingMessage = "Analyzing document typography & text...",
                 activeFilter = activeFilterMode,
+                activeToolMode = EditorToolMode.TEXT_EDIT,
                 canUndo = false,
                 canRedo = false
             )
         }
         clearUndoRedo()
 
+        val detected = withContext(Dispatchers.Default) {
+            try {
+                ocrAnalyzer.detectTextBlocks(effectiveBitmap, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE)
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+
         val pageIdx = _uiState.value.currentPdfPageIndex
         editedPagesMap[pageIdx] = effectiveBitmap
-        pageDetectedItemsMap[pageIdx] = emptyList()
+        pageDetectedItemsMap[pageIdx] = detected
+
+        _uiState.update {
+            it.copy(
+                detectedItems = detected,
+                isScanning = false,
+                processingMessage = null,
+                activeToolMode = EditorToolMode.TEXT_EDIT
+            )
+        }
 
         val context = getApplication<Application>()
         viewModelScope.launch(Dispatchers.IO) {
@@ -1006,7 +1037,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     context = context,
                     bitmap = effectiveBitmap,
                     pageCount = _uiState.value.pdfPageCount,
-                    extractedOcrText = ""
+                    extractedOcrText = detected.joinToString("\n") { it.text }
                 )
                 _uiState.update { it.copy(currentDocHistoryId = saved.id) }
                 refreshRecentDocuments()
@@ -1553,8 +1584,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 )
             }
 
-            pageDetectedItemsMap[_uiState.value.currentPdfPageIndex] = emptyList()
-            _uiState.update { it.copy(detectedItems = emptyList()) }
+            val curItems = _uiState.value.detectedItems
+            pageDetectedItemsMap[_uiState.value.currentPdfPageIndex] = curItems
         }
     }
 
@@ -3276,6 +3307,30 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     fun setActiveToolMode(mode: EditorToolMode) {
         _uiState.update { it.copy(activeToolMode = mode) }
+        if (mode == EditorToolMode.TEXT_EDIT && _uiState.value.detectedItems.isEmpty()) {
+            val bmp = _uiState.value.currentBitmap
+            if (bmp != null && !_uiState.value.isScanning) {
+                viewModelScope.launch {
+                    _uiState.update { it.copy(isScanning = true, processingMessage = "Detecting document text...") }
+                    val detected = withContext(Dispatchers.Default) {
+                        try {
+                            ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE)
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    }
+                    val pageIdx = _uiState.value.currentPdfPageIndex
+                    pageDetectedItemsMap[pageIdx] = detected
+                    _uiState.update {
+                        it.copy(
+                            detectedItems = detected,
+                            isScanning = false,
+                            processingMessage = null
+                        )
+                    }
+                }
+            }
+        }
     }
 
     fun showIdCardDialog(show: Boolean) {
@@ -3630,8 +3685,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         } else {
             _uiState.update {
                 it.copy(
-                    showOcrTextExtractDialog = false,
-                    detectedItems = emptyList() // Clean canvas! Zero annoying bounding boxes!
+                    showOcrTextExtractDialog = false
                 )
             }
         }
@@ -3702,6 +3756,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 }
                 val remaining = _uiState.value.detectedItems.filterNot { it.id == item.id }
                 editedPagesMap[_uiState.value.currentPdfPageIndex] = updatedBitmap
+                pageDetectedItemsMap[_uiState.value.currentPdfPageIndex] = remaining
                 _uiState.update {
                     it.copy(
                         currentBitmap = updatedBitmap,
@@ -3799,6 +3854,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
 
         editedPagesMap[_uiState.value.currentPdfPageIndex] = currentBitmap
+        pageDetectedItemsMap[_uiState.value.currentPdfPageIndex] = remaining
 
         _uiState.update {
             it.copy(

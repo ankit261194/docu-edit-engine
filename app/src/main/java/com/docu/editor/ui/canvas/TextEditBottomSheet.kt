@@ -107,6 +107,15 @@ fun TextEditBottomSheet(
     var showCustomColorPicker by remember(item.id) { mutableStateOf(false) }
     var customHue by remember(item.id) { mutableFloatStateOf(0f) }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val fontMatcher = remember(context) { FontMatcher(context) }
+    val previewTypeface = remember(selectedFontType, isBold) {
+        fontMatcher.getDocumentTypeface(selectedFontType, isBold)
+    }
+    val previewFontFamily = remember(previewTypeface) {
+        FontFamily(previewTypeface)
+    }
+
     val isDark = isSystemInDarkTheme()
     val sheetBg = if (isDark) Color(0xFF1E293B) else Color.White
     val textPrimary = if (isDark) Color(0xFFF8FAFC) else Color(0xFF0F172A)
@@ -302,11 +311,7 @@ fun TextEditBottomSheet(
                                 color = Color(selectedColorRgb),
                                 fontSize = (14 * sizeMultiplier).sp,
                                 fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
-                                fontFamily = when (selectedFontType.category) {
-                                    "Classic Serif" -> FontFamily.Serif
-                                    "Handwriting", "Signature" -> FontFamily.Cursive
-                                    else -> if (selectedFontType == FontClassification.MONOSPACE || selectedFontType == FontClassification.INCONSOLATA) FontFamily.Monospace else if (selectedFontType == FontClassification.SERIF) FontFamily.Serif else FontFamily.SansSerif
-                                }
+                                fontFamily = previewFontFamily
                             )
                         }
                     }

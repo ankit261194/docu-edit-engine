@@ -89,7 +89,7 @@ fun DocumentInteractiveCanvas(
     selectedItems: List<DetectedTextItem> = emptyList(),
     activeMode: EditorToolMode = EditorToolMode.TEXT_EDIT,
     canvasRevision: Long = 0L,
-    onTextItemTapped: (DetectedTextItem) -> Unit,
+    onTextItemTapped: (DetectedTextItem?) -> Unit,
     onLassoSelectionChanged: (List<DetectedTextItem>) -> Unit = {},
     onWhiteoutTouch: (bitmapX: Float, bitmapY: Float) -> Unit = { _, _ -> },
     onInsertTextTouch: (bitmapX: Float, bitmapY: Float) -> Unit = { _, _ -> },
@@ -694,8 +694,12 @@ fun DocumentInteractiveCanvas(
                                                 if (hitItem != null) {
                                                     currentOnTextItemTapped(hitItem)
                                                 } else {
-                                                    if (docX in 0f..bitmap.width.toFloat() && docY in 0f..bitmap.height.toFloat()) {
-                                                        currentOnInsertTextTouch(docX, docY)
+                                                    if (activeMode == EditorToolMode.ADD_TEXT) {
+                                                        if (docX in 0f..bitmap.width.toFloat() && docY in 0f..bitmap.height.toFloat()) {
+                                                            currentOnInsertTextTouch(docX, docY)
+                                                        }
+                                                    } else {
+                                                        currentOnTextItemTapped(null)
                                                     }
                                                 }
                                             }
@@ -940,39 +944,68 @@ fun DocumentInteractiveCanvas(
                             style = Stroke(width = 2.dp.toPx())
                         )
                     } else if (isSingleSelected) {
-                        // High-contrast Emerald/Cyan Selection with Corner Knobs
-                        drawRect(
-                            color = Color(0xFF06B6D4).copy(alpha = 0.28f),
+                        // High-contrast Emerald/Cyan Selection with 4 Corner Knobs
+                        drawRoundRect(
+                            color = Color(0xFF0284C7).copy(alpha = 0.20f),
                             topLeft = Offset(boxLeft, boxTop),
-                            size = Size(boxWidth, boxHeight)
+                            size = Size(boxWidth, boxHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx())
                         )
-                        drawRect(
+                        drawRoundRect(
                             color = Color(0xFF0284C7),
                             topLeft = Offset(boxLeft, boxTop),
                             size = Size(boxWidth, boxHeight),
-                            style = Stroke(width = 3.dp.toPx())
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()),
+                            style = Stroke(width = 2.5.dp.toPx())
                         )
-                        drawCircle(
-                            color = Color(0xFF0284C7),
-                            radius = 4.dp.toPx(),
-                            center = Offset(boxLeft, boxTop)
+                        val knobRadius = 4.5.dp.toPx()
+                        val knobCorners = listOf(
+                            Offset(boxLeft, boxTop),
+                            Offset(boxLeft + boxWidth, boxTop),
+                            Offset(boxLeft, boxTop + boxHeight),
+                            Offset(boxLeft + boxWidth, boxTop + boxHeight)
                         )
-                        drawCircle(
-                            color = Color(0xFF0284C7),
-                            radius = 4.dp.toPx(),
-                            center = Offset(boxLeft + boxWidth, boxTop + boxHeight)
-                        )
+                        for (corner in knobCorners) {
+                            drawCircle(
+                                color = Color.White,
+                                radius = knobRadius,
+                                center = corner
+                            )
+                            drawCircle(
+                                color = Color(0xFF0284C7),
+                                radius = knobRadius,
+                                center = corner,
+                                style = Stroke(width = 1.5.dp.toPx())
+                            )
+                        }
                     } else if (isLassoSelected) {
-                        drawRect(
+                        drawRoundRect(
                             color = Color(0xFFF59E0B).copy(alpha = 0.35f),
                             topLeft = Offset(boxLeft, boxTop),
-                            size = Size(boxWidth, boxHeight)
+                            size = Size(boxWidth, boxHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx())
                         )
-                        drawRect(
+                        drawRoundRect(
                             color = Color(0xFFD97706),
                             topLeft = Offset(boxLeft, boxTop),
                             size = Size(boxWidth, boxHeight),
-                            style = Stroke(width = 2.5.dp.toPx())
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()),
+                            style = Stroke(width = 2.dp.toPx())
+                        )
+                    } else if (activeMode == EditorToolMode.TEXT_EDIT) {
+                        // Subtle, elegant Pro visual indicators for every detected text block (Adobe Acrobat / CamScanner style)
+                        drawRoundRect(
+                            color = Color(0xFF0284C7).copy(alpha = 0.07f),
+                            topLeft = Offset(boxLeft, boxTop),
+                            size = Size(boxWidth, boxHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx())
+                        )
+                        drawRoundRect(
+                            color = Color(0xFF38BDF8).copy(alpha = 0.45f),
+                            topLeft = Offset(boxLeft, boxTop),
+                            size = Size(boxWidth, boxHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()),
+                            style = Stroke(width = 1.2.dp.toPx())
                         )
                     }
                 }

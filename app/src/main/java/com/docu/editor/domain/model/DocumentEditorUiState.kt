@@ -71,7 +71,7 @@ data class DocumentEditorUiState(
     val successMessage: String? = null,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
-    val activeToolMode: EditorToolMode = EditorToolMode.CANVA_STUDIO,
+    val activeToolMode: EditorToolMode = EditorToolMode.TEXT_EDIT,
     val activeFilter: DocumentFilterMode = DocumentFilterMode.ORIGINAL,
     val showFiltersSheet: Boolean = false,
     val showIdCardDialog: Boolean = false,
