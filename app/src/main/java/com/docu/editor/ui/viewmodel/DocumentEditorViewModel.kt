@@ -1549,40 +1549,34 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     // --- CamScanner Filters Engine ---
 
-    fun applyFilter(filter: DocumentFilterMode) {
+    fun applyFilter(filter: DocumentFilterMode, intensity: Float = 1.0f) {
         val base = _uiState.value.originalBitmap ?: return
         val current = _uiState.value.currentBitmap ?: return
-        if (filter == _uiState.value.activeFilter) return
 
         pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
 
         viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = true,
+                    processingMessage = "Applying ${filter.displayName}..."
+                )
+            }
+
             val filtered = withContext(Dispatchers.Default) {
-                val filterType = when (filter) {
-                    DocumentFilterMode.ORIGINAL -> DocumentFilters.FilterType.ORIGINAL
-                    DocumentFilterMode.MAGIC_COLOR -> DocumentFilters.FilterType.MAGIC_COLOR
-                    DocumentFilterMode.SHADOW_REMOVER -> DocumentFilters.FilterType.REMOVE_SHADOWS
-                    DocumentFilterMode.WATERMARK_REMOVER -> DocumentFilters.FilterType.REMOVE_WATERMARK
-                    DocumentFilterMode.FINGER_REMOVER -> DocumentFilters.FilterType.REMOVE_FINGERS
-                    DocumentFilterMode.BOOK_DEWARP -> DocumentFilters.FilterType.DEWARP_CURVED_PAGE
-                    DocumentFilterMode.CLEAN_BW -> DocumentFilters.FilterType.CLEAN_BW
-                    DocumentFilterMode.GRAYSCALE -> DocumentFilters.FilterType.GRAYSCALE
-                    DocumentFilterMode.VIVID_DOC -> DocumentFilters.FilterType.VIVID_DOC
-                    DocumentFilterMode.STUDIO_WHITE -> DocumentFilters.FilterType.STUDIO_WHITE
-                    DocumentFilterMode.BLUEPRINT -> DocumentFilters.FilterType.BLUEPRINT
-                    DocumentFilterMode.SEPIA -> DocumentFilters.FilterType.SEPIA
-                    DocumentFilterMode.INK_SHARPENER -> DocumentFilters.FilterType.INK_SHARPENER
-                }
-                DocumentFilters.applyFilter(base, filterType)
+                val filterType = mapFilterModeToType(filter)
+                DocumentFilters.applyFilter(base, filterType, intensity)
             }
 
             editedPagesMap[_uiState.value.currentPdfPageIndex] = filtered
 
             _uiState.update {
                 it.copy(
+                    isApplyingEdit = false,
+                    processingMessage = null,
                     currentBitmap = filtered,
                     activeFilter = filter,
-                    successMessage = "✓ ${filter.displayName} applied",
+                    successMessage = "✓ ${filter.displayName} (${(intensity * 100).toInt()}%) applied",
                     canUndo = true,
                     canRedo = false,
                     canvasRevision = it.canvasRevision + 1
@@ -1591,6 +1585,107 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
             val curItems = _uiState.value.detectedItems
             pageDetectedItemsMap[_uiState.value.currentPdfPageIndex] = curItems
+        }
+    }
+
+    fun applyFilterToAllPages(filter: DocumentFilterMode, intensity: Float = 1.0f) {
+        val state = _uiState.value
+        val current = state.currentBitmap ?: return
+        val base = state.originalBitmap ?: current
+        val totalPages = if (state.activePdfUri != null) {
+            state.pdfPageCount
+        } else if (state.batchScannedPaths.isNotEmpty()) {
+            state.batchScannedPaths.size
+        } else {
+            1
+        }
+
+        if (totalPages <= 1) {
+            applyFilter(filter, intensity)
+            return
+        }
+
+        saveCurrentPageToCache()
+        val context = getApplication<Application>()
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = true,
+                    processingMessage = "Enhancing all $totalPages pages with ${filter.displayName}..."
+                )
+            }
+
+            try {
+                val filterType = mapFilterModeToType(filter)
+                var updatedCurrentPageBitmap: Bitmap? = null
+
+                withContext(Dispatchers.Default) {
+                    for (pIdx in 0 until totalPages) {
+                        val pageSourceBmp = if (pIdx == state.currentPdfPageIndex) {
+                            base
+                        } else {
+                            val cached = editedPagesMap[pIdx]
+                            if (cached != null) {
+                                cached
+                            } else if (state.activePdfUri != null) {
+                                PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, pIdx)
+                            } else if (state.batchScannedPaths.size > pIdx) {
+                                com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[pIdx], 2880)
+                            } else {
+                                null
+                            }
+                        } ?: continue
+
+                        val filteredPage = DocumentFilters.applyFilter(pageSourceBmp, filterType, intensity)
+                        editedPagesMap[pIdx] = filteredPage
+
+                        if (pIdx == state.currentPdfPageIndex) {
+                            updatedCurrentPageBitmap = filteredPage
+                        }
+                    }
+                }
+
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        currentBitmap = updatedCurrentPageBitmap ?: it.currentBitmap,
+                        activeFilter = filter,
+                        successMessage = "✓ ${filter.displayName} applied to all $totalPages pages",
+                        canUndo = true,
+                        canRedo = false,
+                        canvasRevision = it.canvasRevision + 1
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Batch filter enhancement failed: ${e.localizedMessage}"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun mapFilterModeToType(filter: DocumentFilterMode): DocumentFilters.FilterType {
+        return when (filter) {
+            DocumentFilterMode.ORIGINAL -> DocumentFilters.FilterType.ORIGINAL
+            DocumentFilterMode.MAGIC_COLOR -> DocumentFilters.FilterType.MAGIC_COLOR
+            DocumentFilterMode.SHADOW_REMOVER -> DocumentFilters.FilterType.REMOVE_SHADOWS
+            DocumentFilterMode.WATERMARK_REMOVER -> DocumentFilters.FilterType.REMOVE_WATERMARK
+            DocumentFilterMode.FINGER_REMOVER -> DocumentFilters.FilterType.REMOVE_FINGERS
+            DocumentFilterMode.BOOK_DEWARP -> DocumentFilters.FilterType.DEWARP_CURVED_PAGE
+            DocumentFilterMode.CLEAN_BW -> DocumentFilters.FilterType.CLEAN_BW
+            DocumentFilterMode.GRAYSCALE -> DocumentFilters.FilterType.GRAYSCALE
+            DocumentFilterMode.VIVID_DOC -> DocumentFilters.FilterType.VIVID_DOC
+            DocumentFilterMode.STUDIO_WHITE -> DocumentFilters.FilterType.STUDIO_WHITE
+            DocumentFilterMode.BLUEPRINT -> DocumentFilters.FilterType.BLUEPRINT
+            DocumentFilterMode.SEPIA -> DocumentFilters.FilterType.SEPIA
+            DocumentFilterMode.INK_SHARPENER -> DocumentFilters.FilterType.INK_SHARPENER
         }
     }
 

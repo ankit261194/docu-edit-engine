@@ -1,6 +1,8 @@
 package com.docu.editor.core.scanner
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.opencv.android.Utils
@@ -29,9 +31,9 @@ object DocumentFilters {
         INK_SHARPENER     // Laplacian Anti-Smudge stroke de-bleeding & edge sharpening
     }
 
-    suspend fun applyFilter(bitmap: Bitmap, filter: FilterType): Bitmap = withContext(Dispatchers.Default) {
-        when (filter) {
-            FilterType.ORIGINAL -> bitmap.copy(Bitmap.Config.ARGB_8888, true)
+    suspend fun applyFilter(bitmap: Bitmap, filter: FilterType, intensity: Float = 1.0f): Bitmap = withContext(Dispatchers.Default) {
+        val filtered = when (filter) {
+            FilterType.ORIGINAL -> return@withContext bitmap.copy(Bitmap.Config.ARGB_8888, true)
             FilterType.MAGIC_COLOR -> applyMagicColor(bitmap)
             FilterType.REMOVE_SHADOWS -> applyShadowRemoval(bitmap)
             FilterType.REMOVE_WATERMARK -> applyWatermarkRemoval(bitmap)
@@ -45,6 +47,33 @@ object DocumentFilters {
             FilterType.SEPIA -> applySepia(bitmap)
             FilterType.INK_SHARPENER -> applyInkSharpener(bitmap)
         }
+
+        if (intensity >= 0.99f || filter == FilterType.DEWARP_CURVED_PAGE || filter == FilterType.REMOVE_FINGERS) {
+            filtered
+        } else {
+            val blended = blendBitmaps(bitmap, filtered, intensity)
+            if (blended != filtered && !filtered.isRecycled) {
+                filtered.recycle()
+            }
+            blended
+        }
+    }
+
+    /**
+     * Studio-grade bitmap blending: Blends filtered result with original base according to intensity (0.0 to 1.0).
+     */
+    fun blendBitmaps(base: Bitmap, overlay: Bitmap, intensity: Float): Bitmap {
+        val safeIntensity = intensity.coerceIn(0f, 1f)
+        if (safeIntensity >= 0.99f) return overlay
+        if (safeIntensity <= 0.01f) return base.copy(Bitmap.Config.ARGB_8888, true)
+
+        val result = base.copy(Bitmap.Config.ARGB_8888, true)
+        val canvas = Canvas(result)
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG).apply {
+            alpha = (safeIntensity * 255).toInt()
+        }
+        canvas.drawBitmap(overlay, 0f, 0f, paint)
+        return result
     }
 
     /**

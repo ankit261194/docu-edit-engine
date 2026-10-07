@@ -111,6 +111,7 @@ import com.docu.editor.ui.dialogs.WatermarkDialog
 import com.docu.editor.ui.dialogs.BookDewarpDialog
 import com.docu.editor.ui.dialogs.CloudBackupsListDialog
 import com.docu.editor.ui.dialogs.TargetSizeAdjusterDialog
+import com.docu.editor.ui.dialogs.DocumentFiltersSheet
 import com.docu.editor.ui.dialogs.SizeAdjustMode
 import com.docu.editor.ui.dialogs.PageSizeDialog
 import com.docu.editor.ui.dialogs.DirectCloudUploadDialog
@@ -678,7 +679,7 @@ class MainActivity : ComponentActivity() {
                                     showFiltersRow = showFiltersRow,
                                     onModeSelected = { mode ->
                                         if (mode == EditorToolMode.FILTERS) {
-                                            showFiltersRow = !showFiltersRow
+                                            viewModel.showFiltersSheet(true)
                                         } else {
                                             showFiltersRow = false
                                             viewModel.setActiveToolMode(mode)
@@ -1188,7 +1189,7 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onEnhanceDocuments = {
                                     if (uiState.currentBitmap != null) {
-                                        viewModel.applyFilter(DocumentFilterMode.MAGIC_COLOR)
+                                        viewModel.showFiltersSheet(true)
                                     } else {
                                         filePickerLauncher.launch(arrayOf("image/*"))
                                     }
@@ -1604,6 +1605,23 @@ class MainActivity : ComponentActivity() {
                                 onApplyRedaction = { options ->
                                     viewModel.autoRedactSensitiveData(options)
                                 }
+                            )
+                        }
+
+                        // Enterprise Document Filters & Enhancement Studio Dialog
+                        if (uiState.showFiltersSheet) {
+                            DocumentFiltersSheet(
+                                currentBitmap = uiState.currentBitmap,
+                                originalBitmap = uiState.originalBitmap,
+                                activeFilter = uiState.activeFilter,
+                                pageCount = if (uiState.activePdfUri != null) uiState.pdfPageCount else uiState.batchScannedPaths.size.coerceAtLeast(1),
+                                onFilterSelected = { filter, intensity ->
+                                    viewModel.applyFilter(filter, intensity)
+                                },
+                                onApplyToAllPages = { filter, intensity ->
+                                    viewModel.applyFilterToAllPages(filter, intensity)
+                                },
+                                onDismiss = { viewModel.showFiltersSheet(false) }
                             )
                         }
 
