@@ -143,7 +143,9 @@ data class DocumentEditorUiState(
     val showCanvaLayersDialog: Boolean = false,
     val activeBrandPaletteId: String = "canva_signature",
     val activeAnimationType: CanvaAnimationType = CanvaAnimationType.NONE,
-    val activeStyleMatchPreset: CanvaStyleMatchPreset = CanvaStyleMatchPreset.NONE
+    val activeStyleMatchPreset: CanvaStyleMatchPreset = CanvaStyleMatchPreset.NONE,
+    val showPageSizeDialog: Boolean = false,
+    val showDirectCloudUploadDialog: Boolean = false
 ) {
     val selectedLayer: DocumentCanvasLayer?
         get() = canvasLayers.firstOrNull { it.id == selectedLayerId }

@@ -5356,6 +5356,135 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun showPageSizeDialog(show: Boolean) {
+        _uiState.update { it.copy(showPageSizeDialog = show) }
+    }
+
+    fun showDirectCloudUploadDialog(show: Boolean) {
+        _uiState.update { it.copy(showDirectCloudUploadDialog = show) }
+    }
+
+    fun applyStandardPageSize(
+        pageSize: com.docu.editor.core.layout.StandardPageSize,
+        fitMode: com.docu.editor.core.layout.PageSizeEngine.FitMode
+    ) {
+        val current = _uiState.value.currentBitmap ?: return
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+        val resized = com.docu.editor.core.layout.PageSizeEngine.applyPageSize(current, pageSize, fitMode)
+        _uiState.update {
+            it.copy(
+                currentBitmap = resized,
+                showPageSizeDialog = false,
+                canUndo = true,
+                canRedo = false,
+                hasUnsavedChanges = true,
+                canvasRevision = it.canvasRevision + 1,
+                successMessage = "Page resized to ${pageSize.displayName}"
+            )
+        }
+    }
+
+    fun updateShapeLayerStyle(
+        fillColor: Int?,
+        strokeColor: Int,
+        strokeWidth: Float,
+        cornerRadius: Float,
+        alpha: Float
+    ) {
+        val selected = _uiState.value.selectedLayer ?: return
+        if (!selected.isShapeLayer) return
+
+        val newBmp = com.docu.editor.core.scanner.VectorShapeGenerator.createShapeBitmap(
+            type = selected.shapeType,
+            width = selected.shapeWidth,
+            height = selected.shapeHeight,
+            strokeColor = strokeColor,
+            strokeWidth = strokeWidth,
+            fillColor = fillColor,
+            cornerRadius = cornerRadius
+        )
+
+        val updatedLayer = selected.copy(
+            bitmap = newBmp,
+            shapeFillColor = fillColor,
+            shapeStrokeColor = strokeColor,
+            shapeStrokeWidth = strokeWidth,
+            cornerRadius = cornerRadius,
+            alpha = alpha.coerceIn(0.1f, 1.0f)
+        )
+
+        val newLayers = _uiState.value.canvasLayers.map { if (it.id == selected.id) updatedLayer else it }
+        _uiState.update {
+            it.copy(
+                canvasLayers = newLayers,
+                overlayAlpha = updatedLayer.alpha,
+                canvasRevision = it.canvasRevision + 1
+            )
+        }
+    }
+
+    fun updateTextLayerStyle(
+        text: String,
+        textColor: Int,
+        bgColor: Int?,
+        fontSize: Float,
+        isBold: Boolean,
+        isItalic: Boolean,
+        fontFamily: String,
+        alpha: Float
+    ) {
+        val selected = _uiState.value.selectedLayer ?: return
+        if (!selected.isTextLayer) return
+
+        val newBmp = DocumentCanvasLayer.createTypographyBitmap(
+            text = text,
+            textColor = textColor,
+            backgroundColor = bgColor,
+            fontSize = fontSize,
+            isBold = isBold,
+            isItalic = isItalic,
+            fontFamily = fontFamily
+        )
+
+        val updatedLayer = selected.copy(
+            bitmap = newBmp,
+            text = text,
+            textColor = textColor,
+            backgroundColor = bgColor,
+            fontSize = fontSize,
+            isBold = isBold,
+            isItalic = isItalic,
+            fontFamily = fontFamily,
+            alpha = alpha.coerceIn(0.1f, 1.0f)
+        )
+
+        val newLayers = _uiState.value.canvasLayers.map { if (it.id == selected.id) updatedLayer else it }
+        _uiState.update {
+            it.copy(
+                canvasLayers = newLayers,
+                overlayAlpha = updatedLayer.alpha,
+                canvasRevision = it.canvasRevision + 1
+            )
+        }
+    }
+
+    fun replaceSelectedLayerImage(newBitmap: Bitmap) {
+        val selected = _uiState.value.selectedLayer ?: return
+        val updatedLayer = selected.copy(
+            bitmap = newBitmap,
+            title = "Replaced Photo"
+        )
+        val newLayers = _uiState.value.canvasLayers.map { if (it.id == selected.id) updatedLayer else it }
+        _uiState.update {
+            it.copy(
+                canvasLayers = newLayers,
+                activeOverlayBitmap = newBitmap,
+                canvasRevision = it.canvasRevision + 1,
+                successMessage = "Photo layer updated"
+            )
+        }
+    }
+
     override fun onCleared() {
         super.onCleared()
         ocrAnalyzer.close()

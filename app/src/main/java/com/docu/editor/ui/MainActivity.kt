@@ -37,8 +37,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Layers
@@ -95,6 +97,8 @@ import com.docu.editor.core.update.UpdateInfo
 import com.docu.editor.domain.model.EditorToolMode
 import com.docu.editor.ui.canvas.DocumentBottomBar
 import com.docu.editor.ui.canvas.DocumentInteractiveCanvas
+import com.docu.editor.ui.canvas.ContextualLayerBottomBar
+import com.docu.editor.ui.canvas.PageThumbnailStrip
 import com.docu.editor.ui.canvas.TextEditBottomSheet
 import com.docu.editor.ui.dialogs.ExportDialog
 import com.docu.editor.ui.dialogs.IdCardDialog
@@ -108,6 +112,8 @@ import com.docu.editor.ui.dialogs.BookDewarpDialog
 import com.docu.editor.ui.dialogs.CloudBackupsListDialog
 import com.docu.editor.ui.dialogs.TargetSizeAdjusterDialog
 import com.docu.editor.ui.dialogs.SizeAdjustMode
+import com.docu.editor.ui.dialogs.PageSizeDialog
+import com.docu.editor.ui.dialogs.DirectCloudUploadDialog
 import com.docu.editor.ui.home.HomeScreenDashboard
 import com.docu.editor.ui.dialogs.CountCamDialog
 import com.docu.editor.ui.dialogs.IdPhotoMakerDialog
@@ -431,6 +437,18 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // Canva Replace Image for Selected Layer Launcher
+                val replaceImagePickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    uri?.let {
+                        val bmp = loadBitmapDirect(it)
+                        bmp?.let { b ->
+                            viewModel.replaceSelectedLayerImage(b)
+                        }
+                    }
+                }
+
                 // Snackbar notifications
                 LaunchedEffect(uiState.errorMessage) {
                     uiState.errorMessage?.let { snackbarHostState.showSnackbar(it) }
@@ -585,6 +603,20 @@ class MainActivity : ComponentActivity() {
                                             tint = MaterialTheme.colorScheme.onSurface
                                         )
                                     }
+                                    IconButton(onClick = { viewModel.showPageSizeDialog(true) }) {
+                                        Icon(
+                                            Icons.Default.AspectRatio,
+                                            contentDescription = "Page Dimensions",
+                                            tint = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                    IconButton(onClick = { viewModel.showDirectCloudUploadDialog(true) }) {
+                                        Icon(
+                                            Icons.Default.CloudUpload,
+                                            contentDescription = "1-Tap Cloud Hub",
+                                            tint = Color(0xFF0284C7)
+                                        )
+                                    }
                                     IconButton(
                                         onClick = { viewModel.showExportDialog(true) }
                                     ) {
@@ -600,98 +632,138 @@ class MainActivity : ComponentActivity() {
                     },
                     bottomBar = {
                         if (uiState.currentBitmap != null) {
-                            DocumentBottomBar(
-                                activeMode = uiState.activeToolMode,
-                                activeFilter = uiState.activeFilter,
-                                showFiltersRow = showFiltersRow,
-                                onModeSelected = { mode ->
-                                    if (mode == EditorToolMode.FILTERS) {
-                                        showFiltersRow = !showFiltersRow
-                                    } else {
-                                        showFiltersRow = false
-                                        viewModel.setActiveToolMode(mode)
+                            val activeLayer = uiState.selectedLayer
+                            if (activeLayer != null) {
+                                ContextualLayerBottomBar(
+                                    layer = activeLayer,
+                                    onUpdateShapeStyle = { fill, stroke, strokeW, cornerR, alpha ->
+                                        viewModel.updateShapeLayerStyle(fill, stroke, strokeW, cornerR, alpha)
+                                    },
+                                    onUpdateTextStyle = { text, textColor, bgColor, fontSize, isBold, isItalic, fontFamily, alpha ->
+                                        viewModel.updateTextLayerStyle(text, textColor, bgColor, fontSize, isBold, isItalic, fontFamily, alpha)
+                                    },
+                                    onUpdateLayerAlpha = { alpha ->
+                                        viewModel.updateSelectedLayerAlpha(alpha)
+                                    },
+                                    onDuplicateLayer = {
+                                        viewModel.duplicateSelectedLayer()
+                                    },
+                                    onDeleteLayer = {
+                                        viewModel.deleteSelectedLayer()
+                                    },
+                                    onBringToFront = {
+                                        viewModel.bringSelectedLayerToFront()
+                                    },
+                                    onSendToBack = {
+                                        viewModel.sendSelectedLayerToBack()
+                                    },
+                                    onFlipH = {
+                                        viewModel.toggleLayerFlipH(activeLayer.id)
+                                    },
+                                    onFlipV = {
+                                        viewModel.toggleLayerFlipV(activeLayer.id)
+                                    },
+                                    onReplaceImageClicked = {
+                                        replaceImagePickerLauncher.launch(arrayOf("image/*"))
+                                    },
+                                    onDeselect = {
+                                        viewModel.selectCanvasLayer(null)
                                     }
-                                },
-                                onFilterSelected = { filter ->
-                                    viewModel.applyFilter(filter)
-                                },
-                                onBrightnessContrastChanged = { b, c ->
-                                    viewModel.applyBrightnessContrast(b, c)
-                                },
-                                onRotateClicked = {
-                                    viewModel.rotateDocumentClockwise()
-                                },
-                                onAutoOrientClicked = {
-                                    viewModel.autoOrientCurrentDocument()
-                                },
-                                onInteractiveCropClicked = {
-                                    viewModel.showInteractiveCropDialog(true)
-                                },
-                                onExtractTextClicked = {
-                                    viewModel.showOcrTextExtractDialog(true)
-                                },
-                                onSignatureClicked = {
-                                    viewModel.showSignatureDialog(true)
-                                },
-                                onPagesOverviewClicked = {
-                                    viewModel.showPagesOverview(true)
-                                },
-                                onCompressClicked = {
-                                    viewModel.showPdfToolboxDialog(true)
-                                },
-                                onTargetSizeClicked = {
-                                    viewModel.showTargetSizeAdjusterDialog(true)
-                                },
-                                onExportClicked = {
-                                    viewModel.showExportDialog(true)
-                                },
-                                onCloudSyncClicked = {
-                                    viewModel.syncDocumentToCloud()
-                                },
-                                selectedLassoCount = uiState.selectedItems.size,
-                                onMergeEditLasso = { viewModel.mergeAndEditLassoSelection() },
-                                onWhiteoutLasso = { viewModel.whiteoutLassoSelection() },
-                                onClearLasso = { viewModel.clearLassoSelection() },
-                                onWatermarkClicked = { viewModel.showWatermarkDialog(true) },
-                                onBookDewarpClicked = { viewModel.showBookDewarpDialog(true) },
-                                whiteoutBrushRadius = uiState.whiteoutBrushRadius,
-                                onWhiteoutBrushRadiusChanged = { r -> viewModel.setWhiteoutBrushRadius(r) },
-                                markupColorRgb = uiState.markupColorRgb,
-                                markupStrokeWidth = uiState.markupStrokeWidth,
-                                onMarkupColorChanged = { viewModel.setMarkupColor(it) },
-                                onMarkupStrokeWidthChanged = { viewModel.setMarkupStrokeWidth(it) },
-                                penColorRgb = uiState.penColorRgb,
-                                penStrokeWidth = uiState.penStrokeWidth,
-                                onPenColorChanged = { viewModel.setPenColor(it) },
-                                onPenStrokeWidthChanged = { viewModel.setPenStrokeWidth(it) },
-                                selectedShapeType = uiState.selectedShapeType,
-                                onShapeTypeSelected = { viewModel.setSelectedShapeType(it) },
-                                shapeStrokeWidth = uiState.shapeStrokeWidth,
-                                onShapeStrokeWidthChanged = { viewModel.setShapeStrokeWidth(it) },
-                                shapeStrokeColorRgb = uiState.shapeStrokeColorRgb,
-                                onShapeStrokeColorChanged = { viewModel.setShapeStrokeColor(it) },
-                                shapeFillColor = uiState.shapeFillColor,
-                                onShapeFillColorChanged = { viewModel.setShapeFillColor(it) },
-                                onAddShapeLayerClicked = { viewModel.addShapeLayer(it) },
-                                onBackgroundRemovalClicked = { viewModel.showBackgroundRemovalDialog(true) },
-                                onInsertImageClicked = { insertImageLauncher.launch(arrayOf("image/*")) },
-                                onCanvaStickersClicked = { viewModel.showCanvaStickersDialog(true) },
-                                magicEraserBrushRadius = uiState.magicEraserBrushRadius,
-                                onMagicEraserBrushRadiusChanged = { viewModel.setMagicEraserBrushRadius(it) },
-                                isCloudAiEraserEnabled = uiState.isCloudAiEraserEnabled,
-                                hasGeminiApiKey = viewModel.getGeminiApiKey().isNotBlank(),
-                                onToggleCloudAiEraser = { viewModel.toggleCloudAiEraser() },
-                                onOpenCloudAiSettings = { viewModel.showCloudAiSettingsDialog(true) },
-                                onApplyShadowRemover = { viewModel.applyFilter(com.docu.editor.domain.model.DocumentFilterMode.SHADOW_REMOVER) },
-                                onApplyFingerRemover = { viewModel.applyFilter(com.docu.editor.domain.model.DocumentFilterMode.FINGER_REMOVER) },
-                                onCanvaMockupsClicked = { viewModel.showCanvaMockupsDialog(true) },
-                                onCanvaTextStudioClicked = { viewModel.showCanvaTextStudioDialog(true) },
-                                onCanvaBrandKitClicked = { viewModel.showCanvaBrandKitDialog(true) },
-                                onCanvaMagicStudioClicked = { viewModel.showCanvaMagicStudioDialog(true) },
-                                onCanvaAdjustClicked = { viewModel.showCanvaAdjustDialog(true) },
-                                onCanvaAnimateClicked = { viewModel.showCanvaAnimateDialog(true) },
-                                onCanvaLayersClicked = { viewModel.showCanvaLayersDialog(true) }
-                            )
+                                )
+                            } else {
+                                DocumentBottomBar(
+                                    activeMode = uiState.activeToolMode,
+                                    activeFilter = uiState.activeFilter,
+                                    showFiltersRow = showFiltersRow,
+                                    onModeSelected = { mode ->
+                                        if (mode == EditorToolMode.FILTERS) {
+                                            showFiltersRow = !showFiltersRow
+                                        } else {
+                                            showFiltersRow = false
+                                            viewModel.setActiveToolMode(mode)
+                                        }
+                                    },
+                                    onFilterSelected = { filter ->
+                                        viewModel.applyFilter(filter)
+                                    },
+                                    onBrightnessContrastChanged = { b, c ->
+                                        viewModel.applyBrightnessContrast(b, c)
+                                    },
+                                    onRotateClicked = {
+                                        viewModel.rotateDocumentClockwise()
+                                    },
+                                    onAutoOrientClicked = {
+                                        viewModel.autoOrientCurrentDocument()
+                                    },
+                                    onInteractiveCropClicked = {
+                                        viewModel.showInteractiveCropDialog(true)
+                                    },
+                                    onExtractTextClicked = {
+                                        viewModel.showOcrTextExtractDialog(true)
+                                    },
+                                    onSignatureClicked = {
+                                        viewModel.showSignatureDialog(true)
+                                    },
+                                    onPagesOverviewClicked = {
+                                        viewModel.showPagesOverview(true)
+                                    },
+                                    onCompressClicked = {
+                                        viewModel.showPdfToolboxDialog(true)
+                                    },
+                                    onTargetSizeClicked = {
+                                        viewModel.showTargetSizeAdjusterDialog(true)
+                                    },
+                                    onExportClicked = {
+                                        viewModel.showExportDialog(true)
+                                    },
+                                    onCloudSyncClicked = {
+                                        viewModel.syncDocumentToCloud()
+                                    },
+                                    selectedLassoCount = uiState.selectedItems.size,
+                                    onMergeEditLasso = { viewModel.mergeAndEditLassoSelection() },
+                                    onWhiteoutLasso = { viewModel.whiteoutLassoSelection() },
+                                    onClearLasso = { viewModel.clearLassoSelection() },
+                                    onWatermarkClicked = { viewModel.showWatermarkDialog(true) },
+                                    onBookDewarpClicked = { viewModel.showBookDewarpDialog(true) },
+                                    whiteoutBrushRadius = uiState.whiteoutBrushRadius,
+                                    onWhiteoutBrushRadiusChanged = { r -> viewModel.setWhiteoutBrushRadius(r) },
+                                    markupColorRgb = uiState.markupColorRgb,
+                                    markupStrokeWidth = uiState.markupStrokeWidth,
+                                    onMarkupColorChanged = { viewModel.setMarkupColor(it) },
+                                    onMarkupStrokeWidthChanged = { viewModel.setMarkupStrokeWidth(it) },
+                                    penColorRgb = uiState.penColorRgb,
+                                    penStrokeWidth = uiState.penStrokeWidth,
+                                    onPenColorChanged = { viewModel.setPenColor(it) },
+                                    onPenStrokeWidthChanged = { viewModel.setPenStrokeWidth(it) },
+                                    selectedShapeType = uiState.selectedShapeType,
+                                    onShapeTypeSelected = { viewModel.setSelectedShapeType(it) },
+                                    shapeStrokeWidth = uiState.shapeStrokeWidth,
+                                    onShapeStrokeWidthChanged = { viewModel.setShapeStrokeWidth(it) },
+                                    shapeStrokeColorRgb = uiState.shapeStrokeColorRgb,
+                                    onShapeStrokeColorChanged = { viewModel.setShapeStrokeColor(it) },
+                                    shapeFillColor = uiState.shapeFillColor,
+                                    onShapeFillColorChanged = { viewModel.setShapeFillColor(it) },
+                                    onAddShapeLayerClicked = { viewModel.addShapeLayer(it) },
+                                    onBackgroundRemovalClicked = { viewModel.showBackgroundRemovalDialog(true) },
+                                    onInsertImageClicked = { insertImageLauncher.launch(arrayOf("image/*")) },
+                                    onCanvaStickersClicked = { viewModel.showCanvaStickersDialog(true) },
+                                    magicEraserBrushRadius = uiState.magicEraserBrushRadius,
+                                    onMagicEraserBrushRadiusChanged = { viewModel.setMagicEraserBrushRadius(it) },
+                                    isCloudAiEraserEnabled = uiState.isCloudAiEraserEnabled,
+                                    hasGeminiApiKey = viewModel.getGeminiApiKey().isNotBlank(),
+                                    onToggleCloudAiEraser = { viewModel.toggleCloudAiEraser() },
+                                    onOpenCloudAiSettings = { viewModel.showCloudAiSettingsDialog(true) },
+                                    onApplyShadowRemover = { viewModel.applyFilter(com.docu.editor.domain.model.DocumentFilterMode.SHADOW_REMOVER) },
+                                    onApplyFingerRemover = { viewModel.applyFilter(com.docu.editor.domain.model.DocumentFilterMode.FINGER_REMOVER) },
+                                    onCanvaMockupsClicked = { viewModel.showCanvaMockupsDialog(true) },
+                                    onCanvaTextStudioClicked = { viewModel.showCanvaTextStudioDialog(true) },
+                                    onCanvaBrandKitClicked = { viewModel.showCanvaBrandKitDialog(true) },
+                                    onCanvaMagicStudioClicked = { viewModel.showCanvaMagicStudioDialog(true) },
+                                    onCanvaAdjustClicked = { viewModel.showCanvaAdjustDialog(true) },
+                                    onCanvaAnimateClicked = { viewModel.showCanvaAnimateDialog(true) },
+                                    onCanvaLayersClicked = { viewModel.showCanvaLayersDialog(true) }
+                                )
+                            }
                         }
                     }
                 ) { innerPadding ->
@@ -908,6 +980,33 @@ class MainActivity : ComponentActivity() {
                                         )
                                     }
                                 }
+                            }
+
+                            // Live Horizontal Multi-Page Thumbnail Strip & Range Selector (Phase 1)
+                            if (uiState.pdfPageCount > 1) {
+                                PageThumbnailStrip(
+                                    pageCount = uiState.pdfPageCount,
+                                    currentPageIndex = uiState.currentPdfPageIndex,
+                                    pageThumbnails = viewModel.editedPagesMap,
+                                    onSelectPage = { pageIdx ->
+                                        viewModel.jumpToPage(pageIdx)
+                                    },
+                                    onAddPageClicked = {
+                                        appendPageGalleryLauncher.launch(arrayOf("image/*", "application/pdf"))
+                                    },
+                                    onDeleteSelectedPages = { pages ->
+                                        pages.sortedDescending().forEach { viewModel.deletePage(it) }
+                                    },
+                                    onExportSelectedPages = { pages ->
+                                        viewModel.exportCurrentDocument("PDF", pageIndices = pages.toList())
+                                    },
+                                    onRotateSelectedPages = { pages ->
+                                        pages.forEach { viewModel.rotatePageAt(it) }
+                                    },
+                                    modifier = Modifier
+                                        .align(Alignment.BottomCenter)
+                                        .padding(bottom = 6.dp)
+                                )
                             }
                         } else {
                             // Premium CamScanner Home Dashboard
@@ -1335,6 +1434,41 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onDismiss = { viewModel.showExportDialog(false) }
+                            )
+                        }
+
+                        // Standard International Page Size Selector Dialog (Phase 1)
+                        if (uiState.showPageSizeDialog) {
+                            PageSizeDialog(
+                                onApplyPageSize = { size, fitMode ->
+                                    viewModel.applyStandardPageSize(size, fitMode)
+                                },
+                                onDismiss = { viewModel.showPageSizeDialog(false) }
+                            )
+                        }
+
+                        // 1-Tap Direct Cloud Upload & Share Hub Dialog (Phase 1)
+                        if (uiState.showDirectCloudUploadDialog) {
+                            DirectCloudUploadDialog(
+                                onUploadGoogleDrive = {
+                                    viewModel.showDirectCloudUploadDialog(false)
+                                    viewModel.exportAndSaveToGoogleDrive(this@MainActivity, "PDF")
+                                },
+                                onWebCloudSync = {
+                                    viewModel.showDirectCloudUploadDialog(false)
+                                    viewModel.syncDocumentToCloud()
+                                },
+                                onShareSocial = {
+                                    viewModel.showDirectCloudUploadDialog(false)
+                                    viewModel.exportCurrentDocument("PDF")
+                                },
+                                onDirectPrint = {
+                                    viewModel.showDirectCloudUploadDialog(false)
+                                    uiState.currentBitmap?.let { bmp ->
+                                        PrintDocumentHelper.printBitmap(this@MainActivity, bmp, uiState.documentTitle)
+                                    }
+                                },
+                                onDismiss = { viewModel.showDirectCloudUploadDialog(false) }
                             )
                         }
 

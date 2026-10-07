@@ -135,6 +135,7 @@ fun DocumentInteractiveCanvas(
     var redactionBoxStart by remember { mutableStateOf<Offset?>(null) }
     var redactionBoxCurrent by remember { mutableStateOf<Offset?>(null) }
     val liveMarkupPoints = remember { mutableStateListOf<android.graphics.PointF>() }
+    var activeHandle by remember { mutableStateOf(CanvasHandleType.NONE) }
 
     val isMultiLayerActive = canvasLayers.isNotEmpty() || activeOverlayBitmap != null
 
@@ -180,7 +181,7 @@ fun DocumentInteractiveCanvas(
                 overlayRotation
             ) {
                 if (canvasLayers.isNotEmpty()) {
-                    // Canva Multi-Layer Touch & Drag Interaction
+                    // Canva Multi-Layer Touch & Drag Interaction with Corner Resizing and Top Pin Rotation
                     detectDragGestures(
                         onDragStart = { startOffset ->
                             val fitScale = min(
@@ -196,10 +197,162 @@ fun DocumentInteractiveCanvas(
                             val docX = (startOffset.x - baseLeft) / effectiveScale
                             val docY = (startOffset.y - baseTop) / effectiveScale
 
-                            // Hit test from top-most layer downwards
-                            val hit = canvasLayers.asReversed().firstOrNull { it.hitTest(docX, docY) }
-                            if (hit != null && hit.id != selectedLayerId) {
-                                onSelectLayer(hit.id)
+                            val currentSelected = canvasLayers.firstOrNull { it.id == selectedLayerId }
+                            var chosenHandle = CanvasHandleType.NONE
+
+                            if (currentSelected != null && effectiveScale > 0) {
+                                val lDrawW = currentSelected.bitmap.width * currentSelected.scale * effectiveScale
+                                val lDrawH = currentSelected.bitmap.height * currentSelected.scale * effectiveScale
+                                val lScreenX = baseLeft + (currentSelected.x * effectiveScale)
+                                val lScreenY = baseTop + (currentSelected.y * effectiveScale)
+                                val pivot = Offset(lScreenX + lDrawW / 2f, lScreenY + lDrawH / 2f)
+
+                                val rad = -Math.toRadians(currentSelected.rotation.toDouble())
+                                val cos = Math.cos(rad)
+                                val sin = Math.sin(rad)
+                                val dx = startOffset.x - pivot.x
+                                val dy = startOffset.y - pivot.y
+                                val unrotX = (pivot.x + (dx * cos - dy * sin)).toFloat()
+                                val unrotY = (pivot.y + (dx * sin + dy * cos)).toFloat()
+
+                                val handleRadius = 32.dp.toPx()
+                                val rotPin = Offset(lScreenX + lDrawW / 2f, lScreenY - 24.dp.toPx())
+                                val distToRotPin = kotlin.math.hypot((unrotX - rotPin.x).toDouble(), (unrotY - rotPin.y).toDouble()).toFloat()
+
+                                val corners = listOf(
+                                    Offset(lScreenX, lScreenY),
+                                    Offset(lScreenX + lDrawW, lScreenY),
+                                    Offset(lScreenX, lScreenY + lDrawH),
+                                    Offset(lScreenX + lDrawW, lScreenY + lDrawH)
+                                )
+                                val isCornerHit = corners.any { corner ->
+                                    kotlin.math.hypot((unrotX - corner.x).toDouble(), (unrotY - corner.y).toDouble()) <= handleRadius
+                                }
+
+                                if (distToRotPin <= handleRadius) {
+                                    chosenHandle = CanvasHandleType.ROTATE
+                                } else if (isCornerHit) {
+                                    chosenHandle = CanvasHandleType.CORNER
+                                } else if (unrotX in (lScreenX - 10f)..(lScreenX + lDrawW + 10f) && unrotY in (lScreenY - 10f)..(lScreenY + lDrawH + 10f)) {
+                                    chosenHandle = CanvasHandleType.BODY
+                                }
+                            }
+
+                            if (chosenHandle == CanvasHandleType.NONE) {
+                                val hitOther = canvasLayers.asReversed().firstOrNull { it.hitTest(docX, docY) }
+                                if (hitOther != null) {
+                                    onSelectLayer(hitOther.id)
+                                    chosenHandle = CanvasHandleType.BODY
+                                }
+                            }
+
+                            activeHandle = chosenHandle
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            val fitScale = min(
+                                containerSize.width.toFloat() / bitmap.width,
+                                containerSize.height.toFloat() / bitmap.height
+                            )
+                            val effectiveScale = fitScale * scale
+                            if (effectiveScale <= 0f) return@detectDragGestures
+
+                            val drawWidth = bitmap.width * effectiveScale
+                            val drawHeight = bitmap.height * effectiveScale
+                            val baseLeft = (containerSize.width - drawWidth) / 2f + offset.x
+                            val baseTop = (containerSize.height - drawHeight) / 2f + offset.y
+
+                            val currentSelected = canvasLayers.firstOrNull { it.id == selectedLayerId } ?: return@detectDragGestures
+                            val lDrawW = currentSelected.bitmap.width * currentSelected.scale * effectiveScale
+                            val lDrawH = currentSelected.bitmap.height * currentSelected.scale * effectiveScale
+                            val lScreenX = baseLeft + (currentSelected.x * effectiveScale)
+                            val lScreenY = baseTop + (currentSelected.y * effectiveScale)
+                            val pivot = Offset(lScreenX + lDrawW / 2f, lScreenY + lDrawH / 2f)
+
+                            when (activeHandle) {
+                                CanvasHandleType.BODY -> {
+                                    onOverlayDragged(dragAmount.x / effectiveScale, dragAmount.y / effectiveScale)
+                                }
+                                CanvasHandleType.CORNER -> {
+                                    val prevDist = kotlin.math.hypot(
+                                        ((change.position.x - dragAmount.x) - pivot.x).toDouble(),
+                                        ((change.position.y - dragAmount.y) - pivot.y).toDouble()
+                                    ).toFloat().coerceAtLeast(10f)
+                                    val currDist = kotlin.math.hypot(
+                                        (change.position.x - pivot.x).toDouble(),
+                                        (change.position.y - pivot.y).toDouble()
+                                    ).toFloat().coerceAtLeast(10f)
+                                    val multiplier = currDist / prevDist
+                                    onOverlayScaleChanged(multiplier)
+                                }
+                                CanvasHandleType.ROTATE -> {
+                                    val prevAngle = Math.toDegrees(
+                                        kotlin.math.atan2(
+                                            ((change.position.y - dragAmount.y) - pivot.y).toDouble(),
+                                            ((change.position.x - dragAmount.x) - pivot.x).toDouble()
+                                        )
+                                    ).toFloat()
+                                    val currAngle = Math.toDegrees(
+                                        kotlin.math.atan2(
+                                            (change.position.y - pivot.y).toDouble(),
+                                            (change.position.x - pivot.x).toDouble()
+                                        )
+                                    ).toFloat()
+                                    val deltaAngle = currAngle - prevAngle
+                                    onOverlayRotateChanged((currentSelected.rotation + deltaAngle) % 360f)
+                                }
+                                CanvasHandleType.NONE -> {}
+                            }
+                        },
+                        onDragEnd = { activeHandle = CanvasHandleType.NONE },
+                        onDragCancel = { activeHandle = CanvasHandleType.NONE }
+                    )
+                } else if (activeOverlayBitmap != null) {
+                    // Signature / Stamp Placement Mode: Drag body to move, drag corners to resize, drag top pin to rotate
+                    detectDragGestures(
+                        onDragStart = { startOffset ->
+                            val fitScale = min(
+                                containerSize.width.toFloat() / bitmap.width,
+                                containerSize.height.toFloat() / bitmap.height
+                            )
+                            val effectiveScale = fitScale * scale
+                            val drawWidth = bitmap.width * effectiveScale
+                            val drawHeight = bitmap.height * effectiveScale
+                            val baseLeft = (containerSize.width - drawWidth) / 2f + offset.x
+                            val baseTop = (containerSize.height - drawHeight) / 2f + offset.y
+
+                            val overlayDrawW = activeOverlayBitmap.width * overlayScale * effectiveScale
+                            val overlayDrawH = activeOverlayBitmap.height * overlayScale * effectiveScale
+                            val overlayScreenX = baseLeft + (overlayPositionX * effectiveScale)
+                            val overlayScreenY = baseTop + (overlayPositionY * effectiveScale)
+                            val pivot = Offset(overlayScreenX + overlayDrawW / 2f, overlayScreenY + overlayDrawH / 2f)
+
+                            val rad = -Math.toRadians(overlayRotation.toDouble())
+                            val cos = Math.cos(rad)
+                            val sin = Math.sin(rad)
+                            val dx = startOffset.x - pivot.x
+                            val dy = startOffset.y - pivot.y
+                            val unrotX = (pivot.x + (dx * cos - dy * sin)).toFloat()
+                            val unrotY = (pivot.y + (dx * sin + dy * cos)).toFloat()
+
+                            val handleRadius = 32.dp.toPx()
+                            val rotPin = Offset(overlayScreenX + overlayDrawW / 2f, overlayScreenY - 24.dp.toPx())
+                            val distToRotPin = kotlin.math.hypot((unrotX - rotPin.x).toDouble(), (unrotY - rotPin.y).toDouble()).toFloat()
+
+                            val corners = listOf(
+                                Offset(overlayScreenX, overlayScreenY),
+                                Offset(overlayScreenX + overlayDrawW, overlayScreenY),
+                                Offset(overlayScreenX, overlayScreenY + overlayDrawH),
+                                Offset(overlayScreenX + overlayDrawW, overlayScreenY + overlayDrawH)
+                            )
+                            val isCornerHit = corners.any { corner ->
+                                kotlin.math.hypot((unrotX - corner.x).toDouble(), (unrotY - corner.y).toDouble()) <= handleRadius
+                            }
+
+                            activeHandle = when {
+                                distToRotPin <= handleRadius -> CanvasHandleType.ROTATE
+                                isCornerHit -> CanvasHandleType.CORNER
+                                else -> CanvasHandleType.BODY
                             }
                         },
                         onDrag = { change, dragAmount ->
@@ -209,24 +362,57 @@ fun DocumentInteractiveCanvas(
                                 containerSize.height.toFloat() / bitmap.height
                             )
                             val effectiveScale = fitScale * scale
-                            if (effectiveScale > 0) {
-                                onOverlayDragged(dragAmount.x / effectiveScale, dragAmount.y / effectiveScale)
+                            if (effectiveScale <= 0f) return@detectDragGestures
+
+                            val drawWidth = bitmap.width * effectiveScale
+                            val drawHeight = bitmap.height * effectiveScale
+                            val baseLeft = (containerSize.width - drawWidth) / 2f + offset.x
+                            val baseTop = (containerSize.height - drawHeight) / 2f + offset.y
+
+                            val overlayDrawW = activeOverlayBitmap.width * overlayScale * effectiveScale
+                            val overlayDrawH = activeOverlayBitmap.height * overlayScale * effectiveScale
+                            val overlayScreenX = baseLeft + (overlayPositionX * effectiveScale)
+                            val overlayScreenY = baseTop + (overlayPositionY * effectiveScale)
+                            val pivot = Offset(overlayScreenX + overlayDrawW / 2f, overlayScreenY + overlayDrawH / 2f)
+
+                            when (activeHandle) {
+                                CanvasHandleType.BODY -> {
+                                    onOverlayDragged(dragAmount.x / effectiveScale, dragAmount.y / effectiveScale)
+                                }
+                                CanvasHandleType.CORNER -> {
+                                    val prevDist = kotlin.math.hypot(
+                                        ((change.position.x - dragAmount.x) - pivot.x).toDouble(),
+                                        ((change.position.y - dragAmount.y) - pivot.y).toDouble()
+                                    ).toFloat().coerceAtLeast(10f)
+                                    val currDist = kotlin.math.hypot(
+                                        (change.position.x - pivot.x).toDouble(),
+                                        (change.position.y - pivot.y).toDouble()
+                                    ).toFloat().coerceAtLeast(10f)
+                                    val multiplier = currDist / prevDist
+                                    onOverlayScaleChanged(multiplier)
+                                }
+                                CanvasHandleType.ROTATE -> {
+                                    val prevAngle = Math.toDegrees(
+                                        kotlin.math.atan2(
+                                            ((change.position.y - dragAmount.y) - pivot.y).toDouble(),
+                                            ((change.position.x - dragAmount.x) - pivot.x).toDouble()
+                                        )
+                                    ).toFloat()
+                                    val currAngle = Math.toDegrees(
+                                        kotlin.math.atan2(
+                                            (change.position.y - pivot.y).toDouble(),
+                                            (change.position.x - pivot.x).toDouble()
+                                        )
+                                    ).toFloat()
+                                    val deltaAngle = currAngle - prevAngle
+                                    onOverlayRotateChanged((overlayRotation + deltaAngle) % 360f)
+                                }
+                                CanvasHandleType.NONE -> {}
                             }
-                        }
+                        },
+                        onDragEnd = { activeHandle = CanvasHandleType.NONE },
+                        onDragCancel = { activeHandle = CanvasHandleType.NONE }
                     )
-                } else if (activeOverlayBitmap != null) {
-                    // Signature / Stamp Placement Mode: Drag anywhere on canvas to move overlay
-                    detectDragGestures { change, dragAmount ->
-                        change.consume()
-                        val fitScale = min(
-                            containerSize.width.toFloat() / bitmap.width,
-                            containerSize.height.toFloat() / bitmap.height
-                        )
-                        val effectiveScale = fitScale * scale
-                        if (effectiveScale > 0) {
-                            onOverlayDragged(dragAmount.x / effectiveScale, dragAmount.y / effectiveScale)
-                        }
-                    }
                 } else if (activeMode == EditorToolMode.WHITEOUT) {
                     // Whiteout mode: drag or tap to erase unwanted ink/dots with pure paper white
                     detectDragGestures(
@@ -1409,4 +1595,11 @@ fun DocumentInteractiveCanvas(
             }
         }
     }
+}
+
+enum class CanvasHandleType {
+    NONE,
+    BODY,
+    CORNER,
+    ROTATE
 }
