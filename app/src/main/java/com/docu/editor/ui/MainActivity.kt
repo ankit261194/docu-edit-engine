@@ -1408,8 +1408,8 @@ class MainActivity : ComponentActivity() {
                                 onPickBackClicked = {
                                     idCardBackPicker.launch(arrayOf("image/*"))
                                 },
-                                onStitchClicked = {
-                                    viewModel.stitchIdCardToA4()
+                                onStitchClicked = { layoutMode, purposeText ->
+                                    viewModel.stitchIdCardToA4(layoutMode, purposeText)
                                 },
                                 onDismiss = { viewModel.showIdCardDialog(false) }
                             )
@@ -1601,8 +1601,8 @@ class MainActivity : ComponentActivity() {
                         if (uiState.showIdRedactionDialog) {
                             com.docu.editor.ui.dialogs.IdRedactionDialog(
                                 onDismiss = { viewModel.showIdRedactionDialog(false) },
-                                onApplyRedaction = { mode ->
-                                    viewModel.autoRedactSensitiveData(mode)
+                                onApplyRedaction = { options ->
+                                    viewModel.autoRedactSensitiveData(options)
                                 }
                             )
                         }

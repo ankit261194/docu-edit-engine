@@ -1795,7 +1795,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(idCardBackBitmap = scaled) }
     }
 
-    fun stitchIdCardToA4() {
+    fun stitchIdCardToA4(
+        layoutMode: com.docu.editor.core.scanner.IdCardStitcher.IdCardLayoutMode = com.docu.editor.core.scanner.IdCardStitcher.IdCardLayoutMode.VERTICAL_STACK,
+        purposeAnnotation: String = ""
+    ) {
         val front = _uiState.value.idCardFrontBitmap ?: return
         val back = _uiState.value.idCardBackBitmap ?: return
 
@@ -1803,7 +1806,12 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Stitching ID Card to A4 sheet...") }
             try {
                 val a4Bitmap = withContext(Dispatchers.Default) {
-                    IdCardStitcher.stitchIdCardToA4(front, back)
+                    com.docu.editor.core.scanner.IdCardStitcher.stitchIdCardToA4(
+                        frontCard = front,
+                        backCard = back,
+                        layoutMode = layoutMode,
+                        purposeAnnotation = purposeAnnotation
+                    )
                 }
                 setDocumentBitmap(a4Bitmap)
                 _uiState.update {
@@ -3511,14 +3519,14 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun autoRedactSensitiveData(mode: IdRedactionEngine.RedactionMode) {
+    fun autoRedactSensitiveData(options: IdRedactionEngine.RedactionOptions) {
         val current = _uiState.value.currentBitmap ?: return
         val curPageIdx = _uiState.value.currentPdfPageIndex
 
         pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Scanning for Aadhaar/PAN/Sensitive IDs...") }
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Scanning for sensitive ID cards & numbers...") }
 
             val items = if (_uiState.value.detectedItems.isNotEmpty()) {
                 _uiState.value.detectedItems
@@ -3529,15 +3537,15 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             }
 
             val result = withContext(Dispatchers.Default) {
-                IdRedactionEngine.autoRedactSensitiveData(current, items, mode)
+                IdRedactionEngine.autoRedactSensitiveData(current, items, options)
             }
 
             editedPagesMap[curPageIdx] = result.redactedBitmap
 
             val msg = if (result.redactedCount > 0) {
-                "✓ Masked ${result.redactedCount} sensitive IDs (${result.details.joinToString(", ")})"
+                "✓ Redacted ${result.redactedCount} sensitive IDs (${result.details.joinToString(", ")})"
             } else {
-                "No Aadhaar or PAN numbers detected on this page"
+                "No matching sensitive numbers or IDs detected on this page"
             }
 
             _uiState.update {
@@ -3551,8 +3559,14 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     canvasRevision = it.canvasRevision + 1
                 )
             }
+            updateRecentDocumentThumbnail(result.redactedBitmap)
         }
     }
+
+    fun autoRedactSensitiveData(mode: IdRedactionEngine.RedactionMode) {
+        autoRedactSensitiveData(IdRedactionEngine.RedactionOptions(mode = mode))
+    }
+
 
     private suspend fun getOrGenerateConsolidatedPdf(): File? = withContext(Dispatchers.IO) {
         try {
