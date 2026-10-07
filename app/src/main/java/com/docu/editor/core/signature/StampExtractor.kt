@@ -6,7 +6,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.opencv.android.Utils
 import org.opencv.core.Core
-import org.opencv.core.CvType
 import org.opencv.core.Mat
 import org.opencv.core.Scalar
 import org.opencv.imgproc.Imgproc
@@ -15,12 +14,13 @@ object StampExtractor {
 
     enum class StampColorTarget {
         RED_STAMP,
-        BLUE_PURPLE_STAMP
+        BLUE_PURPLE_STAMP,
+        GREEN_STAMP
     }
 
     /**
      * Extracts circular/rectangular stamps or seals using HSV chrominance segmentation,
-     * discarding paper background and black document text.
+     * discarding paper background and black document text, and crops to stamp bounds.
      */
     suspend fun extractStamp(
         sourceBitmap: Bitmap,
@@ -45,8 +45,12 @@ object StampExtractor {
                     Core.bitwise_or(mask1, mask2, finalMask)
                 }
                 StampColorTarget.BLUE_PURPLE_STAMP -> {
-                    // Violet/Blue stamp ink (typically H: 100 to 150)
-                    Core.inRange(hsv, Scalar(100.0, 45.0, 45.0), Scalar(155.0, 255.0, 255.0), finalMask)
+                    // Violet/Blue stamp ink (typically H: 95 to 155)
+                    Core.inRange(hsv, Scalar(95.0, 40.0, 40.0), Scalar(155.0, 255.0, 255.0), finalMask)
+                }
+                StampColorTarget.GREEN_STAMP -> {
+                    // Green stamp ink (typically H: 35 to 85)
+                    Core.inRange(hsv, Scalar(35.0, 45.0, 45.0), Scalar(85.0, 255.0, 255.0), finalMask)
                 }
             }
 
@@ -79,7 +83,7 @@ object StampExtractor {
 
             val transparentStamp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             transparentStamp.setPixels(outPixels, 0, width, 0, 0, width, height)
-            transparentStamp
+            SignatureExtractor.cropToTransparentBounds(transparentStamp, paddingPx = 16)
         } finally {
             srcRgba.release()
             hsv.release()

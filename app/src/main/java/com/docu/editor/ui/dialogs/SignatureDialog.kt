@@ -81,13 +81,15 @@ fun SignatureDialog(
     onPickSourceImage: () -> Unit,
     onExtractSignatureClicked: (inkColor: Int) -> Unit,
     onExtractStampClicked: (isRed: Boolean) -> Unit,
+    onExtractStampTargetClicked: ((com.docu.editor.core.signature.StampExtractor.StampColorTarget) -> Unit)? = null,
     onApplyToDocument: (Bitmap) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Signature, 1: Stamp, 2: Seal, 3: Vault
-    var selectedColorIndex by remember { mutableIntStateOf(0) } // 0: Blue, 1: Black, 2: Red
+    var selectedColorIndex by remember { mutableIntStateOf(0) } // 0: Blue, 1: Black, 2: Red, 3: Green
+    var selectedStampColorTarget by remember { mutableStateOf(com.docu.editor.core.signature.StampExtractor.StampColorTarget.RED_STAMP) }
     var recentVaultItems by remember { mutableStateOf<List<Pair<SavedSignatureItem, Bitmap>>>(emptyList()) }
 
     LaunchedEffect(selectedTab) {
@@ -103,7 +105,8 @@ fun SignatureDialog(
     val inkColors = listOf(
         Pair("Navy Blue", android.graphics.Color.rgb(10, 35, 120)),
         Pair("Pure Black", android.graphics.Color.rgb(15, 15, 15)),
-        Pair("Official Red", android.graphics.Color.rgb(190, 25, 35))
+        Pair("Official Red", android.graphics.Color.rgb(190, 25, 35)),
+        Pair("Emerald Green", android.graphics.Color.rgb(16, 120, 70))
     )
 
     Dialog(onDismissRequest = onDismiss) {
@@ -363,6 +366,52 @@ fun SignatureDialog(
                         }
                     }
 
+                    if (selectedTab == 2) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Text(
+                            text = "Target Stamp Ink Color:",
+                            color = Color(0xFF1E293B),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.align(Alignment.Start)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val stampTargets = listOf(
+                                Pair("🔴 Red Seal", com.docu.editor.core.signature.StampExtractor.StampColorTarget.RED_STAMP),
+                                Pair("🔵 Blue/Violet", com.docu.editor.core.signature.StampExtractor.StampColorTarget.BLUE_PURPLE_STAMP),
+                                Pair("🟢 Green Stamp", com.docu.editor.core.signature.StampExtractor.StampColorTarget.GREEN_STAMP)
+                            )
+                            stampTargets.forEach { (label, target) ->
+                                val isSelected = selectedStampColorTarget == target
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isSelected) Color(0xFFEFF6FF) else Color(0xFFF1F5F9))
+                                        .border(
+                                            1.dp,
+                                            if (isSelected) Color(0xFF2563EB) else Color(0xFFCBD5E1),
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { selectedStampColorTarget = target }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        color = if (isSelected) Color(0xFF2563EB) else Color(0xFF475569),
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(18.dp))
 
                     Button(
@@ -370,7 +419,11 @@ fun SignatureDialog(
                             if (selectedTab == 1) {
                                 onExtractSignatureClicked(inkColors[selectedColorIndex].second)
                             } else {
-                                onExtractStampClicked(true)
+                                if (onExtractStampTargetClicked != null) {
+                                    onExtractStampTargetClicked(selectedStampColorTarget)
+                                } else {
+                                    onExtractStampClicked(selectedStampColorTarget == com.docu.editor.core.signature.StampExtractor.StampColorTarget.RED_STAMP)
+                                }
                             }
                         },
                         shape = RoundedCornerShape(12.dp),
@@ -378,7 +431,7 @@ fun SignatureDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = if (selectedTab == 1) "Extract 100% Alpha Signature" else "Isolate Red/Blue Stamp",
+                            text = if (selectedTab == 1) "Extract 100% Alpha Signature" else "Isolate Official Stamp",
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp

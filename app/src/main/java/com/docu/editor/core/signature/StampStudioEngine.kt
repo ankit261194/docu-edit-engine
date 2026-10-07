@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PointF
 import android.graphics.RectF
 import android.graphics.Typeface
 import kotlin.math.cos
@@ -17,15 +18,18 @@ import kotlin.random.Random
  * Creates photorealistic official rubber stamps:
  * - Circular Double-Ring Seals with Arc Text (Top & Bottom).
  * - Rectangular Box Business Stamps with Double Borders.
+ * - Oval Official Organization Badges.
+ * - Triangular Inspection & QC Warning Stamps.
  * - Distressed Rubber Texture (Vintage Ink bleed & Paper grain perforations).
- * - Authentic Tilting & Rotated Canvas Stamping.
+ * - Auto-crops to tight transparent boundaries for effortless document stamping.
  */
 object StampStudioEngine {
 
     enum class StampShape {
         CIRCULAR_SEAL,
         RECTANGULAR_BOX,
-        OVAL_BADGE
+        OVAL_BADGE,
+        TRIANGULAR_STAMP
     }
 
     data class StampConfig(
@@ -47,6 +51,7 @@ object StampStudioEngine {
             StampShape.CIRCULAR_SEAL -> drawCircularSeal(canvas, size, config)
             StampShape.RECTANGULAR_BOX -> drawRectangularBox(canvas, size, config)
             StampShape.OVAL_BADGE -> drawOvalBadge(canvas, size, config)
+            StampShape.TRIANGULAR_STAMP -> drawTriangularStamp(canvas, size, config)
         }
 
         // Apply vintage rubber ink distress & speckle noise
@@ -54,7 +59,7 @@ object StampStudioEngine {
             applyDistressNoise(bitmap, config.distressLevel, config.inkColor)
         }
 
-        return bitmap
+        return SignatureExtractor.cropToTransparentBounds(bitmap, paddingPx = 14)
     }
 
     private fun drawCircularSeal(canvas: Canvas, size: Int, config: StampConfig) {
@@ -238,6 +243,72 @@ object StampStudioEngine {
             letterSpacing = 0.08f
         }
         canvas.drawText(config.centerText.uppercase(), cx, cy + 18f, centerPaint)
+    }
+
+    private fun drawTriangularStamp(canvas: Canvas, size: Int, config: StampConfig) {
+        val pad = size * 0.10f
+        val topPt = PointF(size / 2f, pad)
+        val leftPt = PointF(pad, size - pad)
+        val rightPt = PointF(size - pad, size - pad)
+
+        val outerPath = Path().apply {
+            moveTo(topPt.x, topPt.y)
+            lineTo(rightPt.x, rightPt.y)
+            lineTo(leftPt.x, leftPt.y)
+            close()
+        }
+
+        val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 12f
+            color = config.inkColor
+        }
+        canvas.drawPath(outerPath, borderPaint)
+
+        // Inner triangle
+        val innerPad = 14f
+        val innerTopPt = PointF(size / 2f, pad + innerPad * 1.5f)
+        val innerLeftPt = PointF(pad + innerPad, size - pad - innerPad)
+        val innerRightPt = PointF(size - pad - innerPad, size - pad - innerPad)
+
+        val innerPath = Path().apply {
+            moveTo(innerTopPt.x, innerTopPt.y)
+            lineTo(innerRightPt.x, innerRightPt.y)
+            lineTo(innerLeftPt.x, innerLeftPt.y)
+            close()
+        }
+
+        val innerBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 4f
+            color = config.inkColor
+        }
+        canvas.drawPath(innerPath, innerBorderPaint)
+
+        val cx = size / 2f
+        val cy = size * 0.62f
+
+        // Center Text
+        val centerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = config.inkColor
+            textSize = 42f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+            letterSpacing = 0.08f
+        }
+        canvas.drawText(config.centerText.uppercase(), cx, cy, centerPaint)
+
+        // Subtext bottom
+        if (config.bottomText.isNotBlank()) {
+            val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = config.inkColor
+                textSize = 20f
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = Paint.Align.CENTER
+                letterSpacing = 0.08f
+            }
+            canvas.drawText(config.bottomText.uppercase(), cx, cy + 45f, subPaint)
+        }
     }
 
     private fun applyDistressNoise(bitmap: Bitmap, distress: Float, inkColor: Int) {

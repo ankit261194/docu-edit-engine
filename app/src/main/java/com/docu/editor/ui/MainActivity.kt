@@ -1428,6 +1428,9 @@ class MainActivity : ComponentActivity() {
                                 onExtractStampClicked = { isRed ->
                                     currentSignSourceBitmap?.let { viewModel.extractStampFromBitmap(it, isRed) }
                                 },
+                                onExtractStampTargetClicked = { target ->
+                                    currentSignSourceBitmap?.let { viewModel.extractStampFromBitmap(it, target) }
+                                },
                                 onApplyToDocument = { bmp ->
                                     viewModel.startPlacingOverlay(bmp)
                                 },

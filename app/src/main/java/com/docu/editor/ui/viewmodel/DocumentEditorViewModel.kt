@@ -1850,9 +1850,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun extractStampFromBitmap(source: Bitmap, isRed: Boolean = true) {
-        val target = if (isRed) StampExtractor.StampColorTarget.RED_STAMP else StampExtractor.StampColorTarget.BLUE_PURPLE_STAMP
-
+    fun extractStampFromBitmap(source: Bitmap, target: StampExtractor.StampColorTarget = StampExtractor.StampColorTarget.RED_STAMP) {
         viewModelScope.launch {
             _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Extracting stamp/seal...") }
             try {
@@ -1871,6 +1869,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "Stamp extraction failed: ${e.localizedMessage}") }
             }
         }
+    }
+
+    fun extractStampFromBitmap(source: Bitmap, isRed: Boolean) {
+        val target = if (isRed) StampExtractor.StampColorTarget.RED_STAMP else StampExtractor.StampColorTarget.BLUE_PURPLE_STAMP
+        extractStampFromBitmap(source, target)
     }
 
     // --- PDF Tools ---

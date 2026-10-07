@@ -23,44 +23,62 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.LocalPolice
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.docu.editor.core.signature.SignatureVaultManager
 import com.docu.editor.core.signature.StampStudioEngine
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun RubberStampDialog(
     onDismiss: () -> Unit,
     onApplyStamp: (StampStudioEngine.StampConfig) -> Unit
 ) {
-    val presets = listOf("APPROVED", "VERIFIED", "CONFIDENTIAL", "OFFICIAL SEAL", "PAID", "REJECTED", "ORIGINAL")
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
+    val presets = listOf(
+        "APPROVED", "VERIFIED", "CONFIDENTIAL", "OFFICIAL SEAL",
+        "PAID", "REJECTED", "ORIGINAL", "स्वीकृत", "प्रमाणित"
+    )
     var centerText by remember { mutableStateOf("APPROVED") }
     var topText by remember { mutableStateOf("OFFICIAL VERIFICATION") }
     var bottomText by remember { mutableStateOf("AUTHORIZED SIGNATORY") }
     var selectedShape by remember { mutableStateOf(StampStudioEngine.StampShape.CIRCULAR_SEAL) }
     var selectedColor by remember { mutableStateOf(android.graphics.Color.rgb(220, 38, 38)) } // Red
+    var selectedDistress by remember { mutableStateOf(0.22f) }
+    var saveToVault by remember { mutableStateOf(true) }
 
     val inkColors = listOf(
         Pair("Red", android.graphics.Color.rgb(220, 38, 38)),
@@ -70,14 +88,14 @@ fun RubberStampDialog(
         Pair("Black", android.graphics.Color.rgb(30, 41, 59))
     )
 
-    val currentConfig = remember(centerText, topText, bottomText, selectedShape, selectedColor) {
+    val currentConfig = remember(centerText, topText, bottomText, selectedShape, selectedColor, selectedDistress) {
         StampStudioEngine.StampConfig(
             shape = selectedShape,
             centerText = centerText,
             topText = topText,
             bottomText = bottomText,
             inkColor = selectedColor,
-            distressLevel = 0.22f,
+            distressLevel = selectedDistress,
             sizePx = 420
         )
     }
@@ -112,7 +130,7 @@ fun RubberStampDialog(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Digital Rubber Stamp Studio",
+                            text = "Official Stamp Studio",
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -166,7 +184,7 @@ fun RubberStampDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Shape Selection (Circular vs Rectangular)
+                // Shape Selection (Circular, Rectangular, Oval, Triangular)
                 Text(
                     text = "Stamp Shape",
                     fontWeight = FontWeight.SemiBold,
@@ -175,23 +193,30 @@ fun RubberStampDialog(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     FilterChip(
                         selected = selectedShape == StampStudioEngine.StampShape.CIRCULAR_SEAL,
                         onClick = { selectedShape = StampStudioEngine.StampShape.CIRCULAR_SEAL },
-                        label = { Text("⭕ Circular Seal", fontSize = 12.sp) }
+                        label = { Text("⭕ Circular", fontSize = 12.sp) }
                     )
                     FilterChip(
                         selected = selectedShape == StampStudioEngine.StampShape.RECTANGULAR_BOX,
                         onClick = { selectedShape = StampStudioEngine.StampShape.RECTANGULAR_BOX },
-                        label = { Text("▭ Box Stamp", fontSize = 12.sp) }
+                        label = { Text("▭ Box", fontSize = 12.sp) }
                     )
                     FilterChip(
                         selected = selectedShape == StampStudioEngine.StampShape.OVAL_BADGE,
                         onClick = { selectedShape = StampStudioEngine.StampShape.OVAL_BADGE },
                         label = { Text("⬭ Oval", fontSize = 12.sp) }
+                    )
+                    FilterChip(
+                        selected = selectedShape == StampStudioEngine.StampShape.TRIANGULAR_STAMP,
+                        onClick = { selectedShape = StampStudioEngine.StampShape.TRIANGULAR_STAMP },
+                        label = { Text("▲ Triangle", fontSize = 12.sp) }
                     )
                 }
 
@@ -232,6 +257,37 @@ fun RubberStampDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                // Vintage Rubber Distress Level
+                Text(
+                    text = "Distress Texture (Ink Bleed)",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                    modifier = Modifier.align(Alignment.Start)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedDistress == 0f,
+                        onClick = { selectedDistress = 0f },
+                        label = { Text("Crisp", fontSize = 11.sp) }
+                    )
+                    FilterChip(
+                        selected = selectedDistress == 0.22f,
+                        onClick = { selectedDistress = 0.22f },
+                        label = { Text("Natural Bleed", fontSize = 11.sp) }
+                    )
+                    FilterChip(
+                        selected = selectedDistress == 0.45f,
+                        onClick = { selectedDistress = 0.45f },
+                        label = { Text("Vintage Rubber", fontSize = 11.sp) }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
                 // Custom Texts
                 OutlinedTextField(
                     value = centerText,
@@ -249,19 +305,64 @@ fun RubberStampDialog(
                     singleLine = true
                 )
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = bottomText,
-                    onValueChange = { bottomText = it },
-                    label = { Text("Bottom / Date / Subtext", fontSize = 12.sp) },
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true
-                )
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = bottomText,
+                        onValueChange = { bottomText = it },
+                        label = { Text("Bottom / Date / Subtext", fontSize = 12.sp) },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            val todayStr = SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date()).uppercase()
+                            bottomText = todayStr
+                        },
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Today", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Save to Signature Vault Checkbox
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { saveToVault = !saveToVault },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = saveToVault,
+                        onCheckedChange = { saveToVault = it },
+                        colors = CheckboxDefaults.colors(checkedColor = Color(0xFFDC2626))
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Save stamp to permanent vault for 1-tap re-use",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF334155)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Action Button
                 Button(
                     onClick = {
+                        if (saveToVault) {
+                            coroutineScope.launch {
+                                SignatureVaultManager.saveToVault(context, previewBitmap, "STAMP")
+                            }
+                        }
                         onApplyStamp(currentConfig)
                         onDismiss()
                     },

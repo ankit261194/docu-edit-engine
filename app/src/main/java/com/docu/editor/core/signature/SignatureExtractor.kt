@@ -13,10 +13,10 @@ import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 
 /**
- * Enterprise Signature Extraction Engine with Illumination Division.
+ * Enterprise Signature Extraction Engine with Illumination Division & Auto-Crop.
  * Normalizes background lighting across unevenly lit paper photos,
  * eliminates shadows, converts paper to 100% transparency,
- * and produces anti-aliased vectorized ink strokes.
+ * produces anti-aliased vectorized ink strokes, and crops to exact bounding bounds.
  */
 object SignatureExtractor {
 
@@ -25,7 +25,8 @@ object SignatureExtractor {
         ROYAL_BLUE(Color.rgb(18, 48, 140)),
         BALLPOINT_BLUE(Color.rgb(25, 75, 180)),
         CLASSIC_BLACK(Color.rgb(20, 20, 22)),
-        STAMP_RED(Color.rgb(180, 25, 30))
+        STAMP_RED(Color.rgb(180, 25, 30)),
+        EMERALD_GREEN(Color.rgb(16, 120, 70))
     }
 
     suspend fun extractSignature(
@@ -92,7 +93,7 @@ object SignatureExtractor {
 
             val transparentSig = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             transparentSig.setPixels(outputPixels, 0, width, 0, 0, width, height)
-            transparentSig
+            cropToTransparentBounds(transparentSig, paddingPx = 16)
         } finally {
             srcRgba.release()
             gray.release()
@@ -102,5 +103,46 @@ object SignatureExtractor {
             norm32.release()
             norm8.release()
         }
+    }
+
+    /**
+     * Crops transparent bitmap to content bounding box eliminating huge empty padding.
+     */
+    fun cropToTransparentBounds(bitmap: Bitmap, paddingPx: Int = 16): Bitmap {
+        val w = bitmap.width
+        val h = bitmap.height
+        val pixels = IntArray(w * h)
+        bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        var minX = w
+        var minY = h
+        var maxX = -1
+        var maxY = -1
+
+        for (y in 0 until h) {
+            val rowOffset = y * w
+            for (x in 0 until w) {
+                val alpha = (pixels[rowOffset + x] ushr 24) and 0xFF
+                if (alpha > 20) {
+                    if (x < minX) minX = x
+                    if (x > maxX) maxX = x
+                    if (y < minY) minY = y
+                    if (y > maxY) maxY = y
+                }
+            }
+        }
+
+        if (maxX < minX || maxY < minY) {
+            return bitmap
+        }
+
+        val cropLeft = (minX - paddingPx).coerceAtLeast(0)
+        val cropTop = (minY - paddingPx).coerceAtLeast(0)
+        val cropRight = (maxX + paddingPx).coerceAtMost(w - 1)
+        val cropBottom = (maxY + paddingPx).coerceAtMost(h - 1)
+        val cropW = (cropRight - cropLeft + 1).coerceAtLeast(1)
+        val cropH = (cropBottom - cropTop + 1).coerceAtLeast(1)
+
+        return Bitmap.createBitmap(bitmap, cropLeft, cropTop, cropW, cropH)
     }
 }
