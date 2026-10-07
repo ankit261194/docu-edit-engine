@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import com.docu.editor.core.ocr.model.DetectedTextItem
 
 enum class EditorToolMode {
+    CANVA_STUDIO, // Clean, pro document workspace (Zero unwanted boxes)
     TEXT_EDIT,
     LASSO_SELECT,
     ADD_TEXT,
@@ -65,7 +66,7 @@ data class DocumentEditorUiState(
     val successMessage: String? = null,
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
-    val activeToolMode: EditorToolMode = EditorToolMode.TEXT_EDIT,
+    val activeToolMode: EditorToolMode = EditorToolMode.CANVA_STUDIO,
     val activeFilter: DocumentFilterMode = DocumentFilterMode.ORIGINAL,
     val showFiltersSheet: Boolean = false,
     val showIdCardDialog: Boolean = false,

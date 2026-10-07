@@ -74,11 +74,19 @@ class LiveCameraScannerActivity : ComponentActivity() {
     private lateinit var bottomPanel: LinearLayout
     private lateinit var cropReviewPanel: LinearLayout
 
+    // CamScanner Document Filter Enhancement Panel
+    private lateinit var filterReviewPanel: FrameLayout
+    private lateinit var filterPreviewImageView: ImageView
+    private var currentWarpedBitmap: Bitmap? = null
+    private var currentFilteredBitmap: Bitmap? = null
+    private var selectedFilterType = com.docu.editor.core.scanner.DocumentFilters.FilterType.MAGIC_COLOR
+    private val filterChips = ArrayList<TextView>()
+
     private var imageCapture: ImageCapture? = null
     private var camera: Camera? = null
     private val cameraExecutor = Executors.newSingleThreadExecutor()
 
-    private var autoSnapEnabled = true
+    private var autoSnapEnabled = false
     private var isTorchOn = false
     private var isCapturing = false
 
@@ -218,12 +226,12 @@ class LiveCameraScannerActivity : ComponentActivity() {
         }
 
         autoSnapChip = TextView(this).apply {
-            text = "⚡ AUTO-SNAP: ON"
-            setTextColor(Color.rgb(0, 230, 118))
+            text = "✋ MANUAL SHUTTER"
+            setTextColor(Color.WHITE)
             textSize = 12f
             background = GradientDrawable().apply {
                 setColor(Color.argb(190, 15, 23, 42))
-                setStroke(2, Color.rgb(0, 230, 118))
+                setStroke(2, Color.argb(140, 255, 255, 255))
                 cornerRadius = 24f
             }
             setPadding(28, 10, 28, 10)
@@ -309,12 +317,12 @@ class LiveCameraScannerActivity : ComponentActivity() {
         bottomPanel.addView(shutterContainer)
         rootLayout.addView(bottomPanel)
 
-        // 6. Bottom Crop Review Action Dock (CamScanner-Style Retake, Full Page, Done)
+        // 6. Bottom Crop Review Action Dock (CamScanner-Style Rotate, Auto, Full Page, Next)
         cropReviewPanel = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             visibility = View.GONE
-            setPadding(30, 20, 30, 60)
+            setPadding(20, 16, 20, 50)
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT
@@ -326,52 +334,230 @@ class LiveCameraScannerActivity : ComponentActivity() {
         val retakeBtn = TextView(this).apply {
             text = "🔄 Retake"
             setTextColor(Color.WHITE)
-            textSize = 14f
+            textSize = 13f
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 setColor(Color.argb(200, 30, 41, 59))
                 cornerRadius = 24f
             }
-            setPadding(36, 20, 36, 20)
+            setPadding(28, 18, 28, 18)
             setOnClickListener { restartCameraScan() }
         }
         cropReviewPanel.addView(retakeBtn)
 
-        val spacer1 = View(this).apply { layoutParams = LinearLayout.LayoutParams(30, 1) }
+        val spacer1 = View(this).apply { layoutParams = LinearLayout.LayoutParams(12, 1) }
         cropReviewPanel.addView(spacer1)
 
-        val fullPageBtn = TextView(this).apply {
-            text = "⛶ Full Page"
+        val rotateBtn = TextView(this).apply {
+            text = "↺ Rotate"
             setTextColor(Color.WHITE)
-            textSize = 14f
+            textSize = 13f
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 setColor(Color.argb(200, 30, 41, 59))
                 cornerRadius = 24f
             }
-            setPadding(36, 20, 36, 20)
+            setPadding(28, 18, 28, 18)
+            setOnClickListener { cropLoupeOverlayView.rotateImage(90f) }
+        }
+        cropReviewPanel.addView(rotateBtn)
+
+        val spacer2 = View(this).apply { layoutParams = LinearLayout.LayoutParams(12, 1) }
+        cropReviewPanel.addView(spacer2)
+
+        val autoBtn = TextView(this).apply {
+            text = "⚡ Auto"
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                setColor(Color.argb(200, 30, 41, 59))
+                cornerRadius = 24f
+            }
+            setPadding(28, 18, 28, 18)
+            setOnClickListener { cropLoupeOverlayView.autoDetectDocument() }
+        }
+        cropReviewPanel.addView(autoBtn)
+
+        val spacer3 = View(this).apply { layoutParams = LinearLayout.LayoutParams(12, 1) }
+        cropReviewPanel.addView(spacer3)
+
+        val fullPageBtn = TextView(this).apply {
+            text = "⛶ Full"
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                setColor(Color.argb(200, 30, 41, 59))
+                cornerRadius = 24f
+            }
+            setPadding(28, 18, 28, 18)
             setOnClickListener { cropLoupeOverlayView.resetToFullImage() }
         }
         cropReviewPanel.addView(fullPageBtn)
 
-        val spacer2 = View(this).apply { layoutParams = LinearLayout.LayoutParams(30, 1) }
-        cropReviewPanel.addView(spacer2)
+        val spacer4 = View(this).apply { layoutParams = LinearLayout.LayoutParams(16, 1) }
+        cropReviewPanel.addView(spacer4)
 
-        val doneBtn = TextView(this).apply {
-            text = "✓ Next"
+        val nextBtn = TextView(this).apply {
+            text = "Next ➔"
             setTextColor(Color.WHITE)
             textSize = 14f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 setColor(Color.rgb(0, 200, 83)) // Vibrant Green
                 cornerRadius = 24f
             }
-            setPadding(44, 20, 44, 20)
-            setOnClickListener { applyManualCropAndFinish() }
+            setPadding(36, 18, 36, 18)
+            setOnClickListener { applyManualCropAndProceedToFilter() }
         }
-        cropReviewPanel.addView(doneBtn)
+        cropReviewPanel.addView(nextBtn)
 
         rootLayout.addView(cropReviewPanel)
+
+        // 7. CamScanner Document Filter Enhancement Panel (Dedicated Post-Crop Screen)
+        filterReviewPanel = FrameLayout(this).apply {
+            visibility = View.GONE
+            setBackgroundColor(Color.rgb(15, 23, 42))
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        val filterRoot = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        val filterTopBar = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(30, 50, 30, 20)
+            setBackgroundColor(Color.argb(230, 15, 23, 42))
+        }
+        val filterTitle = TextView(this).apply {
+            text = "✨ CamScanner Document Enhancement"
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        val filterSub = TextView(this).apply {
+            text = "Select contrast & shadow removal filter"
+            setTextColor(Color.rgb(148, 163, 184))
+            textSize = 12f
+            setPadding(0, 4, 0, 0)
+        }
+        filterTopBar.addView(filterTitle)
+        filterTopBar.addView(filterSub)
+        filterRoot.addView(filterTopBar)
+
+        val previewContainer = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.0f
+            ).apply {
+                setMargins(20, 10, 20, 10)
+            }
+        }
+        filterPreviewImageView = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        previewContainer.addView(filterPreviewImageView)
+        filterRoot.addView(previewContainer)
+
+        val filterBottomContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.argb(240, 15, 23, 42))
+            setPadding(20, 20, 20, 60)
+        }
+
+        val filterPillsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(10, 10, 10, 24)
+        }
+
+        val filtersList = listOf(
+            Pair("✨ Magic Color", com.docu.editor.core.scanner.DocumentFilters.FilterType.MAGIC_COLOR),
+            Pair("📄 Original", com.docu.editor.core.scanner.DocumentFilters.FilterType.ORIGINAL),
+            Pair("🖨️ Sharp B&W", com.docu.editor.core.scanner.DocumentFilters.FilterType.CLEAN_BW),
+            Pair("🌓 Grayscale", com.docu.editor.core.scanner.DocumentFilters.FilterType.GRAYSCALE)
+        )
+
+        filterChips.clear()
+        for ((name, type) in filtersList) {
+            val chip = TextView(this).apply {
+                text = name
+                textSize = 13f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                setPadding(28, 16, 28, 16)
+                val isSelected = (type == selectedFilterType)
+                setTextColor(if (isSelected) Color.rgb(0, 230, 118) else Color.WHITE)
+                background = GradientDrawable().apply {
+                    setColor(Color.argb(220, 30, 41, 59))
+                    cornerRadius = 24f
+                    if (isSelected) setStroke(3, Color.rgb(0, 230, 118))
+                }
+                setOnClickListener { selectFilterPreset(type) }
+            }
+            filterChips.add(chip)
+            filterPillsRow.addView(chip)
+            val spacer = View(this).apply { layoutParams = LinearLayout.LayoutParams(16, 1) }
+            filterPillsRow.addView(spacer)
+        }
+        val filterScroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(filterPillsRow)
+        }
+        filterBottomContainer.addView(filterScroll)
+
+        val filterActionRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(20, 10, 20, 0)
+        }
+        val backToCropBtn = TextView(this).apply {
+            text = "← Crop Again"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            background = GradientDrawable().apply {
+                setColor(Color.argb(200, 51, 65, 85))
+                cornerRadius = 24f
+            }
+            setPadding(36, 20, 36, 20)
+            setOnClickListener { returnToCropScreen() }
+        }
+        filterActionRow.addView(backToCropBtn)
+
+        val spacerActions = View(this).apply { layoutParams = LinearLayout.LayoutParams(40, 1) }
+        filterActionRow.addView(spacerActions)
+
+        val saveFinishBtn = TextView(this).apply {
+            text = "✓ Open in Editor"
+            setTextColor(Color.WHITE)
+            textSize = 14f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(0, 200, 83))
+                cornerRadius = 24f
+            }
+            setPadding(44, 20, 44, 20)
+            setOnClickListener { saveFilteredDocumentAndFinish() }
+        }
+        filterActionRow.addView(saveFinishBtn)
+
+        filterBottomContainer.addView(filterActionRow)
+        filterRoot.addView(filterBottomContainer)
+        filterReviewPanel.addView(filterRoot)
+        rootLayout.addView(filterReviewPanel)
 
         setContentView(rootLayout)
         startCamera()
@@ -550,13 +736,17 @@ class LiveCameraScannerActivity : ComponentActivity() {
             overlayView.updateCorners(corners, isSteady, frameW, frameH, progress)
 
             if (isSteady) {
-                statusText.text = "Hold still... Auto-snapping (${(progress * 100).toInt()}%)"
-                if (autoSnapEnabled && stableFrameCount >= 9 && !isCapturing) {
-                    playShutterSound()
-                    captureHighResAndFinish(corners)
+                if (autoSnapEnabled) {
+                    statusText.text = "Hold still... Auto-snapping (${(progress * 100).toInt()}%)"
+                    if (stableFrameCount >= 18 && !isCapturing) {
+                        playShutterSound()
+                        captureHighResAndFinish(corners)
+                    }
+                } else {
+                    statusText.text = "📄 Document detected • Press shutter to capture 📸"
                 }
             } else {
-                statusText.text = "Document detected • Steadying..."
+                statusText.text = "Align document in camera frame..."
             }
         } else {
             if (isBatchMode && waitingForPageTurn) {
@@ -763,28 +953,9 @@ class LiveCameraScannerActivity : ComponentActivity() {
                             vibrate()
                         }
                     } else {
-                        val shouldAutoWarp = (directDetected != null) || (corners != null && analysisFrameW > 0 && analysisFrameH > 0) || autoSnapEnabled
-                        if (shouldAutoWarp) {
-                            val warped = PerspectiveTransformer.warpPerspective(fullBitmap, initialCorners)
-                            val outFile = File(cacheDir, "scanned_doc_${System.currentTimeMillis()}.jpg")
-                            FileOutputStream(outFile).use { fos ->
-                                warped.compress(Bitmap.CompressFormat.JPEG, 94, fos)
-                            }
-                            if (warped != fullBitmap) warped.recycle()
-                            fullBitmap.recycle()
-
-                            withContext(Dispatchers.Main) {
-                                val resultIntent = Intent().apply {
-                                    putExtra(EXTRA_SCANNED_PATH, outFile.absolutePath)
-                                    putExtra(EXTRA_AUTO_MAGIC_COLOR, true)
-                                }
-                                setResult(Activity.RESULT_OK, resultIntent)
-                                finish()
-                            }
-                        } else {
-                            withContext(Dispatchers.Main) {
-                                showCropLoupeReview(fullBitmap, initialCorners)
-                            }
+                        // ALWAYS show CamScanner 8-Point Loupe Crop Review screen!
+                        withContext(Dispatchers.Main) {
+                            showCropLoupeReview(fullBitmap, initialCorners)
                         }
                     }
                 }
@@ -815,7 +986,12 @@ class LiveCameraScannerActivity : ComponentActivity() {
     private fun restartCameraScan() {
         capturedBitmap?.recycle()
         capturedBitmap = null
+        currentWarpedBitmap?.recycle()
+        currentWarpedBitmap = null
+        currentFilteredBitmap?.recycle()
+        currentFilteredBitmap = null
 
+        filterReviewPanel.visibility = View.GONE
         cropLoupeOverlayView.visibility = View.GONE
         cropReviewPanel.visibility = View.GONE
 
@@ -829,7 +1005,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
         statusText.text = "Point camera at document..."
     }
 
-    private fun applyManualCropAndFinish() {
+    private fun applyManualCropAndProceedToFilter() {
         val bmp = capturedBitmap ?: return
         val finalCorners = cropLoupeOverlayView.corners
 
@@ -838,21 +1014,80 @@ class LiveCameraScannerActivity : ComponentActivity() {
         CoroutineScope(Dispatchers.Default).launch {
             try {
                 val warped = PerspectiveTransformer.warpPerspective(bmp, finalCorners)
+                currentWarpedBitmap = warped
+                withContext(Dispatchers.Main) {
+                    showFilterReviewScreen(warped)
+                }
+            } catch (_: Exception) {
+                withContext(Dispatchers.Main) {
+                    restartCameraScan()
+                }
+            }
+        }
+    }
+
+    private fun showFilterReviewScreen(warped: Bitmap) {
+        cropLoupeOverlayView.visibility = View.GONE
+        cropReviewPanel.visibility = View.GONE
+        filterReviewPanel.visibility = View.VISIBLE
+
+        statusText.text = "✨ Select document filter"
+        selectFilterPreset(com.docu.editor.core.scanner.DocumentFilters.FilterType.MAGIC_COLOR)
+    }
+
+    private fun selectFilterPreset(type: com.docu.editor.core.scanner.DocumentFilters.FilterType) {
+        selectedFilterType = type
+        val warped = currentWarpedBitmap ?: return
+
+        val filtersList = listOf(
+            com.docu.editor.core.scanner.DocumentFilters.FilterType.MAGIC_COLOR,
+            com.docu.editor.core.scanner.DocumentFilters.FilterType.ORIGINAL,
+            com.docu.editor.core.scanner.DocumentFilters.FilterType.CLEAN_BW,
+            com.docu.editor.core.scanner.DocumentFilters.FilterType.GRAYSCALE
+        )
+        for (i in filterChips.indices) {
+            val chip = filterChips[i]
+            val isSelected = (filtersList[i] == type)
+            chip.setTextColor(if (isSelected) Color.rgb(0, 230, 118) else Color.WHITE)
+            (chip.background as? GradientDrawable)?.apply {
+                if (isSelected) {
+                    setStroke(3, Color.rgb(0, 230, 118))
+                } else {
+                    setStroke(0, Color.TRANSPARENT)
+                }
+            }
+        }
+
+        CoroutineScope(Dispatchers.Default).launch {
+            val filtered = com.docu.editor.core.scanner.DocumentFilters.applyFilter(warped, type)
+            currentFilteredBitmap = filtered
+            withContext(Dispatchers.Main) {
+                filterPreviewImageView.setImageBitmap(filtered)
+            }
+        }
+    }
+
+    private fun returnToCropScreen() {
+        filterReviewPanel.visibility = View.GONE
+        cropLoupeOverlayView.visibility = View.VISIBLE
+        cropReviewPanel.visibility = View.VISIBLE
+        statusText.text = "🔍 Drag corners with loupe magnifier"
+    }
+
+    private fun saveFilteredDocumentAndFinish() {
+        val finalBmp = currentFilteredBitmap ?: currentWarpedBitmap ?: return
+        statusText.text = "Saving document..."
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
                 val outFile = File(cacheDir, "scanned_doc_${System.currentTimeMillis()}.jpg")
                 FileOutputStream(outFile).use { fos ->
-                    warped.compress(Bitmap.CompressFormat.JPEG, 94, fos)
+                    finalBmp.compress(Bitmap.CompressFormat.JPEG, 95, fos)
                 }
-
-                if (warped != bmp) {
-                    warped.recycle()
-                }
-                bmp.recycle()
-                capturedBitmap = null
-
                 withContext(Dispatchers.Main) {
                     val resultIntent = Intent().apply {
                         putExtra(EXTRA_SCANNED_PATH, outFile.absolutePath)
-                        putExtra(EXTRA_AUTO_MAGIC_COLOR, true)
+                        putExtra(EXTRA_AUTO_MAGIC_COLOR, false)
                     }
                     setResult(Activity.RESULT_OK, resultIntent)
                     finish()

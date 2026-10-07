@@ -13,6 +13,10 @@ import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
 import com.docu.editor.core.scanner.model.DocumentCorners
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
@@ -92,10 +96,10 @@ class CropLoupeOverlayView(context: Context) : View(context) {
         strokeWidth = 3f
     }
 
-    private var activeCornerIndex = -1 // 0: TL, 1: TR, 2: BR, 3: BL
+    private var activeHandleIndex = -1 // 0..3: Corners, 4..7: Edge Midpoints
     private var isDragging = false
-    private var touchDownX = 0f
-    private var touchDownY = 0f
+    private var lastTouchBmpX = 0f
+    private var lastTouchBmpY = 0f
 
     // Screen destination rect for displayed bitmap
     private val destRect = RectF()
@@ -150,6 +154,27 @@ class CropLoupeOverlayView(context: Context) : View(context) {
         invalidate()
     }
 
+    fun autoDetectDocument() {
+        val bmp = sourceBitmap ?: return
+        CoroutineScope(Dispatchers.Default).launch {
+            val detected = com.docu.editor.core.scanner.DocumentEdgeDetector.detectCornersOrNull(bmp)
+                ?: com.docu.editor.core.scanner.DocumentEdgeDetector.detectCorners(bmp)
+            withContext(Dispatchers.Main) {
+                corners = detected
+                onCornersChanged?.invoke(corners)
+                invalidate()
+            }
+        }
+    }
+
+    fun rotateImage(degrees: Float) {
+        val bmp = sourceBitmap ?: return
+        val matrix = android.graphics.Matrix().apply { postRotate(degrees) }
+        val rotated = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, matrix, true)
+        sourceBitmap = rotated
+        autoDetectDocument()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         val bmp = sourceBitmap ?: return
@@ -201,32 +226,30 @@ class CropLoupeOverlayView(context: Context) : View(context) {
         drawEdgeHandle(canvas, (br.x + bl.x) / 2f, (br.y + bl.y) / 2f)
         drawEdgeHandle(canvas, (bl.x + tl.x) / 2f, (bl.y + tl.y) / 2f)
 
-        // 7. Draw Floating Magnifier Loupe if actively dragging a corner
-        if (isDragging && activeCornerIndex != -1) {
-            val activeScreenPt = when (activeCornerIndex) {
-                0 -> tl
-                1 -> tr
-                2 -> br
-                else -> bl
-            }
-            val activeBmpPt = when (activeCornerIndex) {
-                0 -> corners.topLeft
-                1 -> corners.topRight
-                2 -> corners.bottomRight
-                else -> corners.bottomLeft
+        // 7. Draw Floating Magnifier Loupe if actively dragging a corner or edge
+        if (isDragging && activeHandleIndex != -1) {
+            val (activeScreenPt, activeBmpPt) = when (activeHandleIndex) {
+                0 -> Pair(tl, corners.topLeft)
+                1 -> Pair(tr, corners.topRight)
+                2 -> Pair(br, corners.bottomRight)
+                3 -> Pair(bl, corners.bottomLeft)
+                4 -> Pair(PointF((tl.x + tr.x) / 2f, (tl.y + tr.y) / 2f), PointF((corners.topLeft.x + corners.topRight.x) / 2f, (corners.topLeft.y + corners.topRight.y) / 2f))
+                5 -> Pair(PointF((tr.x + br.x) / 2f, (tr.y + br.y) / 2f), PointF((corners.topRight.x + corners.bottomRight.x) / 2f, (corners.topRight.y + corners.bottomRight.y) / 2f))
+                6 -> Pair(PointF((br.x + bl.x) / 2f, (br.y + bl.y) / 2f), PointF((corners.bottomRight.x + corners.bottomLeft.x) / 2f, (corners.bottomRight.y + corners.bottomLeft.y) / 2f))
+                else -> Pair(PointF((bl.x + tl.x) / 2f, (bl.y + tl.y) / 2f), PointF((corners.bottomLeft.x + corners.topLeft.x) / 2f, (corners.bottomLeft.y + corners.topLeft.y) / 2f))
             }
             drawMagnifierLoupe(canvas, bmp, activeScreenPt, activeBmpPt)
         }
     }
 
     private fun drawCornerHandle(canvas: Canvas, x: Float, y: Float) {
-        canvas.drawCircle(x, y, 24f, cornerHandleOuterPaint)
-        canvas.drawCircle(x, y, 16f, cornerHandleInnerPaint)
+        canvas.drawCircle(x, y, 26f, cornerHandleOuterPaint)
+        canvas.drawCircle(x, y, 18f, cornerHandleInnerPaint)
     }
 
     private fun drawEdgeHandle(canvas: Canvas, x: Float, y: Float) {
-        canvas.drawCircle(x, y, 12f, edgeHandlePaint)
-        canvas.drawCircle(x, y, 8f, cornerHandleInnerPaint)
+        canvas.drawCircle(x, y, 16f, edgeHandlePaint)
+        canvas.drawCircle(x, y, 10f, cornerHandleInnerPaint)
     }
 
     private fun drawGridGuides(canvas: Canvas, tl: PointF, tr: PointF, br: PointF, bl: PointF) {
@@ -311,20 +334,60 @@ class CropLoupeOverlayView(context: Context) : View(context) {
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                touchDownX = x
-                touchDownY = y
-                activeCornerIndex = findNearestCorner(x, y, touchThreshold = 100f)
-                if (activeCornerIndex != -1) {
+                activeHandleIndex = findNearestHandle(x, y, touchThreshold = 110f)
+                if (activeHandleIndex != -1) {
                     isDragging = true
+                    val bmpPt = screenToBmp(x, y)
+                    lastTouchBmpX = bmpPt.x
+                    lastTouchBmpY = bmpPt.y
                     parent?.requestDisallowInterceptTouchEvent(true)
                     invalidate()
                     return true
                 }
             }
             MotionEvent.ACTION_MOVE -> {
-                if (isDragging && activeCornerIndex != -1) {
+                if (isDragging && activeHandleIndex != -1) {
                     val bmpPt = screenToBmp(x, y)
-                    updateActiveCorner(bmpPt)
+                    val dx = bmpPt.x - lastTouchBmpX
+                    val dy = bmpPt.y - lastTouchBmpY
+                    lastTouchBmpX = bmpPt.x
+                    lastTouchBmpY = bmpPt.y
+
+                    val bmp = sourceBitmap
+                    val maxW = bmp?.width?.toFloat() ?: 4000f
+                    val maxH = bmp?.height?.toFloat() ?: 4000f
+
+                    corners = when (activeHandleIndex) {
+                        0 -> corners.copy(topLeft = bmpPt)
+                        1 -> corners.copy(topRight = bmpPt)
+                        2 -> corners.copy(bottomRight = bmpPt)
+                        3 -> corners.copy(bottomLeft = bmpPt)
+                        4 -> { // Top Edge: Shift TL and TR
+                            corners.copy(
+                                topLeft = PointF((corners.topLeft.x + dx).coerceIn(0f, maxW), (corners.topLeft.y + dy).coerceIn(0f, maxH)),
+                                topRight = PointF((corners.topRight.x + dx).coerceIn(0f, maxW), (corners.topRight.y + dy).coerceIn(0f, maxH))
+                            )
+                        }
+                        5 -> { // Right Edge: Shift TR and BR
+                            corners.copy(
+                                topRight = PointF((corners.topRight.x + dx).coerceIn(0f, maxW), (corners.topRight.y + dy).coerceIn(0f, maxH)),
+                                bottomRight = PointF((corners.bottomRight.x + dx).coerceIn(0f, maxW), (corners.bottomRight.y + dy).coerceIn(0f, maxH))
+                            )
+                        }
+                        6 -> { // Bottom Edge: Shift BR and BL
+                            corners.copy(
+                                bottomRight = PointF((corners.bottomRight.x + dx).coerceIn(0f, maxW), (corners.bottomRight.y + dy).coerceIn(0f, maxH)),
+                                bottomLeft = PointF((corners.bottomLeft.x + dx).coerceIn(0f, maxW), (corners.bottomLeft.y + dy).coerceIn(0f, maxH))
+                            )
+                        }
+                        7 -> { // Left Edge: Shift BL and TL
+                            corners.copy(
+                                bottomLeft = PointF((corners.bottomLeft.x + dx).coerceIn(0f, maxW), (corners.bottomLeft.y + dy).coerceIn(0f, maxH)),
+                                topLeft = PointF((corners.topLeft.x + dx).coerceIn(0f, maxW), (corners.topLeft.y + dy).coerceIn(0f, maxH))
+                            )
+                        }
+                        else -> corners
+                    }
                     invalidate()
                     return true
                 }
@@ -332,7 +395,7 @@ class CropLoupeOverlayView(context: Context) : View(context) {
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 if (isDragging) {
                     isDragging = false
-                    activeCornerIndex = -1
+                    activeHandleIndex = -1
                     onCornersChanged?.invoke(corners)
                     invalidate()
                 }
@@ -341,34 +404,33 @@ class CropLoupeOverlayView(context: Context) : View(context) {
         return super.onTouchEvent(event)
     }
 
-    private fun findNearestCorner(x: Float, y: Float, touchThreshold: Float): Int {
-        val points = listOf(
-            bmpToScreen(corners.topLeft),
-            bmpToScreen(corners.topRight),
-            bmpToScreen(corners.bottomRight),
-            bmpToScreen(corners.bottomLeft)
+    private fun findNearestHandle(x: Float, y: Float, touchThreshold: Float): Int {
+        val tl = bmpToScreen(corners.topLeft)
+        val tr = bmpToScreen(corners.topRight)
+        val br = bmpToScreen(corners.bottomRight)
+        val bl = bmpToScreen(corners.bottomLeft)
+
+        val handles = listOf(
+            tl, // 0
+            tr, // 1
+            br, // 2
+            bl, // 3
+            PointF((tl.x + tr.x) / 2f, (tl.y + tr.y) / 2f), // 4 Top
+            PointF((tr.x + br.x) / 2f, (tr.y + br.y) / 2f), // 5 Right
+            PointF((br.x + bl.x) / 2f, (br.y + bl.y) / 2f), // 6 Bottom
+            PointF((bl.x + tl.x) / 2f, (bl.y + tl.y) / 2f)  // 7 Left
         )
 
         var closestIdx = -1
         var minDistance = touchThreshold
 
-        for (i in points.indices) {
-            val dist = hypot((points[i].x - x).toDouble(), (points[i].y - y).toDouble()).toFloat()
+        for (i in handles.indices) {
+            val dist = hypot((handles[i].x - x).toDouble(), (handles[i].y - y).toDouble()).toFloat()
             if (dist < minDistance) {
                 minDistance = dist
                 closestIdx = i
             }
         }
         return closestIdx
-    }
-
-    private fun updateActiveCorner(pt: PointF) {
-        corners = when (activeCornerIndex) {
-            0 -> corners.copy(topLeft = pt)
-            1 -> corners.copy(topRight = pt)
-            2 -> corners.copy(bottomRight = pt)
-            3 -> corners.copy(bottomLeft = pt)
-            else -> corners
-        }
     }
 }

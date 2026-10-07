@@ -273,4 +273,71 @@ object GeminiCloudAiClient {
         }
         null
     }
+
+    /**
+     * Solves academic questions, math equations, or summarizes document text step-by-step.
+     */
+    suspend fun solveQuestion(question: String, apiKey: String = ""): String = withContext(Dispatchers.IO) {
+        val cleanKey = apiKey.trim()
+        if (cleanKey.isNotEmpty()) {
+            try {
+                val url = URL("$GEMINI_API_BASE/models/gemini-2.0-flash:generateContent?key=$cleanKey")
+                val conn = (url.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "POST"
+                    setRequestProperty("Content-Type", "application/json")
+                    connectTimeout = 12000
+                    readTimeout = 30000
+                    doOutput = true
+                }
+
+                val prompt = "You are an expert academic tutor and mathematics solver. " +
+                        "Solve the following question or problem step-by-step with clear explanations and the final answer:\n\n$question"
+
+                val partsArray = JSONArray().apply {
+                    put(JSONObject().apply { put("text", prompt) })
+                }
+                val contentsArray = JSONArray().apply {
+                    put(JSONObject().apply { put("parts", partsArray) })
+                }
+                val payload = JSONObject().apply {
+                    put("contents", contentsArray)
+                }
+
+                OutputStreamWriter(conn.outputStream, Charsets.UTF_8).use { it.write(payload.toString()) }
+
+                if (conn.responseCode == 200) {
+                    val respText = conn.inputStream.bufferedReader().use { it.readText() }
+                    val respJson = JSONObject(respText)
+                    val candidates = respJson.optJSONArray("candidates")
+                    if (candidates != null && candidates.length() > 0) {
+                        val candidate = candidates.getJSONObject(0)
+                        val parts = candidate.optJSONObject("content")?.optJSONArray("parts")
+                        if (parts != null && parts.length() > 0) {
+                            val text = parts.getJSONObject(0).optString("text").trim()
+                            if (text.isNotEmpty()) return@withContext text
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        val cleanQ = question.trim()
+        val mathMatch = Regex("""([\d.]+)\s*([\+\-\*\/])\s*([\d.]+)""").find(cleanQ)
+        if (mathMatch != null) {
+            val (aStr, op, bStr) = mathMatch.destructured
+            val a = aStr.toDoubleOrNull() ?: 0.0
+            val b = bStr.toDoubleOrNull() ?: 0.0
+            val res = when (op) {
+                "+" -> a + b
+                "-" -> a - b
+                "*" -> a * b
+                "/" -> if (b != 0.0) a / b else Double.NaN
+                else -> 0.0
+            }
+            return@withContext "Step 1: Identify numbers and operator: $a $op $b\nStep 2: Calculate result: $res\n\nFinal Answer: $res"
+        }
+
+        "Question: $cleanQ\n\nAnalysis:\nTo enable deep generative step-by-step reasoning with AI, configure your Gemini API Key in Me -> Google Gemini AI API Key (Free)."
+    }
 }
+

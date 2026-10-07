@@ -706,11 +706,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 }
 
                 editedPagesMap[newPageIndex] = scaled
-
-                val items = withContext(Dispatchers.Default) {
-                    ocrAnalyzer.detectTextBlocks(scaled, TextHierarchyLevel.LINE)
-                }
-                pageDetectedItemsMap[newPageIndex] = items
+                pageDetectedItemsMap[newPageIndex] = emptyList()
 
                 _uiState.update {
                     it.copy(
@@ -718,7 +714,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         currentPdfPageIndex = newPageIndex,
                         currentBitmap = scaled,
                         originalBitmap = scaled,
-                        detectedItems = items,
+                        detectedItems = emptyList(),
                         selectedItem = null,
                         selectedItems = emptyList(),
                         hasUnsavedChanges = true,
@@ -981,8 +977,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             it.copy(
                 originalBitmap = optimized,
                 currentBitmap = effectiveBitmap,
-                isScanning = true,
-                processingMessage = "Analyzing text geometry...",
+                detectedItems = emptyList(), // Clean canvas by default - no annoying bounding boxes!
+                selectedItem = null,
+                selectedItems = emptyList(),
+                isScanning = false,
+                processingMessage = null,
                 activeFilter = activeFilterMode,
                 canUndo = false,
                 canRedo = false
@@ -990,32 +989,18 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
         clearUndoRedo()
 
-        val items = withContext(Dispatchers.Default) {
-            ocrAnalyzer.detectTextBlocks(effectiveBitmap, TextHierarchyLevel.LINE)
-        }
-
         val pageIdx = _uiState.value.currentPdfPageIndex
         editedPagesMap[pageIdx] = effectiveBitmap
-        pageDetectedItemsMap[pageIdx] = items
-
-        _uiState.update {
-            it.copy(
-                detectedItems = items,
-                isScanning = false,
-                processingMessage = null,
-                successMessage = "✓ Auto-fetched ${items.size} text lines • Ready to tap & edit"
-            )
-        }
+        pageDetectedItemsMap[pageIdx] = emptyList()
 
         val context = getApplication<Application>()
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val ocrSummary = items.joinToString(" ") { it.text }
                 val saved = DocumentHistoryManager.saveDocument(
                     context = context,
                     bitmap = effectiveBitmap,
                     pageCount = _uiState.value.pdfPageCount,
-                    extractedOcrText = ocrSummary
+                    extractedOcrText = ""
                 )
                 _uiState.update { it.copy(currentDocHistoryId = saved.id) }
                 refreshRecentDocuments()
@@ -1088,17 +1073,14 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     useCloudAi = isUsingCloud,
                     apiKey = apiKey
                 )
-                val items = withContext(Dispatchers.Default) {
-                    ocrAnalyzer.detectTextBlocks(erased, TextHierarchyLevel.LINE)
-                }
                 val pageIdx = _uiState.value.currentPdfPageIndex
                 editedPagesMap[pageIdx] = erased
-                pageDetectedItemsMap[pageIdx] = items
+                pageDetectedItemsMap[pageIdx] = emptyList()
                 updateRecentDocumentThumbnail(erased)
                 _uiState.update {
                     it.copy(
                         currentBitmap = erased,
-                        detectedItems = items,
+                        detectedItems = emptyList(),
                         isApplyingEdit = false,
                         hasUnsavedChanges = true,
                         canvasRevision = it.canvasRevision + 1,
@@ -1512,14 +1494,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 )
             }
 
-            // Update OCR items asynchronously in background without freezing UI
-            viewModelScope.launch(Dispatchers.Default) {
-                try {
-                    val items = ocrAnalyzer.detectTextBlocks(filtered, TextHierarchyLevel.LINE)
-                    pageDetectedItemsMap[_uiState.value.currentPdfPageIndex] = items
-                    _uiState.update { it.copy(detectedItems = items) }
-                } catch (_: Exception) {}
-            }
+            pageDetectedItemsMap[_uiState.value.currentPdfPageIndex] = emptyList()
+            _uiState.update { it.copy(detectedItems = emptyList()) }
         }
     }
 
@@ -1568,13 +1544,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     PerspectiveTransformer.warpPerspective(current, corners)
                 }
 
-                val items = withContext(Dispatchers.Default) {
-                    ocrAnalyzer.detectTextBlocks(warped, TextHierarchyLevel.LINE)
-                }
                 _uiState.update {
                     it.copy(
                         currentBitmap = warped,
-                        detectedItems = items,
+                        detectedItems = emptyList(),
                         isApplyingEdit = false,
                         processingMessage = null,
                         successMessage = "Document cropped & flattened perfectly",
@@ -1610,13 +1583,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     PerspectiveTransformer.warpPerspective(current, corners)
                 }
 
-                val items = withContext(Dispatchers.Default) {
-                    ocrAnalyzer.detectTextBlocks(warped, TextHierarchyLevel.LINE)
-                }
                 _uiState.update {
                     it.copy(
                         currentBitmap = warped,
-                        detectedItems = items,
+                        detectedItems = emptyList(),
                         isScanning = false,
                         processingMessage = null,
                         successMessage = "Document cropped & flattened perfectly",
@@ -1628,7 +1598,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 }
                 val pageIdx = _uiState.value.currentPdfPageIndex
                 editedPagesMap[pageIdx] = warped
-                pageDetectedItemsMap[pageIdx] = items
+                pageDetectedItemsMap[pageIdx] = emptyList()
                 updateRecentDocumentThumbnail(warped)
             } catch (e: Exception) {
                 _uiState.update {
@@ -2007,14 +1977,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 }
                 pushUndoStep(UndoStep.FullBitmap(current))
                 val newBitmap = orientedResult.rotatedBitmap
-                val newItems = withContext(Dispatchers.Default) {
-                    ocrAnalyzer.detectTextBlocks(newBitmap, TextHierarchyLevel.LINE)
-                }
                 _uiState.update {
                     it.copy(
                         originalBitmap = newBitmap,
                         currentBitmap = newBitmap,
-                        detectedItems = newItems,
+                        detectedItems = emptyList(),
                         selectedItem = null,
                         selectedItems = emptyList(),
                         canUndo = true,
@@ -2237,13 +2204,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 val flattened = withContext(Dispatchers.Default) {
                     BookCurveDewarper.flattenBookCurvature(current, spine, intensity)
                 }
-                val reOcrItems = withContext(Dispatchers.Default) {
-                    ocrAnalyzer.detectTextBlocks(flattened, TextHierarchyLevel.LINE)
-                }
                 _uiState.update {
                     it.copy(
                         currentBitmap = flattened,
-                        detectedItems = reOcrItems,
+                        detectedItems = emptyList(),
                         isApplyingEdit = false,
                         processingMessage = null,
                         successMessage = if (isCrumpled) "Crumpled paper flattened & creases removed" else "Book curve flattened & deskewed",
@@ -3400,7 +3364,34 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun showOcrTextExtractDialog(show: Boolean) {
-        _uiState.update { it.copy(showOcrTextExtractDialog = show) }
+        if (show) {
+            val current = _uiState.value.currentBitmap ?: return
+            viewModelScope.launch {
+                _uiState.update { it.copy(isScanning = true, processingMessage = "Extracting text with CamScanner OCR...") }
+                try {
+                    val items = withContext(Dispatchers.Default) {
+                        ocrAnalyzer.detectTextBlocks(current, TextHierarchyLevel.LINE)
+                    }
+                    _uiState.update {
+                        it.copy(
+                            isScanning = false,
+                            processingMessage = null,
+                            detectedItems = items,
+                            showOcrTextExtractDialog = true
+                        )
+                    }
+                } catch (e: Exception) {
+                    _uiState.update { it.copy(isScanning = false, processingMessage = null, errorMessage = "OCR extraction failed: ${e.localizedMessage}") }
+                }
+            }
+        } else {
+            _uiState.update {
+                it.copy(
+                    showOcrTextExtractDialog = false,
+                    detectedItems = emptyList() // Clean canvas! Zero annoying bounding boxes!
+                )
+            }
+        }
     }
 
     fun showInteractiveCropDialog(show: Boolean) {
@@ -3776,13 +3767,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             try {
                 val cutout = com.docu.editor.core.scanner.BackgroundRemovalEngine.removeBackground(current, mode)
                 editedPagesMap[_uiState.value.currentPdfPageIndex] = cutout
-                val items = withContext(Dispatchers.Default) {
-                    ocrAnalyzer.detectTextBlocks(cutout, TextHierarchyLevel.LINE)
-                }
                 _uiState.update {
                     it.copy(
                         currentBitmap = cutout,
-                        detectedItems = items,
+                        detectedItems = emptyList(),
                         isApplyingEdit = false,
                         processingMessage = null,
                         hasUnsavedChanges = true,
@@ -4786,19 +4774,14 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 redoStack.push(UndoStep.FullBitmap(redoBmp))
 
                 val restoredBmp = step.bitmap
-                viewModelScope.launch {
-                    val items = withContext(Dispatchers.Default) {
-                        ocrAnalyzer.detectTextBlocks(restoredBmp, TextHierarchyLevel.LINE)
-                    }
-                    _uiState.update {
-                        it.copy(
-                            currentBitmap = restoredBmp,
-                            detectedItems = items,
-                            canUndo = undoStack.isNotEmpty(),
-                            canRedo = true,
-                            canvasRevision = it.canvasRevision + 1
-                        )
-                    }
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = restoredBmp,
+                        detectedItems = emptyList(),
+                        canUndo = undoStack.isNotEmpty(),
+                        canRedo = true,
+                        canvasRevision = it.canvasRevision + 1
+                    )
                 }
             }
         }
@@ -4870,19 +4853,14 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 undoStack.push(UndoStep.FullBitmap(undoBmp))
 
                 val restoredBmp = step.bitmap
-                viewModelScope.launch {
-                    val items = withContext(Dispatchers.Default) {
-                        ocrAnalyzer.detectTextBlocks(restoredBmp, TextHierarchyLevel.LINE)
-                    }
-                    _uiState.update {
-                        it.copy(
-                            currentBitmap = restoredBmp,
-                            detectedItems = items,
-                            canUndo = true,
-                            canRedo = redoStack.isNotEmpty(),
-                            canvasRevision = it.canvasRevision + 1
-                        )
-                    }
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = restoredBmp,
+                        detectedItems = emptyList(),
+                        canUndo = true,
+                        canRedo = redoStack.isNotEmpty(),
+                        canvasRevision = it.canvasRevision + 1
+                    )
                 }
             }
         }
@@ -5013,9 +4991,22 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         pushUndoStep(UndoStep.FullBitmap(bmp.copy(Bitmap.Config.ARGB_8888, true)))
     }
 
-    private fun setEditedBitmap(newBmp: Bitmap) {
+    fun setEditedBitmap(newBmp: Bitmap) {
+        val current = _uiState.value.currentBitmap
+        if (current != null && current != newBmp) {
+            saveUndoForBitmap(current)
+        }
         editedPagesMap[_uiState.value.currentPdfPageIndex] = newBmp
-        _uiState.update { it.copy(currentBitmap = newBmp, hasUnsavedChanges = true) }
+        _uiState.update {
+            it.copy(
+                currentBitmap = newBmp,
+                originalBitmap = it.originalBitmap ?: newBmp,
+                hasUnsavedChanges = true,
+                canvasRevision = it.canvasRevision + 1,
+                canUndo = true
+            )
+        }
+        updateRecentDocumentThumbnail(newBmp)
     }
 
     fun applyCanvaFrame(frameType: CanvaFrameType) {

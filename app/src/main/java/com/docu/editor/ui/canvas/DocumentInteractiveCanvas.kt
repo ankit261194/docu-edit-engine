@@ -686,19 +686,6 @@ fun DocumentInteractiveCanvas(
                             size = Size(boxWidth, boxHeight),
                             style = Stroke(width = 2.5.dp.toPx())
                         )
-                    } else {
-                        // CamScanner-Style Soft Blue/Cyan Glowing Highlight Pill
-                        drawRect(
-                            color = Color(0xFF0284C7).copy(alpha = 0.14f),
-                            topLeft = Offset(boxLeft, boxTop),
-                            size = Size(boxWidth, boxHeight)
-                        )
-                        drawRect(
-                            color = Color(0xFF0284C7).copy(alpha = 0.55f),
-                            topLeft = Offset(boxLeft, boxTop),
-                            size = Size(boxWidth, boxHeight),
-                            style = Stroke(width = 1.6.dp.toPx())
-                        )
                     }
                 }
             }

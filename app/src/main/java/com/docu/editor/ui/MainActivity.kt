@@ -109,6 +109,15 @@ import com.docu.editor.ui.dialogs.CloudBackupsListDialog
 import com.docu.editor.ui.dialogs.TargetSizeAdjusterDialog
 import com.docu.editor.ui.dialogs.SizeAdjustMode
 import com.docu.editor.ui.home.HomeScreenDashboard
+import com.docu.editor.ui.dialogs.CountCamDialog
+import com.docu.editor.ui.dialogs.IdPhotoMakerDialog
+import com.docu.editor.ui.dialogs.ScanCodeDialog
+import com.docu.editor.ui.dialogs.SolverAiDialog
+import com.docu.editor.core.tools.CamScannerToolsEngine
+import com.docu.editor.core.cloud.GeminiCloudAiClient
+import com.docu.editor.core.pdf.PdfToolbox
+import com.docu.editor.domain.model.DocumentFilterMode
+import android.os.Environment
 import android.widget.Toast
 import android.content.Context
 import android.content.ClipData
@@ -160,6 +169,14 @@ class MainActivity : ComponentActivity() {
                 var pendingUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
                 var showFiltersRow by remember { mutableStateOf(false) }
                 var currentSignSourceBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+                var showCountCamDialog by remember { mutableStateOf(false) }
+                var countCamBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+                var showIdPhotoMakerDialog by remember { mutableStateOf(false) }
+                var idPhotoBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+                var showScanCodeDialog by remember { mutableStateOf(false) }
+                var scanCodeBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+                var showSolverAiDialog by remember { mutableStateOf(false) }
+                var solverAiQuestion by remember { mutableStateOf("") }
 
                 LaunchedEffect(updateCheckTrigger.intValue) {
                     val info = updateManager.checkForUpdates()
@@ -173,6 +190,117 @@ class MainActivity : ComponentActivity() {
                     contract = ActivityResultContracts.OpenDocument()
                 ) { uri: Uri? ->
                     uri?.let { viewModel.loadDocumentUri(it) }
+                }
+
+                val countCamPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    uri?.let {
+                        val bmp = loadBitmapDirect(it)
+                        if (bmp != null) {
+                            countCamBitmap = bmp
+                            showCountCamDialog = true
+                        }
+                    }
+                }
+
+                val idPhotoPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    uri?.let {
+                        val bmp = loadBitmapDirect(it)
+                        if (bmp != null) {
+                            idPhotoBitmap = bmp
+                            showIdPhotoMakerDialog = true
+                        }
+                    }
+                }
+
+                val scanCodePickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    uri?.let {
+                        val bmp = loadBitmapDirect(it)
+                        if (bmp != null) {
+                            scanCodeBitmap = bmp
+                            showScanCodeDialog = true
+                        }
+                    }
+                }
+
+                val mergeFilesPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenMultipleDocuments()
+                ) { uris ->
+                    if (uris.size >= 2) {
+                        lifecycleScope.launch {
+                            try {
+                                Toast.makeText(this@MainActivity, "Merging ${uris.size} PDFs...", Toast.LENGTH_SHORT).show()
+                                val outFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Merged_Doc_${System.currentTimeMillis()}.pdf")
+                                PdfToolbox(applicationContext).mergePdfs(uris, outFile)
+                                Toast.makeText(this@MainActivity, "Merged successfully: ${outFile.name}", Toast.LENGTH_LONG).show()
+                                viewModel.loadScannedDocument(outFile.absolutePath)
+                            } catch (e: Exception) {
+                                Toast.makeText(this@MainActivity, "Merge failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        Toast.makeText(this@MainActivity, "Select at least 2 PDF files to merge", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                val pdfToImagesPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    uri?.let {
+                        lifecycleScope.launch {
+                            try {
+                                Toast.makeText(this@MainActivity, "Extracting pages to images...", Toast.LENGTH_SHORT).show()
+                                val outDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                                val images = PdfToolbox(applicationContext).extractPagesAsImages(it, outDir)
+                                Toast.makeText(this@MainActivity, "Extracted ${images.size} JPEG images to Downloads!", Toast.LENGTH_LONG).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(this@MainActivity, "Extraction failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }
+
+                val pdfToLongImagePickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    uri?.let {
+                        lifecycleScope.launch {
+                            try {
+                                Toast.makeText(this@MainActivity, "Stitching pages to long image...", Toast.LENGTH_SHORT).show()
+                                val outFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Long_Image_${System.currentTimeMillis()}.jpg")
+                                CamScannerToolsEngine.stitchPdfToLongImage(applicationContext, it, outFile)
+                                Toast.makeText(this@MainActivity, "Saved: ${outFile.name}", Toast.LENGTH_LONG).show()
+                                viewModel.loadScannedDocument(outFile.absolutePath)
+                            } catch (e: Exception) {
+                                Toast.makeText(this@MainActivity, "Stitching failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }
+
+                val pptPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    uri?.let {
+                        lifecycleScope.launch {
+                            try {
+                                Toast.makeText(this@MainActivity, "Exporting slides to PPT...", Toast.LENGTH_SHORT).show()
+                                val outFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Presentation_${System.currentTimeMillis()}.pptx")
+                                val bmp = loadBitmapDirect(it)
+                                if (bmp != null) {
+                                    CamScannerToolsEngine.exportPagesToPptx(listOf(bmp), outFile)
+                                    Toast.makeText(this@MainActivity, "Saved: ${outFile.name}", Toast.LENGTH_LONG).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(this@MainActivity, "PPT export failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
                 }
 
                 // Dedicated PDF Tools Picker Launcher for Home Screen
@@ -841,6 +969,173 @@ class MainActivity : ComponentActivity() {
                                         } else {
                                             Toast.makeText(this@MainActivity, "You are on the latest version (v${info.currentVersion})", Toast.LENGTH_SHORT).show()
                                         }
+                                    }
+                                },
+                                hasGeminiApiKey = viewModel.getGeminiApiKey().isNotBlank(),
+                                onConvertToWord = {
+                                    if (uiState.currentBitmap != null) {
+                                        viewModel.exportDocxFile(uiState.detectedItems.joinToString("\n") { it.text })
+                                    } else {
+                                        filePickerLauncher.launch(arrayOf("image/*", "application/pdf"))
+                                    }
+                                },
+                                onConvertToExcel = {
+                                    if (uiState.currentBitmap != null) {
+                                        viewModel.exportCurrentDocument("XLSX")
+                                    } else {
+                                        filePickerLauncher.launch(arrayOf("image/*", "application/pdf"))
+                                    }
+                                },
+                                onConvertToPpt = {
+                                    pptPickerLauncher.launch(arrayOf("image/*", "application/pdf"))
+                                },
+                                onCountCam = {
+                                    if (uiState.currentBitmap != null) {
+                                        countCamBitmap = uiState.currentBitmap
+                                        showCountCamDialog = true
+                                    } else {
+                                        countCamPickerLauncher.launch(arrayOf("image/*"))
+                                    }
+                                },
+                                onPdfToImages = {
+                                    pdfToImagesPickerLauncher.launch(arrayOf("application/pdf"))
+                                },
+                                onPdfToLongImage = {
+                                    pdfToLongImagePickerLauncher.launch(arrayOf("application/pdf"))
+                                },
+                                onCamScannerAi = {
+                                    solverAiQuestion = "Summarize document and extract key action items"
+                                    showSolverAiDialog = true
+                                },
+                                onImportImages = {
+                                    bulkBatchOcrPickerLauncher.launch(arrayOf("image/*"))
+                                },
+                                onImportFiles = {
+                                    filePickerLauncher.launch(arrayOf("*/*"))
+                                },
+                                onSign = {
+                                    if (uiState.currentBitmap != null) {
+                                        viewModel.showSignatureDialog(true)
+                                    } else {
+                                        signPicker.launch(arrayOf("image/*"))
+                                    }
+                                },
+                                onAddWatermark = {
+                                    if (uiState.currentBitmap != null) {
+                                        viewModel.showWatermarkDialog(true)
+                                    } else {
+                                        pdfToolsPickerLauncher.launch(arrayOf("application/pdf"))
+                                    }
+                                },
+                                onMergeFiles = {
+                                    mergeFilesPickerLauncher.launch(arrayOf("application/pdf"))
+                                },
+                                onExtractPdfPages = {
+                                    pdfToolsPickerLauncher.launch(arrayOf("application/pdf"))
+                                },
+                                onReorderPages = {
+                                    if (uiState.currentBitmap != null) {
+                                        viewModel.showPagesOverview(true)
+                                    } else {
+                                        pdfToolsPickerLauncher.launch(arrayOf("application/pdf"))
+                                    }
+                                },
+                                onLockPdf = {
+                                    if (uiState.currentBitmap != null) {
+                                        viewModel.showPdfToolboxDialog(true)
+                                    } else {
+                                        pdfToolsPickerLauncher.launch(arrayOf("application/pdf"))
+                                    }
+                                },
+                                onEraseMarks = {
+                                    if (uiState.currentBitmap != null) {
+                                        viewModel.applyFilter(DocumentFilterMode.SHADOW_REMOVER)
+                                    } else {
+                                        filePickerLauncher.launch(arrayOf("image/*"))
+                                    }
+                                },
+                                onSmartErase = {
+                                    if (uiState.currentBitmap != null) {
+                                        viewModel.setActiveToolMode(EditorToolMode.MAGIC_ERASER)
+                                    } else {
+                                        filePickerLauncher.launch(arrayOf("image/*"))
+                                    }
+                                },
+                                onSolverAi = {
+                                    solverAiQuestion = ""
+                                    showSolverAiDialog = true
+                                },
+                                onEnhanceDocuments = {
+                                    if (uiState.currentBitmap != null) {
+                                        viewModel.applyFilter(DocumentFilterMode.MAGIC_COLOR)
+                                    } else {
+                                        filePickerLauncher.launch(arrayOf("image/*"))
+                                    }
+                                },
+                                onRestorePhoto = {
+                                    if (uiState.currentBitmap != null) {
+                                        val restored = CamScannerToolsEngine.restorePhoto(uiState.currentBitmap!!)
+                                        viewModel.setEditedBitmap(restored)
+                                        Toast.makeText(this@MainActivity, "Photo restored & enhanced!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        filePickerLauncher.launch(arrayOf("image/*"))
+                                    }
+                                },
+                                onScanIdCards = {
+                                    viewModel.showIdCardDialog(true)
+                                },
+                                onExtractText = {
+                                    if (uiState.currentBitmap != null) {
+                                        viewModel.showOcrTextExtractDialog(true)
+                                    } else {
+                                        bulkBatchOcrPickerLauncher.launch(arrayOf("image/*", "application/pdf"))
+                                    }
+                                },
+                                onIdPhotoMaker = {
+                                    if (uiState.currentBitmap != null) {
+                                        idPhotoBitmap = uiState.currentBitmap
+                                        showIdPhotoMakerDialog = true
+                                    } else {
+                                        idPhotoPickerLauncher.launch(arrayOf("image/*"))
+                                    }
+                                },
+                                onScanToExcel = {
+                                    if (uiState.currentBitmap != null) {
+                                        viewModel.exportCurrentDocument("XLSX")
+                                    } else {
+                                        filePickerLauncher.launch(arrayOf("image/*", "application/pdf"))
+                                    }
+                                },
+                                onFormulaOcr = {
+                                    val detected = uiState.detectedItems.joinToString("\n") { it.text }
+                                    solverAiQuestion = if (detected.isNotBlank()) "Format formula to LaTeX and solve: $detected" else "E = mc^2"
+                                    showSolverAiDialog = true
+                                },
+                                onBookDewarp = {
+                                    if (uiState.currentBitmap != null) {
+                                        viewModel.showBookDewarpDialog(true)
+                                    } else {
+                                        filePickerLauncher.launch(arrayOf("image/*"))
+                                    }
+                                },
+                                onSlidesScan = {
+                                    val intent = Intent(this@MainActivity, LiveCameraScannerActivity::class.java)
+                                    liveScannerLauncher.launch(intent)
+                                },
+                                onWhiteboardScan = {
+                                    val intent = Intent(this@MainActivity, LiveCameraScannerActivity::class.java)
+                                    liveScannerLauncher.launch(intent)
+                                },
+                                onTimestampScan = {
+                                    val intent = Intent(this@MainActivity, LiveCameraScannerActivity::class.java)
+                                    liveScannerLauncher.launch(intent)
+                                },
+                                onScanCode = {
+                                    if (uiState.currentBitmap != null) {
+                                        scanCodeBitmap = uiState.currentBitmap
+                                        showScanCodeDialog = true
+                                    } else {
+                                        scanCodePickerLauncher.launch(arrayOf("image/*"))
                                     }
                                 }
                             )
@@ -1519,6 +1814,77 @@ class MainActivity : ComponentActivity() {
                                 onDuplicateLayer = { id -> viewModel.duplicateLayer(id) },
                                 onDeleteLayer = { id -> viewModel.deleteLayer(id) },
                                 onDismiss = { viewModel.showCanvaLayersDialog(false) }
+                            )
+                        }
+
+                        // CamScanner CountCam AI Dialog
+                        if (showCountCamDialog) {
+                            com.docu.editor.ui.dialogs.CountCamDialog(
+                                initialBitmap = countCamBitmap ?: uiState.currentBitmap,
+                                onPickImageFromGallery = {
+                                    countCamPickerLauncher.launch(arrayOf("image/*"))
+                                },
+                                onSaveCountResult = { annotatedBmp, count ->
+                                    viewModel.setEditedBitmap(annotatedBmp)
+                                    showCountCamDialog = false
+                                    Toast.makeText(this@MainActivity, "Count Cam: $count objects identified and loaded into editor", Toast.LENGTH_SHORT).show()
+                                },
+                                onDismiss = {
+                                    showCountCamDialog = false
+                                }
+                            )
+                        }
+
+                        // CamScanner ID Photo Maker Dialog
+                        if (showIdPhotoMakerDialog) {
+                            com.docu.editor.ui.dialogs.IdPhotoMakerDialog(
+                                initialBitmap = idPhotoBitmap ?: uiState.currentBitmap,
+                                onPickPhotoClicked = {
+                                    idPhotoPickerLauncher.launch(arrayOf("image/*"))
+                                },
+                                onSaveSinglePhoto = { singleBmp ->
+                                    viewModel.setEditedBitmap(singleBmp)
+                                    showIdPhotoMakerDialog = false
+                                    Toast.makeText(this@MainActivity, "ID Photo loaded into editor", Toast.LENGTH_SHORT).show()
+                                },
+                                onSavePrintSheet = { sheetBmp ->
+                                    viewModel.setEditedBitmap(sheetBmp)
+                                    showIdPhotoMakerDialog = false
+                                    Toast.makeText(this@MainActivity, "Printable 6x ID Sheet loaded into editor", Toast.LENGTH_SHORT).show()
+                                },
+                                onDismiss = {
+                                    showIdPhotoMakerDialog = false
+                                }
+                            )
+                        }
+
+                        // CamScanner Scan Code (QR / Barcode) Dialog
+                        if (showScanCodeDialog) {
+                            com.docu.editor.ui.dialogs.ScanCodeDialog(
+                                initialBitmap = scanCodeBitmap ?: uiState.currentBitmap,
+                                onPickImageClicked = {
+                                    scanCodePickerLauncher.launch(arrayOf("image/*"))
+                                },
+                                onDismiss = {
+                                    showScanCodeDialog = false
+                                }
+                            )
+                        }
+
+                        // CamScanner Solver AI Dialog
+                        if (showSolverAiDialog) {
+                            com.docu.editor.ui.dialogs.SolverAiDialog(
+                                initialQuestion = solverAiQuestion,
+                                onSolveRequested = { q ->
+                                    try {
+                                        com.docu.editor.core.cloud.GeminiCloudAiClient.solveQuestion(q, viewModel.getGeminiApiKey())
+                                    } catch (e: Exception) {
+                                        "Error solving problem: ${e.localizedMessage}"
+                                    }
+                                },
+                                onDismiss = {
+                                    showSolverAiDialog = false
+                                }
                             )
                         }
                     }

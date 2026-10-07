@@ -257,31 +257,9 @@ class ScannerOverlayView @JvmOverloads constructor(
         path.lineTo(p4.x, p4.y)
         path.close()
 
+        // Draw subtle glowing paper polygon
         canvas.drawPath(path, fillPaint)
         canvas.drawPath(path, polygonPaint)
-
-        // Draw animated laser scanning beam inside the polygon
-        scanAnimProgress += scanAnimDirection
-        if (scanAnimProgress > 1f) {
-            scanAnimProgress = 1f
-            scanAnimDirection = -0.035f
-        } else if (scanAnimProgress < 0f) {
-            scanAnimProgress = 0f
-            scanAnimDirection = 0.035f
-        }
-
-        val topX = p1.x + (p2.x - p1.x) * scanAnimProgress
-        val topY = p1.y + (p2.y - p1.y) * scanAnimProgress
-        val botX = p4.x + (p3.x - p4.x) * scanAnimProgress
-        val botY = p4.y + (p3.y - p4.y) * scanAnimProgress
-
-        laserBeamPaint.shader = LinearGradient(
-            topX, topY, botX, botY,
-            Color.argb(0, 0, 230, 118),
-            strokeColor,
-            Shader.TileMode.CLAMP
-        )
-        canvas.drawLine(topX, topY, botX, botY, laserBeamPaint)
 
         // Draw circular corner reticles with target nodes
         val cornerRadius = 22f
