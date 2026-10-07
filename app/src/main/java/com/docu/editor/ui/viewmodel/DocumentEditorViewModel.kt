@@ -2487,20 +2487,25 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     fun applyWatermark(config: WatermarkEngine.WatermarkConfig) {
         val current = _uiState.value.currentBitmap ?: return
+        val pageIdx = _uiState.value.currentPdfPageIndex
+        val totalPages = if (_uiState.value.activePdfUri != null) _uiState.value.pdfPageCount else _uiState.value.batchScannedPaths.size.coerceAtLeast(1)
+        val docTitle = _uiState.value.documentTitle
+
         pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
 
         viewModelScope.launch {
             _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Applying security watermark...") }
             try {
                 val watermarked = withContext(Dispatchers.Default) {
-                    WatermarkEngine.applyWatermark(current, config)
+                    WatermarkEngine.applyWatermark(current, config, pageIdx, totalPages, docTitle)
                 }
+                editedPagesMap[pageIdx] = watermarked
                 _uiState.update {
                     it.copy(
                         currentBitmap = watermarked,
                         isApplyingEdit = false,
                         processingMessage = null,
-                        successMessage = "Security watermark applied",
+                        successMessage = "✓ Security watermark applied",
                         canUndo = true,
                         canRedo = false,
                         canvasRevision = it.canvasRevision + 1
@@ -2512,6 +2517,294 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         isApplyingEdit = false,
                         processingMessage = null,
                         errorMessage = "Watermark failed: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun applyWatermarkToAllPages(config: WatermarkEngine.WatermarkConfig) {
+        val state = _uiState.value
+        val current = state.currentBitmap ?: return
+        val totalPages = if (state.activePdfUri != null) state.pdfPageCount else state.batchScannedPaths.size.coerceAtLeast(1)
+
+        if (totalPages <= 1) {
+            applyWatermark(config)
+            return
+        }
+
+        saveCurrentPageToCache()
+        val context = getApplication<Application>()
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Watermarking all $totalPages pages...") }
+            try {
+                var updatedCurrentPageBitmap: Bitmap? = null
+
+                withContext(Dispatchers.Default) {
+                    for (pIdx in 0 until totalPages) {
+                        val pageSourceBmp = if (pIdx == state.currentPdfPageIndex) {
+                            current
+                        } else {
+                            val cached = editedPagesMap[pIdx]
+                            if (cached != null) {
+                                cached
+                            } else if (state.activePdfUri != null) {
+                                PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, pIdx)
+                            } else if (state.batchScannedPaths.size > pIdx) {
+                                com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[pIdx], 2880)
+                            } else {
+                                null
+                            }
+                        } ?: continue
+
+                        val watermarkedPage = WatermarkEngine.applyWatermark(
+                            sourceBitmap = pageSourceBmp,
+                            config = config,
+                            pageIndex = pIdx,
+                            totalPages = totalPages,
+                            docTitle = state.documentTitle
+                        )
+                        editedPagesMap[pIdx] = watermarkedPage
+
+                        if (pIdx == state.currentPdfPageIndex) {
+                            updatedCurrentPageBitmap = watermarkedPage
+                        }
+                    }
+                }
+
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = updatedCurrentPageBitmap ?: it.currentBitmap,
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        successMessage = "✓ Watermark applied to all $totalPages pages",
+                        canUndo = true,
+                        canRedo = false,
+                        canvasRevision = it.canvasRevision + 1
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Batch watermark failed: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun applyImageWatermark(config: WatermarkEngine.ImageWatermarkConfig) {
+        val current = _uiState.value.currentBitmap ?: return
+        val pageIdx = _uiState.value.currentPdfPageIndex
+
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Applying official logo watermark...") }
+            try {
+                val watermarked = withContext(Dispatchers.Default) {
+                    WatermarkEngine.applyImageWatermark(current, config)
+                }
+                editedPagesMap[pageIdx] = watermarked
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = watermarked,
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        successMessage = "✓ Logo watermark applied",
+                        canUndo = true,
+                        canRedo = false,
+                        canvasRevision = it.canvasRevision + 1
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Logo watermark failed: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun applyImageWatermarkToAllPages(config: WatermarkEngine.ImageWatermarkConfig) {
+        val state = _uiState.value
+        val current = state.currentBitmap ?: return
+        val totalPages = if (state.activePdfUri != null) state.pdfPageCount else state.batchScannedPaths.size.coerceAtLeast(1)
+
+        if (totalPages <= 1) {
+            applyImageWatermark(config)
+            return
+        }
+
+        saveCurrentPageToCache()
+        val context = getApplication<Application>()
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Applying logo watermark across $totalPages pages...") }
+            try {
+                var updatedCurrentPageBitmap: Bitmap? = null
+
+                withContext(Dispatchers.Default) {
+                    for (pIdx in 0 until totalPages) {
+                        val pageSourceBmp = if (pIdx == state.currentPdfPageIndex) {
+                            current
+                        } else {
+                            val cached = editedPagesMap[pIdx]
+                            if (cached != null) {
+                                cached
+                            } else if (state.activePdfUri != null) {
+                                PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, pIdx)
+                            } else if (state.batchScannedPaths.size > pIdx) {
+                                com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[pIdx], 2880)
+                            } else {
+                                null
+                            }
+                        } ?: continue
+
+                        val watermarkedPage = WatermarkEngine.applyImageWatermark(pageSourceBmp, config)
+                        editedPagesMap[pIdx] = watermarkedPage
+
+                        if (pIdx == state.currentPdfPageIndex) {
+                            updatedCurrentPageBitmap = watermarkedPage
+                        }
+                    }
+                }
+
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = updatedCurrentPageBitmap ?: it.currentBitmap,
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        successMessage = "✓ Logo watermark applied to all $totalPages pages",
+                        canUndo = true,
+                        canRedo = false,
+                        canvasRevision = it.canvasRevision + 1
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Batch logo watermark failed: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun applyBatesNumbering(config: WatermarkEngine.BatesNumberingConfig) {
+        val current = _uiState.value.currentBitmap ?: return
+        val pageIdx = _uiState.value.currentPdfPageIndex
+        val totalPages = if (_uiState.value.activePdfUri != null) _uiState.value.pdfPageCount else _uiState.value.batchScannedPaths.size.coerceAtLeast(1)
+
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Applying legal Bates numbering...") }
+            try {
+                val batesStamped = withContext(Dispatchers.Default) {
+                    WatermarkEngine.applyBatesNumbering(current, config, pageIdx, totalPages)
+                }
+                editedPagesMap[pageIdx] = batesStamped
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = batesStamped,
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        successMessage = "✓ Bates stamp applied (${config.prefix})",
+                        canUndo = true,
+                        canRedo = false,
+                        canvasRevision = it.canvasRevision + 1
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Bates numbering failed: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    fun applyBatesNumberingToAllPages(config: WatermarkEngine.BatesNumberingConfig) {
+        val state = _uiState.value
+        val current = state.currentBitmap ?: return
+        val totalPages = if (state.activePdfUri != null) state.pdfPageCount else state.batchScannedPaths.size.coerceAtLeast(1)
+
+        if (totalPages <= 1) {
+            applyBatesNumbering(config)
+            return
+        }
+
+        saveCurrentPageToCache()
+        val context = getApplication<Application>()
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Stamping Bates numbers on $totalPages pages...") }
+            try {
+                var updatedCurrentPageBitmap: Bitmap? = null
+
+                withContext(Dispatchers.Default) {
+                    for (pIdx in 0 until totalPages) {
+                        val pageSourceBmp = if (pIdx == state.currentPdfPageIndex) {
+                            current
+                        } else {
+                            val cached = editedPagesMap[pIdx]
+                            if (cached != null) {
+                                cached
+                            } else if (state.activePdfUri != null) {
+                                PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, pIdx)
+                            } else if (state.batchScannedPaths.size > pIdx) {
+                                com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[pIdx], 2880)
+                            } else {
+                                null
+                            }
+                        } ?: continue
+
+                        val batesPage = WatermarkEngine.applyBatesNumbering(
+                            sourceBitmap = pageSourceBmp,
+                            config = config,
+                            pageOffset = pIdx,
+                            totalPages = totalPages
+                        )
+                        editedPagesMap[pIdx] = batesPage
+
+                        if (pIdx == state.currentPdfPageIndex) {
+                            updatedCurrentPageBitmap = batesPage
+                        }
+                    }
+                }
+
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = updatedCurrentPageBitmap ?: it.currentBitmap,
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        successMessage = "✓ Bates numbers stamped across all $totalPages pages",
+                        canUndo = true,
+                        canRedo = false,
+                        canvasRevision = it.canvasRevision + 1
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Batch Bates numbering failed: ${e.message}"
                     )
                 }
             }

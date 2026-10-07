@@ -1566,12 +1566,33 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // Anti-Counterfeiting Security Watermark Dialog
+                        // Anti-Counterfeiting Security Watermark & Bates Studio Dialog
                         if (uiState.showWatermarkDialog) {
                             WatermarkDialog(
-                                onApplyWatermark = { config ->
+                                pageCount = if (uiState.activePdfUri != null) uiState.pdfPageCount else uiState.batchScannedPaths.size.coerceAtLeast(1),
+                                onApplyWatermark = { config, applyToAll ->
                                     viewModel.showWatermarkDialog(false)
-                                    viewModel.applyWatermark(config)
+                                    if (applyToAll) {
+                                        viewModel.applyWatermarkToAllPages(config)
+                                    } else {
+                                        viewModel.applyWatermark(config)
+                                    }
+                                },
+                                onApplyImageWatermark = { config, applyToAll ->
+                                    viewModel.showWatermarkDialog(false)
+                                    if (applyToAll) {
+                                        viewModel.applyImageWatermarkToAllPages(config)
+                                    } else {
+                                        viewModel.applyImageWatermark(config)
+                                    }
+                                },
+                                onApplyBatesNumbering = { config, applyToAll ->
+                                    viewModel.showWatermarkDialog(false)
+                                    if (applyToAll) {
+                                        viewModel.applyBatesNumberingToAllPages(config)
+                                    } else {
+                                        viewModel.applyBatesNumbering(config)
+                                    }
                                 },
                                 onDismiss = { viewModel.showWatermarkDialog(false) }
                             )
