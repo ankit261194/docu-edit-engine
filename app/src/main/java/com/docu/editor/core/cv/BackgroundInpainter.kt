@@ -9,6 +9,13 @@ import android.graphics.Rect
 import android.graphics.Shader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.opencv.android.Utils
+import org.opencv.core.CvType
+import org.opencv.core.Mat
+import org.opencv.core.Scalar
+import org.opencv.core.Size
+import org.opencv.imgproc.Imgproc
+import org.opencv.photo.Photo
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.random.Random
@@ -17,8 +24,8 @@ class BackgroundInpainter {
 
     /**
      * Seamlessly erases original text by sampling the surrounding paper background
-     * and synthesizing an ambient lighting gradient with matching paper micro-grain.
-     * Executes in < 5ms with zero OpenCV single-threaded bottlenecks or blurry smudges.
+     * and synthesizing an ambient lighting gradient with matching paper micro-grain
+     * or applying OpenCV Fast Marching Telea inpainting across ink strokes.
      */
     suspend fun inpaint(
         sourceBitmap: Bitmap,
@@ -39,25 +46,32 @@ class BackgroundInpainter {
             return@withContext sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
         }
 
+        // 1. Watermark & complex background preservation
         if (WatermarkPreservingInpainter.hasComplexBackground(sourceBitmap, safeTarget)) {
             try {
                 return@withContext WatermarkPreservingInpainter.inpaintWatermarkBackground(sourceBitmap, safeTarget)
             } catch (_: Throwable) {}
         }
 
-        // 1. Sample ambient paper color from the perimeter of the target box (excluding ink)
+        // 2. High-precision OpenCV Fast Marching Telea inpainting
+        val cvResult = inpaintWithOpenCv(sourceBitmap, safeTarget)
+        if (cvResult != null) {
+            return@withContext cvResult
+        }
+
+        // 3. Fallback: Ambient paper color sampling & micro-grain gradient synthesis
         val sampledColors = samplePerimeterPaperColors(sourceBitmap, safeTarget, sampleMargin)
         val paperLuma = getLuminance(sampledColors.topColor)
 
-        // 1.5 Detect any crossing table grid lines or notebook ruled lines
+        // Detect any crossing table grid lines or notebook ruled lines
         val horizontalLines = detectHorizontalCrossingLines(sourceBitmap, safeTarget, paperLuma)
         val verticalLines = detectVerticalCrossingLines(sourceBitmap, safeTarget, paperLuma)
 
-        // 2. Create clean output bitmap
+        // Create clean output bitmap
         val outputBitmap = sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(outputBitmap)
 
-        // 3. Fill text rectangle with smooth ambient paper gradient
+        // Fill text rectangle with smooth ambient paper gradient
         val patchPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             shader = LinearGradient(
                 safeTarget.left.toFloat(), safeTarget.top.toFloat(),
@@ -78,7 +92,7 @@ class BackgroundInpainter {
         )
         canvas.drawRect(fillRect, patchPaint)
 
-        // 4. Inject subtle micro paper texture matching document noise
+        // Inject subtle micro paper texture matching document noise
         if (sampledColors.hasNoise) {
             val random = Random(42)
             val noisePaint = Paint().apply { style = Paint.Style.FILL }
@@ -97,7 +111,7 @@ class BackgroundInpainter {
             }
         }
 
-        // 5. Enterprise Table & Ruled Notebook Line Reconstruction (Bridge Erased Grid Gaps)
+        // Reconstruct crossing grid/notebook lines
         for (line in horizontalLines) {
             val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = line.color
@@ -127,6 +141,134 @@ class BackgroundInpainter {
         outputBitmap
     }
 
+    private fun inpaintWithOpenCv(
+        source: Bitmap,
+        target: Rect,
+        padding: Int = 14
+    ): Bitmap? {
+        val width = source.width
+        val height = source.height
+        val cropLeft = max(0, target.left - padding)
+        val cropTop = max(0, target.top - padding)
+        val cropRight = min(width, target.right + padding)
+        val cropBottom = min(height, target.bottom + padding)
+        val cropW = cropRight - cropLeft
+        val cropH = cropBottom - cropTop
+        if (cropW <= 2 || cropH <= 2) return null
+
+        val cropBitmap = Bitmap.createBitmap(source, cropLeft, cropTop, cropW, cropH)
+        val srcMat = Mat()
+        val rgbMat = Mat()
+        val grayMat = Mat()
+        val maskMat = Mat()
+        val inpaintMat = Mat()
+        val restoredCrop = Mat()
+
+        return try {
+            Utils.bitmapToMat(cropBitmap, srcMat)
+            Imgproc.cvtColor(srcMat, rgbMat, Imgproc.COLOR_RGBA2RGB)
+            Imgproc.cvtColor(srcMat, grayMat, Imgproc.COLOR_RGBA2GRAY)
+
+            val paperLuma = estimateLocalPaperLuma(grayMat)
+            val inkThreshold = (paperLuma - 20.0).coerceIn(40.0, 215.0)
+
+            Imgproc.threshold(grayMat, maskMat, inkThreshold, 255.0, Imgproc.THRESH_BINARY_INV)
+
+            val relLeft = target.left - cropLeft
+            val relTop = target.top - cropTop
+            val relRight = target.right - cropLeft
+            val relBottom = target.bottom - cropTop
+
+            for (r in 0 until maskMat.rows()) {
+                if (r < relTop || r >= relBottom) {
+                    val row = maskMat.row(r)
+                    row.setTo(Scalar(0.0))
+                    row.release()
+                }
+            }
+            for (c in 0 until maskMat.cols()) {
+                if (c < relLeft || c >= relRight) {
+                    val col = maskMat.col(c)
+                    col.setTo(Scalar(0.0))
+                    col.release()
+                }
+            }
+
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(3.0, 3.0))
+            Imgproc.dilate(maskMat, maskMat, kernel)
+            kernel.release()
+
+            Photo.inpaint(rgbMat, maskMat, inpaintMat, 3.0, Photo.INPAINT_TELEA)
+            Imgproc.cvtColor(inpaintMat, restoredCrop, Imgproc.COLOR_RGB2RGBA)
+
+            val outCropBitmap = Bitmap.createBitmap(cropW, cropH, Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(restoredCrop, outCropBitmap)
+
+            val output = source.copy(Bitmap.Config.ARGB_8888, true)
+            val canvas = Canvas(output)
+            canvas.drawBitmap(outCropBitmap, cropLeft.toFloat(), cropTop.toFloat(), null)
+
+            val hLines = detectHorizontalCrossingLines(source, target, paperLuma.toInt())
+            val vLines = detectVerticalCrossingLines(source, target, paperLuma.toInt())
+            for (line in hLines) {
+                val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = line.color
+                    strokeWidth = line.thickness.toFloat().coerceAtLeast(1f)
+                    style = Paint.Style.STROKE
+                }
+                canvas.drawLine(
+                    target.left.toFloat() - 1f, line.coord.toFloat(),
+                    target.right.toFloat() + 1f, line.coord.toFloat(),
+                    p
+                )
+            }
+            for (line in vLines) {
+                val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = line.color
+                    strokeWidth = line.thickness.toFloat().coerceAtLeast(1f)
+                    style = Paint.Style.STROKE
+                }
+                canvas.drawLine(
+                    line.coord.toFloat(), target.top.toFloat() - 1f,
+                    line.coord.toFloat(), target.bottom.toFloat() + 1f,
+                    p
+                )
+            }
+
+            outCropBitmap.recycle()
+            cropBitmap.recycle()
+            output
+        } catch (_: Throwable) {
+            cropBitmap.recycle()
+            null
+        } finally {
+            srcMat.release()
+            rgbMat.release()
+            grayMat.release()
+            maskMat.release()
+            inpaintMat.release()
+            restoredCrop.release()
+        }
+    }
+
+    private fun estimateLocalPaperLuma(grayMat: Mat): Double {
+        val rows = grayMat.rows()
+        val cols = grayMat.cols()
+        var sum = 0.0
+        var count = 0
+        for (c in 0 until cols step 2) {
+            sum += grayMat.get(0, c)[0]
+            sum += grayMat.get(rows - 1, c)[0]
+            count += 2
+        }
+        for (r in 1 until rows - 1 step 2) {
+            sum += grayMat.get(r, 0)[0]
+            sum += grayMat.get(r, cols - 1)[0]
+            count += 2
+        }
+        return if (count > 0) sum / count else 240.0
+    }
+
     private data class PaperSampleResult(
         val topColor: Int,
         val bottomColor: Int,
@@ -145,7 +287,6 @@ class BackgroundInpainter {
         val verticalSamples = mutableListOf<Int>()
 
         // 1. Primary: Sample HORIZONTALLY along the exact text baseline (Left and Right margins)
-        // On documents/invoices, the paper to the left and right of the text is ALWAYS the true paper!
         val leftX1 = max(0, target.left - 14)
         val leftX2 = max(0, target.left - 2)
         val rightX1 = min(width - 1, target.right + 2)
@@ -163,7 +304,7 @@ class BackgroundInpainter {
             }
         }
 
-        // 2. Secondary: Sample TOP and BOTTOM ONLY 2-3px close (never 10px deep into table headers!)
+        // 2. Secondary: Sample TOP and BOTTOM ONLY 2-3px close
         val topY = max(0, target.top - 2)
         val botY = min(height - 1, target.bottom + 2)
         val stepX = max(1, target.width() / 15)
@@ -176,16 +317,13 @@ class BackgroundInpainter {
         val cleanHorizontal = filterPaperPixels(horizontalSamples)
         val cleanVertical = filterPaperPixels(verticalSamples)
 
-        // If vertical sample is significantly darker than horizontal (like a gray table header above), DISCARD IT!
         val horizontalLuma = cleanHorizontal?.let { getLuminance(it) } ?: 250
         val verticalLuma = cleanVertical?.let { getLuminance(it) } ?: horizontalLuma
 
         val baseColor = if (cleanHorizontal != null) {
             if (cleanVertical != null && kotlin.math.abs(verticalLuma - horizontalLuma) < 18) {
-                // Both agree: blend them
                 blendColors(cleanHorizontal, cleanVertical, 0.7f)
             } else {
-                // Vertical is contaminated by table header or border: use pure horizontal paper!
                 cleanHorizontal
             }
         } else {
@@ -197,7 +335,7 @@ class BackgroundInpainter {
         return PaperSampleResult(
             topColor = finalColor,
             bottomColor = finalColor,
-            hasNoise = getLuminance(finalColor) < 235 // Only inject noise if noticeably textured/dark paper
+            hasNoise = getLuminance(finalColor) < 235
         )
     }
 
@@ -223,7 +361,6 @@ class BackgroundInpainter {
             Pair(c, getLuminance(c))
         }.sortedBy { it.second }
 
-        // Take the brightest 50% pixels to completely ignore ink strokes, lines, or shadows
         val startIndex = (sorted.size * 0.50f).toInt().coerceIn(0, sorted.size - 1)
         val validSamples = sorted.subList(startIndex, sorted.size).map { it.first }
 

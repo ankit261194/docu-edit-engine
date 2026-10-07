@@ -708,4 +708,97 @@ object DocumentFilters {
         canvas.drawBitmap(source, 0f, 0f, paint)
         return output
     }
+
+    /**
+     * Enterprise Document Line Straightening & Deskewing.
+     * Uses Canny edge detection + Probabilistic Hough Lines transform
+     * to detect text baseline angles and rotates document with sub-degree precision.
+     */
+    fun detectAndStraightenDocument(source: Bitmap): Bitmap {
+        val srcRgba = Mat()
+        val grayMat = Mat()
+        val edges = Mat()
+        val lines = Mat()
+
+        return try {
+            Utils.bitmapToMat(source, srcRgba)
+            Imgproc.cvtColor(srcRgba, grayMat, Imgproc.COLOR_RGBA2GRAY)
+
+            val maxDim = 1200
+            val scale = if (source.width > maxDim || source.height > maxDim) {
+                maxDim.toDouble() / maxOf(source.width, source.height)
+            } else 1.0
+
+            val processGray = if (scale < 1.0) {
+                val scaled = Mat()
+                Imgproc.resize(grayMat, scaled, Size(source.width * scale, source.height * scale))
+                scaled
+            } else {
+                grayMat
+            }
+
+            Imgproc.Canny(processGray, edges, 50.0, 150.0, 3, false)
+            if (processGray != grayMat) {
+                processGray.release()
+            }
+
+            val minLineLength = (minOf(source.width, source.height) * scale * 0.18)
+            val maxLineGap = 20.0
+            Imgproc.HoughLinesP(edges, lines, 1.0, Math.PI / 180.0, 70, minLineLength, maxLineGap)
+
+            val detectedAngles = mutableListOf<Double>()
+            for (i in 0 until lines.rows()) {
+                val line = lines.get(i, 0)
+                val x1 = line[0]
+                val y1 = line[1]
+                val x2 = line[2]
+                val y2 = line[3]
+                val dx = x2 - x1
+                val dy = y2 - y1
+                val angleDeg = Math.toDegrees(Math.atan2(dy, dx))
+                if (Math.abs(angleDeg) in 0.5..25.0) {
+                    detectedAngles.add(angleDeg)
+                } else if (Math.abs(angleDeg) in 155.0..179.5) {
+                    val norm = if (angleDeg > 0) angleDeg - 180.0 else angleDeg + 180.0
+                    detectedAngles.add(norm)
+                }
+            }
+
+            if (detectedAngles.size < 3) {
+                return source
+            }
+
+            detectedAngles.sort()
+            val medianAngle = detectedAngles[detectedAngles.size / 2]
+
+            if (Math.abs(medianAngle) < 0.4 || Math.abs(medianAngle) > 25.0) {
+                return source
+            }
+
+            val center = org.opencv.core.Point(source.width / 2.0, source.height / 2.0)
+            val rotMat = Imgproc.getRotationMatrix2D(center, medianAngle, 1.0)
+            val rotatedMat = Mat()
+            Imgproc.warpAffine(
+                srcRgba,
+                rotatedMat,
+                rotMat,
+                Size(source.width.toDouble(), source.height.toDouble()),
+                Imgproc.INTER_CUBIC,
+                Core.BORDER_REPLICATE
+            )
+            rotMat.release()
+
+            val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(rotatedMat, output)
+            rotatedMat.release()
+            output
+        } catch (_: Throwable) {
+            source
+        } finally {
+            srcRgba.release()
+            grayMat.release()
+            edges.release()
+            lines.release()
+        }
+    }
 }

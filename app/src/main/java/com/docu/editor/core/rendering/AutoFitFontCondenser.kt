@@ -16,17 +16,43 @@ object AutoFitFontCondenser {
     )
 
     fun autoWrapIfTooWide(text: String, targetWidth: Float, paint: Paint): String {
-        if (text.contains("\n")) return text
-        val words = text.split(" ")
-        if (words.size <= 1) return text
+        val paragraphs = text.split("\n")
+        val wrappedParagraphs = paragraphs.map { paragraph ->
+            wrapSingleParagraph(paragraph, targetWidth, paint)
+        }
+        return wrappedParagraphs.joinToString("\n")
+    }
 
-        val testWidth = paint.measureText(text)
-        if (testWidth <= targetWidth * 1.25f) return text
+    private fun wrapSingleParagraph(paragraph: String, targetWidth: Float, paint: Paint): String {
+        if (paragraph.isBlank()) return paragraph
+        val measured = paint.measureText(paragraph)
+        if (measured <= targetWidth * 1.05f) return paragraph
+
+        val words = paragraph.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (words.isEmpty()) return paragraph
 
         val lines = mutableListOf<String>()
         var currentLine = StringBuilder()
 
         for (word in words) {
+            val wordWidth = paint.measureText(word)
+            if (wordWidth > targetWidth) {
+                if (currentLine.isNotEmpty()) {
+                    lines.add(currentLine.toString())
+                    currentLine = StringBuilder()
+                }
+                val brokenChunks = breakLongWord(word, targetWidth, paint)
+                for (chunkIdx in brokenChunks.indices) {
+                    val chunk = brokenChunks[chunkIdx]
+                    if (chunkIdx < brokenChunks.size - 1) {
+                        lines.add(chunk)
+                    } else {
+                        currentLine = StringBuilder(chunk)
+                    }
+                }
+                continue
+            }
+
             val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
             if (paint.measureText(testLine) <= targetWidth || currentLine.isEmpty()) {
                 currentLine = StringBuilder(testLine)
@@ -38,7 +64,26 @@ object AutoFitFontCondenser {
         if (currentLine.isNotEmpty()) {
             lines.add(currentLine.toString())
         }
-        return if (lines.size > 1) lines.joinToString("\n") else text
+        return if (lines.size > 1) lines.joinToString("\n") else paragraph
+    }
+
+    private fun breakLongWord(word: String, targetWidth: Float, paint: Paint): List<String> {
+        val chunks = mutableListOf<String>()
+        var current = StringBuilder()
+        for (i in word.indices) {
+            val c = word[i]
+            val test = "$current$c-"
+            if (paint.measureText(test) > targetWidth && current.isNotEmpty()) {
+                chunks.add("$current-")
+                current = StringBuilder(c.toString())
+            } else {
+                current.append(c)
+            }
+        }
+        if (current.isNotEmpty()) {
+            chunks.add(current.toString())
+        }
+        return if (chunks.isNotEmpty()) chunks else listOf(word)
     }
 
     fun condenseToFit(
@@ -49,10 +94,14 @@ object AutoFitFontCondenser {
         sizeMultiplier: Float = 1.0f
     ): AdjustedTypography {
         val targetWidth = max(10, targetBounds.width()).toFloat()
+        val originalLines = if (originalText.isNotEmpty()) originalText.split("\n").size else 1
+
         val effectiveText = autoWrapIfTooWide(text, targetWidth, paint)
         val lines = effectiveText.split("\n")
         val lineCount = max(1, lines.size)
-        val targetHeight = (max(8, targetBounds.height()).toFloat() / lineCount)
+
+        // Maintain consistent document typography: calculate per-line target height
+        val targetHeight = (max(8, targetBounds.height()).toFloat() / max(1, originalLines))
 
         // 1. Initial font size estimate based on EM box vs visual cap-height.
         var fontSize = (targetHeight * 1.35f) * sizeMultiplier
@@ -140,14 +189,14 @@ object AutoFitFontCondenser {
         // 3. Pixel-perfect baseline alignment
         val fontMetrics = paint.fontMetrics
         val lineHeight = fontMetrics.descent - fontMetrics.ascent + fontMetrics.leading
-        val totalTextHeight = if (lineCount > 1) {
-            (lineCount - 1) * lineHeight + (fontMetrics.descent - fontMetrics.ascent)
-        } else {
-            fontMetrics.descent - fontMetrics.ascent
-        }
 
-        val topY = targetBounds.centerY().toFloat() - totalTextHeight / 2f
-        val baselineY = topY - fontMetrics.ascent
+        val baselineY = if (lineCount == 1 && originalLines == 1) {
+            val totalTextHeight = fontMetrics.descent - fontMetrics.ascent
+            val topY = targetBounds.centerY().toFloat() - totalTextHeight / 2f
+            topY - fontMetrics.ascent
+        } else {
+            targetBounds.top.toFloat() - fontMetrics.ascent
+        }
 
         return AdjustedTypography(
             fontSize = fontSize,

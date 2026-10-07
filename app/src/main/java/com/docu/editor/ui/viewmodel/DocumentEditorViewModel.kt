@@ -11,6 +11,8 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Path
+import android.graphics.RadialGradient
+import android.graphics.Shader
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.provider.OpenableColumns
@@ -1149,11 +1151,41 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
 
         val canvas = Canvas(currentBitmap)
+        val colors = intArrayOf(
+            paperColor,
+            paperColor,
+            Color.argb((Color.alpha(paperColor) * 0.75f).toInt(), Color.red(paperColor), Color.green(paperColor), Color.blue(paperColor)),
+            Color.argb(0, Color.red(paperColor), Color.green(paperColor), Color.blue(paperColor))
+        )
+        val stops = floatArrayOf(0f, 0.70f, 0.90f, 1.0f)
+        val radialShader = RadialGradient(
+            bitmapX, bitmapY, radius,
+            colors, stops,
+            Shader.TileMode.CLAMP
+        )
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = paperColor
+            shader = radialShader
             style = Paint.Style.FILL
         }
         canvas.drawCircle(bitmapX, bitmapY, radius, paint)
+
+        val paperLuma = (Color.red(paperColor) * 0.299f + Color.green(paperColor) * 0.587f + Color.blue(paperColor) * 0.114f).toInt()
+        if (paperLuma < 245) {
+            val noisePaint = Paint().apply { style = Paint.Style.FILL }
+            val random = kotlin.random.Random((bitmapX.toLong() shl 16) xor bitmapY.toLong())
+            val noiseDots = (radius * 0.35f).toInt().coerceIn(3, 30)
+            val isDarkPaper = paperLuma < 120
+            for (i in 0 until noiseDots) {
+                val angle = random.nextFloat() * 2f * Math.PI.toFloat()
+                val dist = random.nextFloat() * (radius * 0.75f)
+                val nx = bitmapX + kotlin.math.cos(angle) * dist
+                val ny = bitmapY + kotlin.math.sin(angle) * dist
+                val alpha = random.nextInt(4, 14)
+                val grainVal = if (isDarkPaper) 220 else 80
+                noisePaint.color = Color.argb(alpha, grainVal, grainVal, grainVal)
+                canvas.drawPoint(nx, ny, noisePaint)
+            }
+        }
 
         editedPagesMap[_uiState.value.currentPdfPageIndex] = currentBitmap
 
@@ -1321,7 +1353,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     renderResult.outputBitmap
                 }
 
-                // Update bounding box width to match new text length with reflow protection
+                // Update bounding box dimensions to match new text reflow
                 val charW = (targetItem.boundingBox.height() * 0.52f) * sizeMultiplier
                 val newWidth = (newText.length * charW).toInt().coerceAtLeast(24)
 
@@ -1331,7 +1363,25 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     kotlin.math.abs(it.boundingBox.centerY() - targetItem.boundingBox.centerY()) < targetItem.boundingBox.height() * 0.65f
                 }.minByOrNull { it.boundingBox.left }
 
-                val finalRight = if (nextAdjacentItem != null) {
+                val singleLineH = targetItem.boundingBox.height()
+                val targetW = if (nextAdjacentItem != null) {
+                    val maxAllowed = nextAdjacentItem.boundingBox.left - targetItem.boundingBox.left - 6
+                    if (maxAllowed > 20) maxAllowed.toFloat() else targetItem.boundingBox.width().toFloat()
+                } else {
+                    targetItem.boundingBox.width().toFloat().coerceAtLeast(newWidth.toFloat())
+                }
+
+                val wrappedLines = com.docu.editor.core.rendering.AutoFitFontCondenser.autoWrapIfTooWide(
+                    newText,
+                    targetW,
+                    Paint().apply { textSize = singleLineH * 0.85f * sizeMultiplier }
+                ).split("\n")
+                val totalLines = maxOf(1, wrappedLines.size)
+                val finalBottom = (targetItem.boundingBox.top + totalLines * singleLineH).coerceAtMost(currentBitmap.height)
+
+                val finalRight = if (totalLines > 1) {
+                    minOf((targetItem.boundingBox.left + targetW).toInt(), currentBitmap.width)
+                } else if (nextAdjacentItem != null) {
                     val maxAllowed = nextAdjacentItem.boundingBox.left - 6
                     if (maxAllowed > targetItem.boundingBox.left + 15) {
                         minOf(targetItem.boundingBox.left + newWidth, maxAllowed)
@@ -1339,7 +1389,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         targetItem.boundingBox.left + newWidth
                     }
                 } else {
-                    targetItem.boundingBox.left + newWidth
+                    minOf(targetItem.boundingBox.left + newWidth, currentBitmap.width)
                 }
 
                 val isNumericFigure = newText.trim().matches(Regex("""^[$€£₹]?\s*[\d,.-]+%?$""")) ||
@@ -1353,7 +1403,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         targetItem.boundingBox.left,
                         targetItem.boundingBox.top,
                         finalRight,
-                        targetItem.boundingBox.bottom
+                        finalBottom
                     )
                 }
 

@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Matrix
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
@@ -15,7 +16,7 @@ import kotlin.math.roundToInt
  * Enterprise Document Auto-Orientation & Auto-Deskew Engine.
  * Automatically analyzes document text baseline orientation angles
  * and rotates upside-down or sideways scans (90°, 180°, 270°) to 0° upright,
- * with sub-degree micro-deskew precision.
+ * with Devanagari & Latin dual-engine recognition and sub-degree micro-deskew precision.
  */
 object AutoOrientationEngine {
 
@@ -25,7 +26,11 @@ object AutoOrientationEngine {
         val wasRotated: Boolean
     )
 
-    private val recognizer by lazy {
+    private val devanagariRecognizer by lazy {
+        TextRecognition.getClient(DevanagariTextRecognizerOptions.Builder().build())
+    }
+
+    private val latinRecognizer by lazy {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
 
@@ -50,26 +55,38 @@ object AutoOrientationEngine {
             } else source
 
             val inputImage = InputImage.fromBitmap(analysisBmp, 0)
-            val visionText = recognizer.process(inputImage).await()
+            var visionText = try {
+                devanagariRecognizer.process(inputImage).await()
+            } catch (_: Exception) {
+                null
+            }
+
+            if (visionText == null || visionText.textBlocks.isEmpty()) {
+                visionText = try {
+                    latinRecognizer.process(inputImage).await()
+                } catch (_: Exception) {
+                    null
+                }
+            }
 
             if (analysisBmp != source) {
                 analysisBmp.recycle()
             }
 
+            if (visionText == null) {
+                val straightened = DocumentFilters.detectAndStraightenDocument(source)
+                return@withContext OrientationResult(straightened, 0f, straightened != source)
+            }
+
             val lines = visionText.textBlocks.flatMap { it.lines }
             if (lines.size < 2) {
-                // Not enough text lines to determine orientation
-                return@withContext OrientationResult(source, 0f, false)
+                val straightened = DocumentFilters.detectAndStraightenDocument(source)
+                return@withContext OrientationResult(straightened, 0f, straightened != source)
             }
 
             // Collect all line angles
             val angles = lines.map { it.angle }
 
-            // Group into 4 main orientation quadrants:
-            // Quadrant 0: around 0° / 360° (Normal upright)
-            // Quadrant 90: around 90° / -270° (Clockwise sideways)
-            // Quadrant 180: around 180° / -180° (Upside down)
-            // Quadrant 270: around 270° / -90° (Counter-clockwise sideways)
             var count0 = 0
             var count90 = 0
             var count180 = 0
@@ -109,22 +126,18 @@ object AutoOrientationEngine {
 
             when (maxCount) {
                 count90 -> {
-                    // Lines are at ~90°, rotate by -90° (or 270°) to make them upright
                     val fineDrift = if (count90 > 0) sumAngle90 / count90 else 0f
                     correctionAngle = -90f - fineDrift
                 }
                 count180 -> {
-                    // Lines are upside down at ~180°, rotate 180°
                     val fineDrift = if (count180 > 0) sumAngle180 / count180 else 0f
                     correctionAngle = 180f - fineDrift
                 }
                 count270 -> {
-                    // Lines are at ~270°, rotate by +90°
                     val fineDrift = if (count270 > 0) sumAngle270 / count270 else 0f
                     correctionAngle = 90f - fineDrift
                 }
                 count0 -> {
-                    // Already mostly upright, check fine micro-deskew (±1° to ±12°)
                     val fineDrift = if (count0 > 0) sumAngle0 / count0 else 0f
                     if (abs(fineDrift) >= 0.8f && abs(fineDrift) <= 15f) {
                         correctionAngle = -fineDrift
@@ -132,24 +145,36 @@ object AutoOrientationEngine {
                 }
             }
 
-            // If no correction needed
-            if (abs(correctionAngle) < 0.5f) {
-                return@withContext OrientationResult(source, 0f, false)
+            var workingBmp = source
+            var totalAngle = 0f
+            var rotated = false
+
+            if (abs(correctionAngle) >= 0.5f) {
+                val matrix = Matrix().apply { postRotate(correctionAngle) }
+                workingBmp = Bitmap.createBitmap(
+                    source,
+                    0,
+                    0,
+                    source.width,
+                    source.height,
+                    matrix,
+                    true
+                )
+                totalAngle = correctionAngle
+                rotated = true
             }
 
-            // Rotate bitmap
-            val matrix = Matrix().apply { postRotate(correctionAngle) }
-            val rotated = Bitmap.createBitmap(
-                source,
-                0,
-                0,
-                source.width,
-                source.height,
-                matrix,
-                true
-            )
+            // Apply fine micro-straightening via OpenCV Hough line angle detection
+            val straightened = DocumentFilters.detectAndStraightenDocument(workingBmp)
+            if (straightened != workingBmp) {
+                if (workingBmp != source) {
+                    workingBmp.recycle()
+                }
+                workingBmp = straightened
+                rotated = true
+            }
 
-            OrientationResult(rotated, correctionAngle, true)
+            OrientationResult(workingBmp, totalAngle, rotated)
         } catch (_: Exception) {
             OrientationResult(source, 0f, false)
         }
