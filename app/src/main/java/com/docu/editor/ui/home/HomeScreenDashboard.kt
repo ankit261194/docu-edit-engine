@@ -35,6 +35,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Check
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.CollectionsBookmark
+import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Draw
@@ -49,6 +51,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
@@ -134,6 +137,7 @@ fun HomeScreenDashboard(
     onSignatureClicked: () -> Unit,
     onPdfToolsClicked: () -> Unit,
     onBulkBatchOcrClicked: () -> Unit = {},
+    onBatchResizeClicked: () -> Unit = {},
     onTryDemoClicked: () -> Unit,
     onCloudAiSettingsClicked: () -> Unit = {},
     onCheckUpdateClicked: () -> Unit = {},
@@ -463,6 +467,83 @@ fun HomeScreenDashboard(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxSize()
                     ) {
+                        // 1. Hero Flagship Banner: Govt Exam Batch Resizer Studio (20KB / 50KB / 100KB)
+                        item(span = { GridItemSpan(2) }) {
+                            HeroMasterBanner(
+                                title = "Batch Resizer & Format Converter",
+                                badge = "GOVT EXAM SPECIAL",
+                                description = "Upload 20+ Photos & PDFs at once • Compress to 20KB, 50KB, 100KB • 1-Click ZIP Download & WhatsApp Share",
+                                buttonText = "Open Batch Studio",
+                                icon = Icons.Default.Compress,
+                                gradient = listOf(Color(0xFF1E40AF), Color(0xFF3B82F6)),
+                                onClick = onBatchResizeClicked
+                            )
+                        }
+
+                        // 2. Clear Visual Hubs (All options front & center!)
+                        item(span = { GridItemSpan(2) }) {
+                            QuickHubCard(
+                                category = "🎯 Govt Exam & Job Form Uploads",
+                                accentColor = Color(0xFF2563EB),
+                                items = listOf(
+                                    Triple("Batch Resizer (20/50KB)", Icons.Default.Compress, onBatchResizeClicked),
+                                    Triple("ID Card (Front+Back)", Icons.Default.Badge, onIdCardClicked),
+                                    Triple("Passport Photo Maker", Icons.Default.Person, onIdPhotoMaker),
+                                    Triple("Mask Aadhaar/PAN", Icons.Default.Badge, onScanIdCards)
+                                )
+                            )
+                        }
+
+                        item(span = { GridItemSpan(2) }) {
+                            QuickHubCard(
+                                category = "✍️ Document Edit & Magic Eraser",
+                                accentColor = Color(0xFF059669),
+                                items = listOf(
+                                    Triple("Edit Photo/PDF Text", Icons.Default.Edit, onOpenFileClicked),
+                                    Triple("Whiteout & Eraser", Icons.Default.AutoFixHigh, onSmartErase),
+                                    Triple("CamScanner Magic Color", Icons.Default.AutoAwesome, onEnhanceDocuments),
+                                    Triple("Extract Text (OCR)", Icons.Default.Description, onExtractText)
+                                )
+                            )
+                        }
+
+                        item(span = { GridItemSpan(2) }) {
+                            QuickHubCard(
+                                category = "📄 PDF & Office Suite",
+                                accentColor = Color(0xFFD97706),
+                                items = listOf(
+                                    Triple("Merge / Split PDF", Icons.Default.PictureAsPdf, onPdfToolsClicked),
+                                    Triple("Password Lock PDF", Icons.Default.Lock, onLockPdf),
+                                    Triple("Convert to Excel", Icons.Default.Description, onConvertToExcel),
+                                    Triple("Convert to Word", Icons.Default.Description, onConvertToWord)
+                                )
+                            )
+                        }
+
+                        item(span = { GridItemSpan(2) }) {
+                            QuickHubCard(
+                                category = "🖋️ Official Sign & Stamp Studio",
+                                accentColor = Color(0xFFDC2626),
+                                items = listOf(
+                                    Triple("Add Signature", Icons.Default.Draw, onSignatureClicked),
+                                    Triple("Official Rubber Stamp", Icons.Default.Draw, onSign),
+                                    Triple("PKI Digital Sign", Icons.Default.Check, onPdfToolsClicked),
+                                    Triple("Add Watermark", Icons.Default.AutoAwesome, onAddWatermark)
+                                )
+                            )
+                        }
+
+                        // 3. Quick Scanner Horizontal Strip
+                        item(span = { GridItemSpan(2) }) {
+                            Text(
+                                text = "Quick Capture & Scan",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp, bottom = 2.dp)
+                            )
+                        }
+
                         item(span = { GridItemSpan(2) }) {
                             Row(
                                 modifier = Modifier
@@ -527,6 +608,16 @@ fun HomeScreenDashboard(
                                     onClick = onPdfToolsClicked
                                 )
                             }
+                        }
+
+                        item(span = { GridItemSpan(2) }) {
+                            Text(
+                                text = "Recent Documents (${recentDocuments.size})",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(top = 8.dp)
+                            )
                         }
 
                         if (filteredDocs.isEmpty()) {
@@ -806,7 +897,8 @@ fun HomeScreenDashboard(
                         onSlidesScan = onSlidesScan,
                         onWhiteboardScan = onWhiteboardScan,
                         onTimestampScan = onTimestampScan,
-                        onScanCode = onScanCode
+                        onScanCode = onScanCode,
+                        onBatchResize = onBatchResizeClicked
                     )
                 }
             }
@@ -994,6 +1086,187 @@ private fun BottomNavItem(
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
             color = color
         )
+    }
+}
+
+/**
+ * Prominent High-Visibility Hero Banner for Critical Flagship Features.
+ */
+@Composable
+private fun HeroMasterBanner(
+    title: String,
+    badge: String,
+    description: String,
+    buttonText: String,
+    icon: ImageVector,
+    gradient: List<Color>,
+    onClick: () -> Unit
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Brush.linearGradient(gradient))
+                .padding(18.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color.White.copy(alpha = 0.25f)
+                        ) {
+                            Text(
+                                text = badge,
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = title,
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = description,
+                        color = Color.White.copy(alpha = 0.92f),
+                        fontSize = 12.sp,
+                        lineHeight = 16.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color.White,
+                        modifier = Modifier.clickable { onClick() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = gradient.first(),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = buttonText,
+                                color = gradient.first(),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.20f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(30.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * High-Visibility Grouped Feature Hub Card.
+ */
+@Composable
+private fun QuickHubCard(
+    category: String,
+    accentColor: Color,
+    items: List<Triple<String, ImageVector, () -> Unit>>
+) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(accentColor)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = category,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items.forEach { (label, icon, onClick) ->
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onClick() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = accentColor,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = label,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

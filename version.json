@@ -1,12 +1,12 @@
 {
-  "versionCode": 36,
-  "versionName": "10.0.0",
+  "versionCode": 37,
+  "versionName": "10.1.0",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.0.0 (100% Pro Milestone Suite)",
-  "changelog": "🎉 Major Pro Milestone Release v10.0.0:\n• Step 1: Real In-Place PDF & JPG Text Edit Engine (Auto-OCR, font & size matching, zero-halo inpainting)\n• Step 2: Native Excel (.xlsx & .csv) OpenXML Export with table structures\n• Step 3: Signature Studio & Official Stamp Engine (Auto-crop, multi-color ink isolation, circular & triangular seals)\n• Step 4: ID Card Duplex Scanner & Government ID Redaction (Aadhaar, PAN, Passport auto-masking)\n• Step 5: Cloud Backup & Google Drive Integration with offline queueing\n• Step 6: Document Filter Suite (Magic Color, B&W, Document Clean, Despeckle)\n• Step 7: Watermark, Logo & Legal Bates Numbering Studio\n• Step 8: CamScanner Home & Batch Scanning Flow with multi-selection dock\n• Step 9: PDF Merge, Split, Reorder, Compress & AES-128 Studio (Custom page ranges, chunk splits)\n• Step 10: Seamless External Document Intent Filters (Open & Share from WhatsApp, Gmail, Files)",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.0.0/DocuEdit-v10.0.0-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.0.0/DocuEdit-v10.0.0-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.0.0/DocuEdit-v10.0.0-arm64.apk",
-  "apkFileName": "DocuEdit-v10.0.0-arm64.apk",
-  "apkSizeMb": 60.7
+  "releaseTitle": "DocuEdit Pro v10.1.0 (Govt Exam Batch Resizer & Text Autofetch Pro Fix)",
+  "changelog": "🚀 Major Upgrade v10.1.0:\n• Fixed In-Place Text Editor Autofetch: Exact chromatic ink color sampling (blue pen, red seals, pencil toner preserved), precise typographical cap-height font scaling, zero coordinate drift, and jitter-tolerant tap detection.\n• Govt Exam Batch Target Resizer & Converter Studio: Upload 20+ mixed JPG/PDF files, compress/pad to exact target KB (20KB signature, 50KB photo, 100KB ID, 200KB PDF), cross-convert formats, and 1-Click ZIP Archive & WhatsApp Share.\n• Intuitive 4-Hub Dashboard: Flagship Hero Studio Banner and 4 prominent, high-contrast category action cards eliminating hidden sub-menus.",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.1.0/DocuEdit-v10.1.0-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.1.0/DocuEdit-v10.1.0-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.1.0/DocuEdit-v10.1.0-arm64.apk",
+  "apkFileName": "DocuEdit-v10.1.0-arm64.apk",
+  "apkSizeMb": 60.8
 }

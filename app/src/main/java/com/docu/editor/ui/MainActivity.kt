@@ -116,6 +116,7 @@ import com.docu.editor.ui.dialogs.SizeAdjustMode
 import com.docu.editor.ui.dialogs.PageSizeDialog
 import com.docu.editor.ui.dialogs.DirectCloudUploadDialog
 import com.docu.editor.ui.home.HomeScreenDashboard
+import com.docu.editor.ui.dialogs.BatchResizeStudioDialog
 import com.docu.editor.ui.dialogs.CountCamDialog
 import com.docu.editor.ui.dialogs.IdPhotoMakerDialog
 import com.docu.editor.ui.dialogs.ScanCodeDialog
@@ -219,6 +220,7 @@ class MainActivity : ComponentActivity() {
                 var idPhotoBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
                 var showScanCodeDialog by remember { mutableStateOf(false) }
                 var scanCodeBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+                var showBatchResizeStudioDialog by remember { mutableStateOf(false) }
                 var showSolverAiDialog by remember { mutableStateOf(false) }
                 var solverAiQuestion by remember { mutableStateOf("") }
 
@@ -1131,6 +1133,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onBulkBatchOcrClicked = {
                                     bulkBatchOcrPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
+                                },
+                                onBatchResizeClicked = {
+                                    showBatchResizeStudioDialog = true
                                 },
                                 onTryDemoClicked = {
                                     viewModel.loadSampleDocument()
@@ -2179,6 +2184,15 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onDismiss = {
                                     showSolverAiDialog = false
+                                }
+                            )
+                        }
+
+                        // Batch Target Size Resizer & Converter Studio Dialog (Govt Exam Special)
+                        if (showBatchResizeStudioDialog) {
+                            BatchResizeStudioDialog(
+                                onDismiss = {
+                                    showBatchResizeStudioDialog = false
                                 }
                             )
                         }

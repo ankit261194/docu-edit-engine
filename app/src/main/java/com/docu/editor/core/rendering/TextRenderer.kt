@@ -93,13 +93,7 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
                 val lineStartX = when (params.alignment) {
                     Paint.Align.RIGHT -> (params.targetBounds.right.toFloat() - lineWidth).coerceAtLeast(params.targetBounds.left.toFloat())
                     Paint.Align.CENTER -> params.targetBounds.left.toFloat() + (params.targetBounds.width() - lineWidth) / 2f
-                    else -> {
-                        if (isAmount && lineWidth < params.targetBounds.width()) {
-                            params.targetBounds.right.toFloat() - lineWidth
-                        } else {
-                            params.targetBounds.left.toFloat()
-                        }
-                    }
+                    else -> params.targetBounds.left.toFloat()
                 }
                 val lineY = fitResult.baselineY + (i * lineHeight)
                 if (isHandwritten && line.length > 1) {
@@ -116,13 +110,7 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
                 val lineStartX = when (params.alignment) {
                     Paint.Align.RIGHT -> (params.targetBounds.right.toFloat() - lineWidth).coerceAtLeast(params.targetBounds.left.toFloat())
                     Paint.Align.CENTER -> params.targetBounds.left.toFloat() + (params.targetBounds.width() - lineWidth) / 2f
-                    else -> {
-                        if (isAmount && lineWidth < params.targetBounds.width()) {
-                            params.targetBounds.right.toFloat() - lineWidth
-                        } else {
-                            params.targetBounds.left.toFloat()
-                        }
-                    }
+                    else -> params.targetBounds.left.toFloat()
                 }
                 val lineY = fitResult.baselineY + (i * lineHeight)
                 if (isHandwritten && line.length > 1) {
@@ -146,15 +134,21 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val r = Color.red(sampledRgb)
         val g = Color.green(sampledRgb)
         val b = Color.blue(sampledRgb)
-        val luma = (0.299f * r + 0.587f * g + 0.114f * b).toInt()
+        val chroma = maxOf(r, g, b) - minOf(r, g, b)
 
+        // 1. If ink has chromatic color (blue ballpoint pen, red stamp, green ink, violet seal, etc.),
+        // PRESERVE the exact color 100%! Never force colored ink to black or charcoal!
+        if (chroma > 15) {
+            return sampledRgb
+        }
+
+        val luma = (0.299f * r + 0.587f * g + 0.114f * b).toInt()
         return when {
-            // Already authentic dark document ink (luminance 20 to 80): keep it authentic!
-            luma in 20..80 -> sampledRgb
+            // Already authentic dark document ink (luminance 15 to 90): preserve authentic tone!
+            luma in 15..90 -> sampledRgb
             // Artificial 0,0,0 pitch black: soften to natural laser printer dark charcoal #222428
-            luma < 20 -> Color.rgb(34, 36, 40)
-            // Faded/washed out (81 to 145): enhance naturally to solid document ink #282828
-            luma in 81..145 -> Color.rgb(40, 42, 48)
+            luma < 15 -> Color.rgb(34, 36, 40)
+            // Faded or light gray document toner: keep sampled ink faithfully
             else -> sampledRgb
         }
     }

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.CoPresent
+import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.Create
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Draw
@@ -118,9 +119,11 @@ fun CamScannerToolsTab(
     onSlidesScan: () -> Unit,
     onWhiteboardScan: () -> Unit,
     onTimestampScan: () -> Unit,
-    onScanCode: () -> Unit
+    onScanCode: () -> Unit,
+    onBatchResize: () -> Unit = {}
 ) {
     val convertItems = listOf(
+        ToolGridItem("batch_resize", "Batch Resizer", Icons.Default.Compress, Color(0xFF2563EB), Color(0xFFEFF6FF), hasRedBadge = true, onClick = onBatchResize),
         ToolGridItem("word", "To Word", Icons.Default.Description, Color(0xFF2563EB), Color(0xFFEFF6FF), onClick = onConvertToWord),
         ToolGridItem("excel", "To Excel", Icons.Default.TableChart, Color(0xFF16A34A), Color(0xFFF0FDF4), onClick = onConvertToExcel),
         ToolGridItem("ppt", "To PPT", Icons.Default.Slideshow, Color(0xFFEA580C), Color(0xFFFFF7ED), onClick = onConvertToPpt),

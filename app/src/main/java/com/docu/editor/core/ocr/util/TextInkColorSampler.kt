@@ -62,26 +62,47 @@ object TextInkColorSampler {
         }
 
         val dominantColor = if (foregroundColors.isNotEmpty()) {
-            val sortedByLuma = foregroundColors.sortedBy { c ->
+            // Check if there are chromatic (colored ink) pixels (blue ballpoint pen, red stamp, green ink, etc.)
+            val chromaticPixels = foregroundColors.filter { c ->
                 val r = (c shr 16) and 0xFF
                 val g = (c shr 8) and 0xFF
                 val b = c and 0xFF
-                (0.299 * r + 0.587 * g + 0.114 * b).toInt()
+                val chroma = maxOf(r, g, b) - minOf(r, g, b)
+                chroma > 18
             }
-            val coreCount = (sortedByLuma.size * 0.50f).toInt().coerceAtLeast(1)
-            val coreSamples = sortedByLuma.take(coreCount)
+
+            val targetSamples = if (chromaticPixels.size >= maxOf(3, (foregroundColors.size * 0.06f).toInt())) {
+                // Dominant colored ink: sort chromatic pixels by saturation/chroma and take the top 60%
+                chromaticPixels.sortedByDescending { c ->
+                    val r = (c shr 16) and 0xFF
+                    val g = (c shr 8) and 0xFF
+                    val b = c and 0xFF
+                    maxOf(r, g, b) - minOf(r, g, b)
+                }.take(maxOf(1, (chromaticPixels.size * 0.60f).toInt()))
+            } else {
+                // Monochrome/grayscale ink (black, charcoal, pencil): sort by luminance and take core dark pixels
+                val sortedByLuma = foregroundColors.sortedBy { c ->
+                    val r = (c shr 16) and 0xFF
+                    val g = (c shr 8) and 0xFF
+                    val b = c and 0xFF
+                    (0.299 * r + 0.587 * g + 0.114 * b).toInt()
+                }
+                val coreCount = (sortedByLuma.size * 0.40f).toInt().coerceAtLeast(1)
+                sortedByLuma.take(coreCount)
+            }
+
             var sumR = 0L
             var sumG = 0L
             var sumB = 0L
-            for (c in coreSamples) {
+            for (c in targetSamples) {
                 sumR += (c shr 16) and 0xFF
                 sumG += (c shr 8) and 0xFF
                 sumB += c and 0xFF
             }
             Color.rgb(
-                (sumR / coreSamples.size).toInt(),
-                (sumG / coreSamples.size).toInt(),
-                (sumB / coreSamples.size).toInt()
+                (sumR / targetSamples.size).toInt(),
+                (sumG / targetSamples.size).toInt(),
+                (sumB / targetSamples.size).toInt()
             )
         } else {
             Color.BLACK

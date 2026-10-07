@@ -1445,20 +1445,12 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     minOf(targetItem.boundingBox.left + newWidth, currentBitmap.width)
                 }
 
-                val isNumericFigure = newText.trim().matches(Regex("""^[$€£₹]?\s*[\d,.-]+%?$""")) ||
-                                      targetItem.text.trim().matches(Regex("""^[$€£₹]?\s*[\d,.-]+%?$"""))
-
-                val newBox = if (isNumericFigure) {
-                    val newLeft = (targetItem.boundingBox.right - newWidth).coerceAtLeast(0)
-                    Rect(newLeft, targetItem.boundingBox.top, targetItem.boundingBox.right, targetItem.boundingBox.bottom)
-                } else {
-                    Rect(
-                        targetItem.boundingBox.left,
-                        targetItem.boundingBox.top,
-                        finalRight,
-                        finalBottom
-                    )
-                }
+                val newBox = Rect(
+                    targetItem.boundingBox.left,
+                    targetItem.boundingBox.top,
+                    finalRight,
+                    finalBottom
+                )
 
                 val updatedItems = if (_uiState.value.isNewTextInsertion) {
                     _uiState.value.detectedItems + targetItem.copy(text = newText, boundingBox = newBox)
