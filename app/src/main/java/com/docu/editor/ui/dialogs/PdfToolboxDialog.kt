@@ -25,7 +25,7 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.MergeType
+import androidx.compose.material.icons.automirrored.filled.MergeType
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Security
@@ -761,7 +761,7 @@ fun PdfToolboxDialog(
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
                             modifier = Modifier.fillMaxWidth().height(46.dp)
                         ) {
-                            Icon(Icons.Default.MergeType, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Icon(Icons.AutoMirrored.Filled.MergeType, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Select Files to Merge", fontWeight = FontWeight.Bold, color = Color.White)
                         }

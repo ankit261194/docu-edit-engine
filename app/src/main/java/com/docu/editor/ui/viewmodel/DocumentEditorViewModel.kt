@@ -3661,7 +3661,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             val pageCount = PdfPageLoader.getPageCount(context, uri)
                             for (p in 0 until pageCount) {
                                 val bmp = PdfPageLoader.renderPageToBitmap(context, uri, p)
-                                if (bmp != null) allBitmaps.add(bmp)
+                                allBitmaps.add(bmp)
                             }
                         } else {
                             val bmp = com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(doc.filePath, 2880)

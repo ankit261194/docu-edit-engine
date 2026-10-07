@@ -159,12 +159,49 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        handleIncomingIntent(intent)
+
         if (OpenCVLoader.initLocal()) {
             Log.i("MainActivity", "OpenCV loaded successfully via initLocal.")
-        } else if (OpenCVLoader.initDebug()) {
-            Log.i("MainActivity", "OpenCV loaded successfully via initDebug.")
         } else {
-            Log.e("MainActivity", "OpenCV failed to load.")
+            @Suppress("DEPRECATION")
+            if (OpenCVLoader.initDebug()) {
+                Log.i("MainActivity", "OpenCV loaded successfully via initDebug.")
+            } else {
+                Log.e("MainActivity", "OpenCV failed to load.")
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIncomingIntent(intent)
+    }
+
+    private fun handleIncomingIntent(intent: Intent?) {
+        if (intent == null) return
+        val action = intent.action
+        try {
+            if (Intent.ACTION_VIEW == action || Intent.ACTION_EDIT == action) {
+                intent.data?.let { uri ->
+                    viewModel.loadDocumentUri(uri)
+                }
+            } else if (Intent.ACTION_SEND == action) {
+                val uri = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                }
+                if (uri != null) {
+                    viewModel.loadDocumentUri(uri)
+                } else {
+                    intent.data?.let { viewModel.loadDocumentUri(it) }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to handle incoming intent: ${e.message}")
         }
 
         setContent {
@@ -1169,7 +1206,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onMergeFiles = {
-                                    mergeFilesPickerLauncher.launch(arrayOf("application/pdf"))
+                                    mergeFilesPickerLauncher.launch(arrayOf("application/pdf", "image/*"))
                                 },
                                 onExtractPdfPages = {
                                     pdfToolsPickerLauncher.launch(arrayOf("application/pdf"))
