@@ -61,6 +61,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DriveFolderUpload
+import androidx.compose.material.icons.filled.PresentToAll
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -187,24 +188,39 @@ fun ExportDialog(
                     icon = Icons.AutoMirrored.Filled.Article,
                     iconTint = Color(0xFF1E40AF),
                     isSelected = selectedFormat == "DOCX",
+                    isPro = true,
                     onClick = { selectedFormat = "DOCX" }
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Format Option 5: Native Excel Workbook (.xlsx)
+                // Format Option 5: Microsoft PowerPoint (.pptx)
+                FormatOptionCard(
+                    title = "PowerPoint (.pptx)",
+                    description = "Native ECMA-376 OpenXML presentation deck for MS PowerPoint & Google Slides",
+                    icon = Icons.Default.PresentToAll,
+                    iconTint = Color(0xFFEA580C),
+                    isSelected = selectedFormat == "PPTX",
+                    isPro = true,
+                    onClick = { selectedFormat = "PPTX" }
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Format Option 6: Native Excel Workbook (.xlsx)
                 FormatOptionCard(
                     title = "Excel Workbook (.xlsx)",
                     description = "Native MS Excel spreadsheet with multi-page tabs (Sheet 1, Sheet 2)",
                     icon = Icons.AutoMirrored.Filled.Article,
                     iconTint = Color(0xFF15803D),
                     isSelected = selectedFormat == "XLSX",
+                    isPro = true,
                     onClick = { selectedFormat = "XLSX" }
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Format Option 6: CSV Spreadsheet (.csv)
+                // Format Option 7: CSV Spreadsheet (.csv)
                 FormatOptionCard(
                     title = "Spreadsheet (.csv)",
                     description = "Universal comma-separated values with UTF-8 BOM for all spreadsheet apps",
@@ -556,6 +572,7 @@ private fun FormatOptionCard(
     icon: ImageVector,
     iconTint: Color,
     isSelected: Boolean,
+    isPro: Boolean = false,
     onClick: () -> Unit
 ) {
     Surface(
@@ -593,12 +610,30 @@ private fun FormatOptionCard(
             Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = title,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (isPro) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            color = Color(0xFFF59E0B),
+                            shape = RoundedCornerShape(4.dp),
+                            shadowElevation = 2.dp
+                        ) {
+                            Text(
+                                text = "👑 PRO",
+                                color = Color(0xFF1E1B4B),
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Black,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
+                }
                 Text(
                     text = description,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

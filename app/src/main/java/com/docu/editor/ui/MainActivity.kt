@@ -470,6 +470,7 @@ class MainActivity : ComponentActivity() {
                             val mime = when {
                                 file.name.endsWith(".pdf", ignoreCase = true) -> "application/pdf"
                                 file.name.endsWith(".docx", ignoreCase = true) -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                file.name.endsWith(".pptx", ignoreCase = true) -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
                                 file.name.endsWith(".xlsx", ignoreCase = true) -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                                 file.name.endsWith(".csv", ignoreCase = true) -> "text/csv"
                                 file.name.endsWith(".png", ignoreCase = true) -> "image/png"
@@ -765,7 +766,24 @@ class MainActivity : ComponentActivity() {
                                     onCanvaMagicStudioClicked = { viewModel.showCanvaMagicStudioDialog(true) },
                                     onCanvaAdjustClicked = { viewModel.showCanvaAdjustDialog(true) },
                                     onCanvaAnimateClicked = { viewModel.showCanvaAnimateDialog(true) },
-                                    onCanvaLayersClicked = { viewModel.showCanvaLayersDialog(true) }
+                                    onCanvaLayersClicked = { viewModel.showCanvaLayersDialog(true) },
+                                    onPageDimensionsClicked = { viewModel.showPageSizeDialog(true) },
+                                    onAcroFormClicked = { viewModel.checkAcroFormsForCurrentPdf() },
+                                    onWordExportClicked = { viewModel.exportCurrentDocument("DOCX") },
+                                    onPptxExportClicked = { viewModel.exportCurrentDocument("PPTX") },
+                                    onExcelExportClicked = { viewModel.exportCurrentDocument("XLSX") },
+                                    onPkiDigitalSignClicked = { viewModel.prepareAndLaunchPkiSign() },
+                                    onCheckUpdateClicked = {
+                                        lifecycleScope.launch {
+                                            Toast.makeText(this@MainActivity, "Checking for latest updates...", Toast.LENGTH_SHORT).show()
+                                            val info = updateManager.checkForUpdates()
+                                            if (info.hasUpdate) {
+                                                pendingUpdate = info
+                                            } else {
+                                                Toast.makeText(this@MainActivity, "You are on the latest version (v${info.currentVersion})", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
                                 )
                             }
                         }

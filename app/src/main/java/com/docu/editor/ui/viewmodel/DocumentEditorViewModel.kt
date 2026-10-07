@@ -1972,6 +1972,24 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             SpreadsheetExportEngine.exportToXlsx(pagesMap, outFile)
                             outFile
                         }
+                        "PPTX", "PPT" -> {
+                            val cleanName = if (rawName.endsWith(".pptx", ignoreCase = true)) rawName else "$rawName.pptx"
+                            val outFile = File(downloadsDir, cleanName)
+                            val pagesList = mutableListOf<Bitmap>()
+                            if (effectivePages.size > 1 || (state.pdfPageCount > 1 && effectivePages.size == 1)) {
+                                for (pIdx in effectivePages) {
+                                    val bmp = editedPagesMap[pIdx]
+                                        ?: (if (state.activePdfUri != null) PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, pIdx) else null)
+                                        ?: (if (state.batchScannedPaths.size > pIdx) com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[pIdx], 2880) else null)
+                                        ?: current
+                                    pagesList.add(bmp)
+                                }
+                            } else {
+                                pagesList.add(current)
+                            }
+                            com.docu.editor.core.export.PptxExportEngine.generatePptx(pagesList, outFile, rawName)
+                            outFile
+                        }
                         "CSV", "XLS" -> {
                             val cleanName = if (rawName.endsWith(".csv", ignoreCase = true)) rawName else "$rawName.csv"
                             val outFile = File(downloadsDir, cleanName)

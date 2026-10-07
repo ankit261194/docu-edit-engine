@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -20,15 +21,20 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.Animation
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.ContentCut
 import androidx.compose.material.icons.filled.Crop
@@ -40,9 +46,12 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.LocalPolice
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.PresentToAll
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.ViewInAr
@@ -51,7 +60,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -74,22 +82,24 @@ import com.docu.editor.domain.model.DocumentFilterMode
 import com.docu.editor.domain.model.EditorToolMode
 import com.docu.editor.domain.model.ShapeType
 
-enum class EditorCategory(val label: String, val icon: ImageVector) {
-    ELEMENTS("Elements", Icons.Default.Category),
-    TEXT("Text", Icons.Default.TextFields),
-    MAGIC("Magic", Icons.Default.AutoAwesome),
-    ADJUST("Adjust", Icons.Default.Tune),
-    BRAND("Brand", Icons.Default.Palette),
-    LAYERS("Layers", Icons.Default.Layers),
-    ANIMATE("Animate", Icons.Default.Animation),
-    ENHANCE("Enhance", Icons.Default.AutoFixHigh),
-    TOOLS("Tools", Icons.Default.Description)
+/**
+ * Task-Driven 5-Workflow Categories inspired by Canva & CamScanner.
+ * Prevents UI clutter by presenting only the relevant tools for the selected workflow.
+ */
+enum class WorkflowCategory(val label: String, val icon: ImageVector) {
+    PDF_EDIT("PDF Edit", Icons.Default.Description),
+    ERASE_CLEAN("Erase & Clean", Icons.Default.AutoFixHigh),
+    DESIGN_STAMPS("Design & Stamps", Icons.Default.Palette),
+    SCAN_ENHANCE("Scan & Enhance", Icons.Default.FilterFrames),
+    EXPORT_CONVERT("Convert & Export", Icons.Default.Share)
 }
 
+typealias EditorCategory = WorkflowCategory
+
 /**
- * Canva Pro Flagship Obsidian Studio Bottom Dock.
- * Highly responsive, categorized multi-tab dock with glassmorphic accents,
- * contextual tool tuning sub-bars, and 1-tap Pro feature triggers.
+ * Pro Flagship Studio Bottom Dock.
+ * Highly responsive, categorized 5-tab dock with glassmorphic accents,
+ * contextual tool tuning sub-bars, and crisp 👑 PRO badges on premium tools.
  */
 @Composable
 fun DocumentBottomBar(
@@ -155,7 +165,14 @@ fun DocumentBottomBar(
     onCanvaMagicStudioClicked: () -> Unit = {},
     onCanvaAdjustClicked: () -> Unit = {},
     onCanvaAnimateClicked: () -> Unit = {},
-    onCanvaLayersClicked: () -> Unit = {}
+    onCanvaLayersClicked: () -> Unit = {},
+    onPageDimensionsClicked: () -> Unit = {},
+    onAcroFormClicked: () -> Unit = {},
+    onWordExportClicked: () -> Unit = {},
+    onPptxExportClicked: () -> Unit = {},
+    onExcelExportClicked: () -> Unit = {},
+    onPkiDigitalSignClicked: () -> Unit = {},
+    onCheckUpdateClicked: () -> Unit = {}
 ) {
     var brightness by remember { mutableFloatStateOf(0f) }
     var contrast by remember { mutableFloatStateOf(1f) }
@@ -163,11 +180,23 @@ fun DocumentBottomBar(
     var activeCategory by remember(activeMode, showFiltersRow) {
         mutableStateOf(
             when {
-                showFiltersRow || activeMode == EditorToolMode.FILTERS -> EditorCategory.ENHANCE
-                activeMode in listOf(EditorToolMode.MAGIC_ERASER, EditorToolMode.WHITEOUT, EditorToolMode.REDACTION, EditorToolMode.LASSO_SELECT) -> EditorCategory.MAGIC
-                activeMode in listOf(EditorToolMode.ADD_TEXT, EditorToolMode.TEXT_EDIT) -> EditorCategory.TEXT
-                activeMode == EditorToolMode.SHAPES -> EditorCategory.ELEMENTS
-                else -> EditorCategory.ELEMENTS
+                showFiltersRow || activeMode == EditorToolMode.FILTERS -> WorkflowCategory.SCAN_ENHANCE
+                activeMode in listOf(
+                    EditorToolMode.MAGIC_ERASER,
+                    EditorToolMode.WHITEOUT,
+                    EditorToolMode.REDACTION,
+                    EditorToolMode.LASSO_SELECT
+                ) -> WorkflowCategory.ERASE_CLEAN
+                activeMode in listOf(
+                    EditorToolMode.ADD_TEXT,
+                    EditorToolMode.TEXT_EDIT
+                ) -> WorkflowCategory.PDF_EDIT
+                activeMode in listOf(
+                    EditorToolMode.SHAPES,
+                    EditorToolMode.MARKUP_PEN,
+                    EditorToolMode.HIGHLIGHTER
+                ) -> WorkflowCategory.DESIGN_STAMPS
+                else -> WorkflowCategory.PDF_EDIT
             }
         )
     }
@@ -193,7 +222,7 @@ fun DocumentBottomBar(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .padding(horizontal = 14.dp, vertical = 4.dp)
                 ) {
                     Row(
                         modifier = Modifier
@@ -203,7 +232,19 @@ fun DocumentBottomBar(
                     ) {
                         DocumentFilterMode.values().forEach { filter ->
                             val isSelected = filter == activeFilter
+                            val isProFilter = filter in listOf(
+                                DocumentFilterMode.MAGIC_COLOR,
+                                DocumentFilterMode.STUDIO_WHITE,
+                                DocumentFilterMode.VIVID_DOC,
+                                DocumentFilterMode.INK_SHARPENER,
+                                DocumentFilterMode.SHADOW_REMOVER,
+                                DocumentFilterMode.WATERMARK_REMOVER,
+                                DocumentFilterMode.FINGER_REMOVER,
+                                DocumentFilterMode.BOOK_DEWARP,
+                                DocumentFilterMode.BLUEPRINT
+                            )
                             val isMagicColor = filter == DocumentFilterMode.MAGIC_COLOR
+
                             FilterChip(
                                 selected = isSelected,
                                 onClick = {
@@ -227,12 +268,27 @@ fun DocumentBottomBar(
                                         DocumentFilterMode.SEPIA -> "📜 Vintage Sepia"
                                         DocumentFilterMode.INK_SHARPENER -> "🖋️ Ink Anti-Smudge"
                                     }
-                                    Text(
-                                        text = chipText,
-                                        color = if (isSelected) Color.White else Color(0xFF94A3B8),
-                                        fontSize = 12.sp,
-                                        fontWeight = if (isSelected || isMagicColor) FontWeight.Bold else FontWeight.SemiBold
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = chipText,
+                                            color = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                            fontSize = 11.5.sp,
+                                            fontWeight = if (isSelected || isMagicColor) FontWeight.Bold else FontWeight.SemiBold
+                                        )
+                                        if (isProFilter) {
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Surface(
+                                                color = Color(0xFFF59E0B),
+                                                shape = RoundedCornerShape(3.dp)
+                                            ) {
+                                                Text(
+                                                    text = "👑",
+                                                    fontSize = 8.sp,
+                                                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 0.5.dp)
+                                                )
+                                            }
+                                        }
+                                    }
                                 },
                                 leadingIcon = if (isSelected) {
                                     {
@@ -240,7 +296,7 @@ fun DocumentBottomBar(
                                             Icons.Default.Check,
                                             contentDescription = null,
                                             tint = Color.White,
-                                            modifier = Modifier.size(14.dp)
+                                            modifier = Modifier.size(13.dp)
                                         )
                                     }
                                 } else null,
@@ -392,6 +448,76 @@ fun DocumentBottomBar(
                 }
             }
 
+            // Whiteout Brush Sub-Bar
+            AnimatedVisibility(visible = activeMode == EditorToolMode.WHITEOUT) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Whiteout: ${whiteoutBrushRadius.toInt()}px", fontSize = 12.sp, color = Color(0xFF94A3B8))
+                    Slider(
+                        value = whiteoutBrushRadius,
+                        onValueChange = onWhiteoutBrushRadiusChanged,
+                        valueRange = 10f..60f,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 8.dp),
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color.White,
+                            activeTrackColor = Color.White,
+                            inactiveTrackColor = Color(0xFF2A2D3D)
+                        )
+                    )
+                }
+            }
+
+            // Lasso Selection Sub-Bar
+            AnimatedVisibility(visible = activeMode == EditorToolMode.LASSO_SELECT) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Selected: $selectedLassoCount words",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFC084FC)
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    if (selectedLassoCount > 0) {
+                        Button(
+                            onClick = onMergeEditLasso,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text("Merge & Edit", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Button(
+                            onClick = onWhiteoutLasso,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text("Whiteout", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Button(
+                            onClick = onClearLasso,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF334155)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text("Clear", fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+
             // =========================================================================
             // 2. Action Tools Row (Changes dynamically based on active Category)
             // =========================================================================
@@ -399,233 +525,317 @@ fun DocumentBottomBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 when (activeCategory) {
-                    EditorCategory.ELEMENTS -> {
-                        ToolDockButton(
-                            icon = Icons.Default.Category,
-                            label = "14 Shapes",
-                            isSelected = activeMode == EditorToolMode.SHAPES,
-                            onClick = { onModeSelected(EditorToolMode.SHAPES) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.FilterFrames,
-                            label = "Frames & 3D",
-                            isSelected = false,
-                            onClick = onCanvaMockupsClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Security,
-                            label = "Stickers & Seals",
-                            isSelected = false,
-                            onClick = onCanvaStickersClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.ViewInAr,
-                            label = "Insert Photo",
-                            isSelected = false,
-                            onClick = onInsertImageClicked
-                        )
-                    }
-
-                    EditorCategory.TEXT -> {
-                        ToolDockButton(
-                            icon = Icons.Default.TextFields,
-                            label = "Text Studio",
-                            isSelected = false,
-                            onClick = onCanvaTextStudioClicked
-                        )
+                    WorkflowCategory.PDF_EDIT -> {
                         ToolDockButton(
                             icon = Icons.Default.Edit,
-                            label = "Quick Text",
+                            label = "Edit Text",
+                            isSelected = activeMode == EditorToolMode.TEXT_EDIT,
+                            isPro = true,
+                            onClick = { onModeSelected(EditorToolMode.TEXT_EDIT) }
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.TextFields,
+                            label = "Add Text",
                             isSelected = activeMode == EditorToolMode.ADD_TEXT,
+                            isPro = false,
                             onClick = { onModeSelected(EditorToolMode.ADD_TEXT) }
                         )
                         ToolDockButton(
                             icon = Icons.Default.AutoAwesome,
-                            label = "Magic Write",
+                            label = "Text Studio",
                             isSelected = false,
+                            isPro = true,
                             onClick = onCanvaTextStudioClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.AutoMirrored.Filled.Article,
+                            label = "OCR Text",
+                            isSelected = false,
+                            isPro = true,
+                            onClick = onExtractTextClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Check,
+                            label = "Form Fill",
+                            isSelected = false,
+                            isPro = true,
+                            onClick = onAcroFormClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Draw,
+                            label = "Sign PDF",
+                            isSelected = false,
+                            isPro = false,
+                            onClick = onSignatureClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Lock,
+                            label = "Redact ID",
+                            isSelected = false,
+                            isPro = true,
+                            onClick = onIdRedactionClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.AspectRatio,
+                            label = "Page Size",
+                            isSelected = false,
+                            isPro = false,
+                            onClick = onPageDimensionsClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Layers,
+                            label = "Pages Grid",
+                            isSelected = false,
+                            isPro = false,
+                            onClick = onPagesOverviewClicked
                         )
                     }
 
-                    EditorCategory.MAGIC -> {
-                        ToolDockButton(
-                            icon = Icons.Default.AutoAwesome,
-                            label = "Magic Studio",
-                            isSelected = false,
-                            onClick = onCanvaMagicStudioClicked
-                        )
+                    WorkflowCategory.ERASE_CLEAN -> {
                         ToolDockButton(
                             icon = Icons.Default.AutoFixHigh,
                             label = "Magic Eraser",
                             isSelected = activeMode == EditorToolMode.MAGIC_ERASER,
+                            isPro = true,
                             onClick = { onModeSelected(EditorToolMode.MAGIC_ERASER) }
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.CleaningServices,
+                            label = "Erase Marks",
+                            isSelected = false,
+                            isPro = true,
+                            onClick = onEraseMarksClicked
                         )
                         ToolDockButton(
                             icon = Icons.Default.ContentCut,
                             label = "BG Remover",
                             isSelected = false,
+                            isPro = true,
                             onClick = onBackgroundRemovalClicked
                         )
                         ToolDockButton(
-                            icon = Icons.Default.Clear,
-                            label = "Whiteout",
-                            isSelected = activeMode == EditorToolMode.WHITEOUT,
-                            onClick = { onModeSelected(EditorToolMode.WHITEOUT) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Block,
-                            label = "Redact",
-                            isSelected = activeMode == EditorToolMode.REDACTION,
-                            onClick = { onModeSelected(EditorToolMode.REDACTION) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.SelectAll,
-                            label = "Lasso Pick",
-                            isSelected = activeMode == EditorToolMode.LASSO_SELECT,
-                            onClick = { onModeSelected(EditorToolMode.LASSO_SELECT) }
-                        )
-                    }
-
-                    EditorCategory.ADJUST -> {
-                        ToolDockButton(
-                            icon = Icons.Default.Tune,
-                            label = "Adjust Sliders",
-                            isSelected = false,
-                            onClick = onCanvaAdjustClicked
-                        )
-                        ToolDockButton(
                             icon = Icons.Default.AutoFixHigh,
-                            label = "Magic Color",
-                            isSelected = activeFilter == DocumentFilterMode.MAGIC_COLOR,
-                            onClick = { onFilterSelected(DocumentFilterMode.MAGIC_COLOR) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Clear,
                             label = "Erase Shadow",
                             isSelected = false,
+                            isPro = true,
                             onClick = onApplyShadowRemover
                         )
                         ToolDockButton(
                             icon = Icons.Default.Clear,
                             label = "Remove Fingers",
                             isSelected = false,
+                            isPro = true,
                             onClick = onApplyFingerRemover
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Brush,
+                            label = "Whiteout",
+                            isSelected = activeMode == EditorToolMode.WHITEOUT,
+                            isPro = false,
+                            onClick = { onModeSelected(EditorToolMode.WHITEOUT) }
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Block,
+                            label = "Redact Box",
+                            isSelected = activeMode == EditorToolMode.REDACTION,
+                            isPro = false,
+                            onClick = { onModeSelected(EditorToolMode.REDACTION) }
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.SelectAll,
+                            label = "Lasso Pick",
+                            isSelected = activeMode == EditorToolMode.LASSO_SELECT,
+                            isPro = true,
+                            onClick = { onModeSelected(EditorToolMode.LASSO_SELECT) }
                         )
                     }
 
-                    EditorCategory.BRAND -> {
+                    WorkflowCategory.DESIGN_STAMPS -> {
+                        ToolDockButton(
+                            icon = Icons.Default.Category,
+                            label = "14 Shapes",
+                            isSelected = activeMode == EditorToolMode.SHAPES,
+                            isPro = false,
+                            onClick = { onModeSelected(EditorToolMode.SHAPES) }
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.LocalPolice,
+                            label = "Rubber Stamp",
+                            isSelected = false,
+                            isPro = true,
+                            onClick = onRubberStampClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Security,
+                            label = "Stickers & Seals",
+                            isSelected = false,
+                            isPro = true,
+                            onClick = onCanvaStickersClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.ViewInAr,
+                            label = "Insert Photo",
+                            isSelected = false,
+                            isPro = false,
+                            onClick = onInsertImageClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Draw,
+                            label = "Watermark",
+                            isSelected = false,
+                            isPro = false,
+                            onClick = onWatermarkClicked
+                        )
                         ToolDockButton(
                             icon = Icons.Default.Palette,
                             label = "Brand Kit",
                             isSelected = false,
+                            isPro = true,
                             onClick = onCanvaBrandKitClicked
                         )
-                    }
-
-                    EditorCategory.LAYERS -> {
                         ToolDockButton(
                             icon = Icons.Default.Layers,
                             label = "Layer Stack",
                             isSelected = false,
+                            isPro = true,
                             onClick = onCanvaLayersClicked
                         )
-                    }
-
-                    EditorCategory.ANIMATE -> {
+                        ToolDockButton(
+                            icon = Icons.Default.FilterFrames,
+                            label = "Frames & 3D",
+                            isSelected = false,
+                            isPro = true,
+                            onClick = onCanvaMockupsClicked
+                        )
                         ToolDockButton(
                             icon = Icons.Default.Animation,
                             label = "Motion Presets",
                             isSelected = false,
+                            isPro = true,
                             onClick = onCanvaAnimateClicked
                         )
                     }
 
-                    EditorCategory.ENHANCE -> {
+                    WorkflowCategory.SCAN_ENHANCE -> {
                         ToolDockButton(
                             icon = Icons.Default.AutoFixHigh,
-                            label = "Filters",
+                            label = "13 Filters",
                             isSelected = showFiltersRow || activeMode == EditorToolMode.FILTERS,
+                            isPro = false,
                             onClick = { onModeSelected(EditorToolMode.FILTERS) }
                         )
                         ToolDockButton(
-                            icon = Icons.AutoMirrored.Filled.RotateRight,
-                            label = "Rotate",
+                            icon = Icons.Default.Crop,
+                            label = "Smart Crop",
                             isSelected = false,
+                            isPro = false,
+                            onClick = onInteractiveCropClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.AutoMirrored.Filled.RotateRight,
+                            label = "Rotate 90°",
+                            isSelected = false,
+                            isPro = false,
                             onClick = onRotateClicked
                         )
                         ToolDockButton(
                             icon = Icons.Default.AutoAwesome,
                             label = "Auto Orient",
                             isSelected = false,
+                            isPro = true,
                             onClick = onAutoOrientClicked
-                        )
-                    }
-
-                    EditorCategory.TOOLS -> {
-                        ToolDockButton(
-                            icon = Icons.Default.Crop,
-                            label = "Crop",
-                            isSelected = false,
-                            onClick = onInteractiveCropClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Description,
-                            label = "OCR Text",
-                            isSelected = false,
-                            onClick = onExtractTextClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Security,
-                            label = "Sign & Stamp",
-                            isSelected = false,
-                            onClick = onSignatureClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Draw,
-                            label = "Watermark",
-                            isSelected = false,
-                            onClick = onWatermarkClicked
                         )
                         ToolDockButton(
                             icon = Icons.AutoMirrored.Filled.MenuBook,
                             label = "Book Dewarp",
                             isSelected = false,
+                            isPro = true,
                             onClick = onBookDewarpClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Compress,
-                            label = "Compress",
-                            isSelected = false,
-                            onClick = onCompressClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.LocalPolice,
-                            label = "Rubber Stamp",
-                            isSelected = false,
-                            onClick = onRubberStampClicked
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.Lock,
-                            label = "Redact ID",
-                            isSelected = false,
-                            onClick = onIdRedactionClicked
                         )
                         ToolDockButton(
                             icon = Icons.AutoMirrored.Filled.MenuBook,
                             label = "Split Book",
                             isSelected = false,
+                            isPro = true,
                             onClick = onBookSplitClicked
                         )
                         ToolDockButton(
-                            icon = Icons.Default.AutoFixHigh,
-                            label = "Erase Marks",
+                            icon = Icons.Default.Tune,
+                            label = "Adjust Sliders",
                             isSelected = false,
-                            onClick = onEraseMarksClicked
+                            isPro = true,
+                            onClick = onCanvaAdjustClicked
+                        )
+                    }
+
+                    WorkflowCategory.EXPORT_CONVERT -> {
+                        ToolDockButton(
+                            icon = Icons.Default.Share,
+                            label = "Export Sheet",
+                            isSelected = false,
+                            isPro = false,
+                            onClick = onExportClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.AutoMirrored.Filled.Article,
+                            label = "Word (.docx)",
+                            isSelected = false,
+                            isPro = true,
+                            onClick = onWordExportClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.PresentToAll,
+                            label = "PowerPoint",
+                            isSelected = false,
+                            isPro = true,
+                            onClick = onPptxExportClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.TableChart,
+                            label = "Excel (.xlsx)",
+                            isSelected = false,
+                            isPro = true,
+                            onClick = onExcelExportClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Compress,
+                            label = "Pi7 KB Resize",
+                            isSelected = false,
+                            isPro = true,
+                            onClick = onTargetSizeClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Description,
+                            label = "PDF Toolbox",
+                            isSelected = false,
+                            isPro = false,
+                            onClick = onCompressClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Security,
+                            label = "Digital Sign",
+                            isSelected = false,
+                            isPro = true,
+                            onClick = onPkiDigitalSignClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.CloudUpload,
+                            label = "Cloud Hub",
+                            isSelected = false,
+                            isPro = true,
+                            onClick = onCloudSyncClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.SystemUpdate,
+                            label = "Check Update",
+                            isSelected = false,
+                            isPro = false,
+                            onClick = onCheckUpdateClicked
                         )
                     }
                 }
@@ -642,7 +852,7 @@ fun DocumentBottomBar(
                 border = BorderStroke(1.dp, Color(0xFF26293A)),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp)
+                    .padding(horizontal = 8.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -652,18 +862,19 @@ fun DocumentBottomBar(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    EditorCategory.entries.forEach { category ->
+                    WorkflowCategory.entries.forEach { category ->
                         val isSelected = category == activeCategory
                         Surface(
-                            shape = RoundedCornerShape(10.dp),
+                            shape = RoundedCornerShape(12.dp),
                             color = if (isSelected) Color(0xFF8B5CF6) else Color.Transparent,
+                            border = if (isSelected) BorderStroke(1.dp, Color(0xFFA78BFA)) else null,
                             modifier = Modifier
-                                .clip(RoundedCornerShape(10.dp))
+                                .clip(RoundedCornerShape(12.dp))
                                 .clickable { activeCategory = category }
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
                             ) {
                                 Icon(
                                     imageVector = category.icon,
@@ -675,25 +886,25 @@ fun DocumentBottomBar(
                                 Text(
                                     text = category.label,
                                     color = if (isSelected) Color.White else Color(0xFF94A3B8),
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    fontSize = 11.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
                                 )
                             }
                         }
                     }
 
-                    // Export Button Pill
+                    // Quick 1-Tap Export Button Pill
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(12.dp),
                         color = Color(0xFF059669).copy(alpha = 0.2f),
                         border = BorderStroke(1.dp, Color(0xFF059669)),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .clickable { onExportClicked() }
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Share,
@@ -705,7 +916,7 @@ fun DocumentBottomBar(
                             Text(
                                 text = "Export",
                                 color = Color(0xFF10B981),
-                                fontSize = 12.sp,
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -716,11 +927,15 @@ fun DocumentBottomBar(
     }
 }
 
+/**
+ * Reusable tool dock button with icon, label, selection glow, and prominent 👑 PRO badge.
+ */
 @Composable
 private fun ToolDockButton(
     icon: ImageVector,
     label: String,
     isSelected: Boolean,
+    isPro: Boolean = false,
     onClick: () -> Unit
 ) {
     Column(
@@ -728,33 +943,58 @@ private fun ToolDockButton(
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
             .clickable { onClick() }
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .padding(horizontal = 6.dp, vertical = 4.dp)
     ) {
         Box(
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape)
-                .background(if (isSelected) Color(0xFF8B5CF6) else Color(0xFF1E2130))
-                .border(
-                    width = 1.dp,
-                    color = if (isSelected) Color(0xFFC084FC) else Color(0xFF2A2D3D),
-                    shape = CircleShape
-                ),
+            modifier = Modifier.size(46.dp),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = if (isSelected) Color.White else Color(0xFFCBD5E1),
-                modifier = Modifier.size(20.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(if (isSelected) Color(0xFF8B5CF6) else Color(0xFF1E2130))
+                    .border(
+                        width = if (isSelected) 1.5.dp else 1.dp,
+                        color = if (isSelected) Color(0xFFC084FC) else Color(0xFF2A2D3D),
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = if (isSelected) Color.White else Color(0xFFCBD5E1),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            if (isPro) {
+                Surface(
+                    color = Color(0xFFF59E0B),
+                    shape = RoundedCornerShape(4.dp),
+                    shadowElevation = 3.dp,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 4.dp, y = (-2).dp)
+                ) {
+                    Text(
+                        text = "👑 PRO",
+                        color = Color(0xFF1E1B4B),
+                        fontSize = 8.sp,
+                        fontWeight = FontWeight.Black,
+                        modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                    )
+                }
+            }
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = label,
             color = if (isSelected) Color(0xFFC084FC) else Color(0xFF94A3B8),
             fontSize = 11.sp,
-            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+            maxLines = 1
         )
     }
 }
