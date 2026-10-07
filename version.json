@@ -1,0 +1,12 @@
+{
+  "versionCode": 35,
+  "versionName": "9.0.0",
+  "minSupportedVersion": "1.0.0",
+  "releaseTitle": "DocuEdit Engine v9.0.0 Pro Suite Commercial",
+  "changelog": "🎉 Phase 1-7 Fully Delivered:\n• Canvas Touch & 8-Point Anchors (Dimension HUD, Magnetic Snap, Haptic Feedback)\n• OpenCV Telea Fast Marching Inpainting & Micro-Grain Paper Texture\n• ML Kit Devanagari Dual-Engine OCR Orientation & Hough Deskew\n• Magic Studio: Black Pen Handwriting Erase & Printed Text Protection\n• Finger & Shadow Removal, Book Spine 2-Page Splitter\n• 4-Corner Perspective Crop, 13 CamScanner Visual Filters, ID Card Stitching\n• AcroForm Flattening, PKI Digital Signer, Rubber Stamp Studio\n• Golden 👑 PRO Badging on all advanced tools",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v9.0.0/DocuEdit-v9.0.0-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v9.0.0/DocuEdit-v9.0.0-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v9.0.0/DocuEdit-v9.0.0-arm64.apk",
+  "apkFileName": "DocuEdit-v9.0.0-arm64.apk",
+  "apkSizeMb": 60.5
+}
