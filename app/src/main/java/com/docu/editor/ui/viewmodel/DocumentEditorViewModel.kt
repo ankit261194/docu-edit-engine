@@ -60,6 +60,8 @@ import com.docu.editor.core.dewarp.BookSplitEngine
 import com.docu.editor.core.cv.EraseMarksEngine
 import com.docu.editor.core.signature.SignatureExtractor
 import com.docu.editor.core.signature.StampExtractor
+import com.docu.editor.core.signature.StampStudioEngine
+import com.docu.editor.core.security.IdRedactionEngine
 import com.docu.editor.core.export.DocxExportEngine
 import com.docu.editor.core.export.SpreadsheetExportEngine
 import com.docu.editor.core.export.GoogleDriveExportHelper
@@ -3313,6 +3315,87 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(showPkiDigitalSignDialog = show) }
     }
 
+    fun showRubberStampDialog(show: Boolean) {
+        _uiState.update { it.copy(showRubberStampDialog = show) }
+    }
+
+    fun showIdRedactionDialog(show: Boolean) {
+        _uiState.update { it.copy(showIdRedactionDialog = show) }
+    }
+
+    fun addRubberStampLayer(config: StampStudioEngine.StampConfig) {
+        val current = _uiState.value.currentBitmap ?: return
+        val stampBmp = StampStudioEngine.createRubberStamp(config)
+
+        val posX = (current.width - stampBmp.width) / 2f
+        val posY = (current.height - stampBmp.height) / 2f
+
+        val layer = DocumentCanvasLayer(
+            bitmap = stampBmp,
+            x = posX.coerceAtLeast(30f),
+            y = posY.coerceAtLeast(30f),
+            scale = 0.85f,
+            rotation = -8f,
+            title = "Stamp: ${config.centerText}",
+            alpha = 0.95f
+        )
+
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+        val currentLayers = _uiState.value.canvasLayers
+        _uiState.update {
+            it.copy(
+                canvasLayers = currentLayers + layer,
+                selectedLayerId = layer.id,
+                hasUnsavedChanges = true,
+                canvasRevision = it.canvasRevision + 1,
+                successMessage = "✓ Rubber Stamp added! (Drag & Pinch to position)"
+            )
+        }
+    }
+
+    fun autoRedactSensitiveData(mode: IdRedactionEngine.RedactionMode) {
+        val current = _uiState.value.currentBitmap ?: return
+        val curPageIdx = _uiState.value.currentPdfPageIndex
+
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Scanning for Aadhaar/PAN/Sensitive IDs...") }
+
+            val items = if (_uiState.value.detectedItems.isNotEmpty()) {
+                _uiState.value.detectedItems
+            } else {
+                withContext(Dispatchers.Default) {
+                    ocrAnalyzer.detectTextBlocks(current, TextHierarchyLevel.LINE)
+                }
+            }
+
+            val result = withContext(Dispatchers.Default) {
+                IdRedactionEngine.autoRedactSensitiveData(current, items, mode)
+            }
+
+            editedPagesMap[curPageIdx] = result.redactedBitmap
+
+            val msg = if (result.redactedCount > 0) {
+                "✓ Masked ${result.redactedCount} sensitive IDs (${result.details.joinToString(", ")})"
+            } else {
+                "No Aadhaar or PAN numbers detected on this page"
+            }
+
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = false,
+                    processingMessage = null,
+                    currentBitmap = result.redactedBitmap,
+                    successMessage = msg,
+                    canUndo = true,
+                    canRedo = false,
+                    canvasRevision = it.canvasRevision + 1
+                )
+            }
+        }
+    }
+
     private suspend fun getOrGenerateConsolidatedPdf(): File? = withContext(Dispatchers.IO) {
         try {
             val cachePdf = File(getApplication<Application>().cacheDir, "consolidated_temp_${System.currentTimeMillis()}.pdf")
@@ -3458,7 +3541,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         if (show) {
             val current = _uiState.value.currentBitmap ?: return
             viewModelScope.launch {
-                _uiState.update { it.copy(isScanning = true, processingMessage = "Extracting text with CamScanner OCR...") }
+                _uiState.update { it.copy(isScanning = true, processingMessage = "Extracting text with DocuScan AI OCR...") }
                 try {
                     val items = withContext(Dispatchers.Default) {
                         ocrAnalyzer.detectTextBlocks(current, TextHierarchyLevel.LINE)

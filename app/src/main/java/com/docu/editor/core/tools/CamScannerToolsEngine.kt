@@ -414,31 +414,16 @@ object CamScannerToolsEngine {
     // =========================================================================
 
     /**
-     * Generates a multi-slide presentation file format from pages.
+     * Generates a 100% authentic Microsoft PowerPoint (.pptx) presentation deck from document pages.
      */
     suspend fun exportPagesToPptx(
         pages: List<Bitmap>,
         outputFile: File,
         presentationTitle: String = "Presentation"
     ): File = withContext(Dispatchers.IO) {
-        // Output clean presentation slides archive
-        val zipOut = java.util.zip.ZipOutputStream(FileOutputStream(outputFile))
-        try {
-            // Write slide bitmaps as JPG slides
-            pages.forEachIndexed { index, bitmap ->
-                val entry = java.util.zip.ZipEntry("slide_${index + 1}.jpg")
-                zipOut.putNextEntry(entry)
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 92, zipOut)
-                zipOut.closeEntry()
-            }
-            // Metadata entry
-            val metaEntry = java.util.zip.ZipEntry("presentation_meta.txt")
-            zipOut.putNextEntry(metaEntry)
-            val metaContent = "Title: $presentationTitle\nSlides: ${pages.size}\nCreated: ${System.currentTimeMillis()}\nGenerator: DocuEdit Pro Presentation Engine"
-            zipOut.write(metaContent.toByteArray(Charsets.UTF_8))
-            zipOut.closeEntry()
-        } finally {
-            zipOut.close()
+        val success = com.docu.editor.core.export.PptxExportEngine.generatePptx(pages, outputFile, presentationTitle)
+        if (!success) {
+            throw java.io.IOException("Failed to generate OpenXML PowerPoint presentation")
         }
         outputFile
     }

@@ -37,6 +37,8 @@ import androidx.compose.material.icons.filled.Draw
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterFrames
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.LocalPolice
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SelectAll
@@ -113,6 +115,10 @@ fun DocumentBottomBar(
     onClearLasso: () -> Unit = {},
     onWatermarkClicked: () -> Unit = {},
     onBookDewarpClicked: () -> Unit = {},
+    onRubberStampClicked: () -> Unit = {},
+    onIdRedactionClicked: () -> Unit = {},
+    onBookSplitClicked: () -> Unit = {},
+    onEraseMarksClicked: () -> Unit = {},
     whiteoutBrushRadius: Float = 22f,
     onWhiteoutBrushRadiusChanged: (Float) -> Unit = {},
     markupColorRgb: Int = android.graphics.Color.rgb(255, 235, 59),
@@ -596,6 +602,30 @@ fun DocumentBottomBar(
                             label = "Compress",
                             isSelected = false,
                             onClick = onCompressClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.LocalPolice,
+                            label = "Rubber Stamp",
+                            isSelected = false,
+                            onClick = onRubberStampClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Lock,
+                            label = "Redact ID",
+                            isSelected = false,
+                            onClick = onIdRedactionClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.AutoMirrored.Filled.MenuBook,
+                            label = "Split Book",
+                            isSelected = false,
+                            onClick = onBookSplitClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.AutoFixHigh,
+                            label = "Erase Marks",
+                            isSelected = false,
+                            onClick = onEraseMarksClicked
                         )
                     }
                 }

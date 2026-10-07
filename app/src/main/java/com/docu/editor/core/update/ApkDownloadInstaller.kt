@@ -13,11 +13,60 @@ import android.widget.Toast
 import androidx.core.content.FileProvider
 import java.io.File
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+
 class ApkDownloadInstaller(private val context: Context) {
 
     private val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
     private var downloadId: Long = -1L
     private var receiverRegistered = false
+
+    suspend fun downloadInAppStream(
+        apkUrl: String,
+        fileName: String,
+        onProgress: (progress: Float, downloadedMb: Float, totalMb: Float) -> Unit
+    ): File = withContext(Dispatchers.IO) {
+        val destFile = File(
+            context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.cacheDir,
+            fileName
+        )
+        if (destFile.exists()) destFile.delete()
+
+        val url = URL(apkUrl)
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 15000
+            readTimeout = 30000
+            instanceFollowRedirects = true
+        }
+
+        val totalBytes = conn.contentLength.toFloat()
+        val totalMb = if (totalBytes > 0) totalBytes / (1024f * 1024f) else 0f
+
+        var downloadedBytes = 0L
+        val buffer = ByteArray(16384)
+
+        conn.inputStream.use { input ->
+            FileOutputStream(destFile).use { output ->
+                var read: Int
+                while (input.read(buffer).also { read = it } != -1) {
+                    output.write(buffer, 0, read)
+                    downloadedBytes += read
+                    val downloadedMb = downloadedBytes / (1024f * 1024f)
+                    val progress = if (totalBytes > 0) (downloadedBytes / totalBytes).coerceIn(0f, 1f) else 0f
+                    withContext(Dispatchers.Main) {
+                        onProgress(progress, downloadedMb, totalMb)
+                    }
+                }
+                output.flush()
+            }
+        }
+        destFile
+    }
 
     fun startDownload(apkUrl: String, fileName: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

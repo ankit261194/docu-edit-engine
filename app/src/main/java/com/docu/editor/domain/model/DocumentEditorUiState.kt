@@ -83,6 +83,8 @@ data class DocumentEditorUiState(
     val showExportDialog: Boolean = false,
     val showWatermarkDialog: Boolean = false,
     val showBookDewarpDialog: Boolean = false,
+    val showRubberStampDialog: Boolean = false,
+    val showIdRedactionDialog: Boolean = false,
     val showOcrTextExtractDialog: Boolean = false,
     val showInteractiveCropDialog: Boolean = false,
     val showCloudAiSettingsDialog: Boolean = false,

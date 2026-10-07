@@ -442,7 +442,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
             setBackgroundColor(Color.argb(230, 15, 23, 42))
         }
         val filterTitle = TextView(this).apply {
-            text = "✨ CamScanner Document Enhancement"
+            text = "✨ DocuScan Pro Enhancement"
             setTextColor(Color.WHITE)
             textSize = 16f
             typeface = android.graphics.Typeface.DEFAULT_BOLD

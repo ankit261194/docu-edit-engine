@@ -725,6 +725,10 @@ class MainActivity : ComponentActivity() {
                                     onClearLasso = { viewModel.clearLassoSelection() },
                                     onWatermarkClicked = { viewModel.showWatermarkDialog(true) },
                                     onBookDewarpClicked = { viewModel.showBookDewarpDialog(true) },
+                                    onRubberStampClicked = { viewModel.showRubberStampDialog(true) },
+                                    onIdRedactionClicked = { viewModel.showIdRedactionDialog(true) },
+                                    onBookSplitClicked = { viewModel.splitCurrentBookSpread() },
+                                    onEraseMarksClicked = { viewModel.eraseMarks() },
                                     whiteoutBrushRadius = uiState.whiteoutBrushRadius,
                                     onWhiteoutBrushRadiusChanged = { r -> viewModel.setWhiteoutBrushRadius(r) },
                                     markupColorRgb = uiState.markupColorRgb,
@@ -1562,6 +1566,26 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        // Digital Rubber Stamp Maker Dialog
+                        if (uiState.showRubberStampDialog) {
+                            com.docu.editor.ui.dialogs.RubberStampDialog(
+                                onDismiss = { viewModel.showRubberStampDialog(false) },
+                                onApplyStamp = { config ->
+                                    viewModel.addRubberStampLayer(config)
+                                }
+                            )
+                        }
+
+                        // Sensitive Government ID Auto-Redaction Dialog
+                        if (uiState.showIdRedactionDialog) {
+                            com.docu.editor.ui.dialogs.IdRedactionDialog(
+                                onDismiss = { viewModel.showIdRedactionDialog(false) },
+                                onApplyRedaction = { mode ->
+                                    viewModel.autoRedactSensitiveData(mode)
+                                }
+                            )
+                        }
+
                         // Interactive AcroForm PDF Fillable Fields Dialog
                         if (uiState.showAcroFormDialog && uiState.acroFormFields.isNotEmpty()) {
                             com.docu.editor.ui.dialogs.AcroFormEditDialog(
@@ -1752,17 +1776,19 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // Auto-Update Dialog
+                        // Auto-Update Dialog (100% In-App Download & Immediate PackageInstaller Prompt)
                         pendingUpdate?.let { updateInfo ->
                             UpdateDialog(
                                 updateInfo = updateInfo,
                                 onDismiss = { pendingUpdate = null },
-                                onConfirmUpdate = { downloadUrl, localApkPath, fileName ->
-                                    pendingUpdate = null
-                                    if (!localApkPath.isNullOrBlank()) {
-                                        apkInstaller.installApk(File(localApkPath))
-                                    } else if (!downloadUrl.isNullOrBlank()) {
-                                        apkInstaller.startDownload(downloadUrl, fileName)
+                                onInstallLocalApk = { file ->
+                                    apkInstaller.installApk(file)
+                                },
+                                onDownloadInApp = { url, name, onProg ->
+                                    try {
+                                        apkInstaller.downloadInAppStream(url, name, onProg)
+                                    } catch (_: Exception) {
+                                        null
                                     }
                                 }
                             )
