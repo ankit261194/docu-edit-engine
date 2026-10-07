@@ -2042,15 +2042,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         "XLSX" -> {
                             val cleanName = if (rawName.endsWith(".xlsx", ignoreCase = true)) rawName else "$rawName.xlsx"
                             val outFile = File(downloadsDir, cleanName)
-                            val pagesMap = mutableMapOf<Int, List<DetectedTextItem>>()
-                            if (effectivePages.size > 1 || (state.pdfPageCount > 1 && effectivePages.size == 1)) {
-                                effectivePages.forEachIndexed { outIdx, realIdx ->
-                                    val items = pageDetectedItemsMap[realIdx] ?: if (realIdx == state.currentPdfPageIndex) state.detectedItems else emptyList()
-                                    pagesMap[outIdx] = items
-                                }
-                            } else {
-                                pagesMap[0] = state.detectedItems
-                            }
+                            val pagesMap = resolvePagesDetectedItems(effectivePages, state, current, context)
                             SpreadsheetExportEngine.exportToXlsx(pagesMap, outFile)
                             outFile
                         }
@@ -2075,16 +2067,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         "CSV", "XLS" -> {
                             val cleanName = if (rawName.endsWith(".csv", ignoreCase = true)) rawName else "$rawName.csv"
                             val outFile = File(downloadsDir, cleanName)
-                            val state = _uiState.value
-                            val pagesMap = mutableMapOf<Int, List<DetectedTextItem>>()
-                            if (state.pdfPageCount > 1) {
-                                for (pIdx in 0 until state.pdfPageCount) {
-                                    val items = pageDetectedItemsMap[pIdx] ?: if (pIdx == state.currentPdfPageIndex) state.detectedItems else emptyList()
-                                    pagesMap[pIdx] = items
-                                }
-                            } else {
-                                pagesMap[0] = state.detectedItems
-                            }
+                            val pagesMap = resolvePagesDetectedItems(effectivePages, state, current, context)
                             SpreadsheetExportEngine.exportToCsv(pagesMap, outFile)
                             outFile
                         }
@@ -2113,6 +2096,54 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "Export failed: ${e.localizedMessage}") }
             }
         }
+    }
+
+    private suspend fun resolvePagesDetectedItems(
+        effectivePages: List<Int>,
+        state: DocumentEditorUiState,
+        current: Bitmap,
+        context: Context
+    ): Map<Int, List<DetectedTextItem>> {
+        val pagesMap = mutableMapOf<Int, List<DetectedTextItem>>()
+        val isMultiPage = effectivePages.size > 1 || (state.pdfPageCount > 1 && effectivePages.size == 1)
+        if (isMultiPage) {
+            effectivePages.forEachIndexed { outIdx, realIdx ->
+                var items = pageDetectedItemsMap[realIdx] ?: if (realIdx == state.currentPdfPageIndex) state.detectedItems else emptyList()
+                if (items.isEmpty()) {
+                    val pageBmp = editedPagesMap[realIdx]
+                        ?: (if (state.activePdfUri != null) PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, realIdx) else null)
+                        ?: (if (state.batchScannedPaths.size > realIdx) com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[realIdx], 2880) else null)
+                        ?: current
+                    items = try {
+                        ocrAnalyzer.detectTextBlocks(pageBmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE)
+                    } catch (_: Exception) {
+                        emptyList()
+                    }
+                    if (items.isNotEmpty()) {
+                        pageDetectedItemsMap[realIdx] = items
+                        if (realIdx == state.currentPdfPageIndex) {
+                            _uiState.update { it.copy(detectedItems = items) }
+                        }
+                    }
+                }
+                pagesMap[outIdx] = items
+            }
+        } else {
+            var items = state.detectedItems
+            if (items.isEmpty()) {
+                items = try {
+                    ocrAnalyzer.detectTextBlocks(current, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE)
+                } catch (_: Exception) {
+                    emptyList()
+                }
+                if (items.isNotEmpty()) {
+                    _uiState.update { it.copy(detectedItems = items) }
+                    pageDetectedItemsMap[0] = items
+                }
+            }
+            pagesMap[0] = items
+        }
+        return pagesMap
     }
 
     // --- Document Rotation & Geometry ---
@@ -4663,30 +4694,16 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         "XLSX" -> {
                             val cleanName = if (rawName.endsWith(".xlsx", ignoreCase = true)) rawName else "$rawName.xlsx"
                             val outFile = File(cacheDir, cleanName)
-                            val pagesMap = mutableMapOf<Int, List<DetectedTextItem>>()
-                            if (state.pdfPageCount > 1) {
-                                for (pIdx in 0 until state.pdfPageCount) {
-                                    val items = pageDetectedItemsMap[pIdx] ?: if (pIdx == state.currentPdfPageIndex) state.detectedItems else emptyList()
-                                    pagesMap[pIdx] = items
-                                }
-                            } else {
-                                pagesMap[0] = state.detectedItems
-                            }
+                            val allPages = if (state.pdfPageCount > 1) (0 until state.pdfPageCount).toList() else listOf(0)
+                            val pagesMap = resolvePagesDetectedItems(allPages, state, current, context)
                             SpreadsheetExportEngine.exportToXlsx(pagesMap, outFile)
                             Pair(outFile, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                         }
                         "CSV", "XLS" -> {
                             val cleanName = if (rawName.endsWith(".csv", ignoreCase = true)) rawName else "$rawName.csv"
                             val outFile = File(cacheDir, cleanName)
-                            val pagesMap = mutableMapOf<Int, List<DetectedTextItem>>()
-                            if (state.pdfPageCount > 1) {
-                                for (pIdx in 0 until state.pdfPageCount) {
-                                    val items = pageDetectedItemsMap[pIdx] ?: if (pIdx == state.currentPdfPageIndex) state.detectedItems else emptyList()
-                                    pagesMap[pIdx] = items
-                                }
-                            } else {
-                                pagesMap[0] = state.detectedItems
-                            }
+                            val allPages = if (state.pdfPageCount > 1) (0 until state.pdfPageCount).toList() else listOf(0)
+                            val pagesMap = resolvePagesDetectedItems(allPages, state, current, context)
                             SpreadsheetExportEngine.exportToCsv(pagesMap, outFile)
                             Pair(outFile, "text/csv")
                         }

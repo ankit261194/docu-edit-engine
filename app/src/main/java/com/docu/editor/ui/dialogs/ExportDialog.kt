@@ -210,7 +210,7 @@ fun ExportDialog(
                 // Format Option 6: Native Excel Workbook (.xlsx)
                 FormatOptionCard(
                     title = "Excel Workbook (.xlsx)",
-                    description = "Native MS Excel spreadsheet with multi-page tabs (Sheet 1, Sheet 2)",
+                    description = "Native MS Excel spreadsheet with auto-fit columns, numeric types, styled headers & gridlines",
                     icon = Icons.AutoMirrored.Filled.Article,
                     iconTint = Color(0xFF15803D),
                     isSelected = selectedFormat == "XLSX",
