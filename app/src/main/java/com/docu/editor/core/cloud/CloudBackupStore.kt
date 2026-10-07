@@ -2,6 +2,8 @@ package com.docu.editor.core.cloud
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import com.docu.editor.ui.dialogs.CloudSyncResult
 import org.json.JSONArray
 import org.json.JSONObject
@@ -20,15 +22,49 @@ data class CloudBackupItem(
 /**
  * Manages persistent local history of documents backed up to
  * the user's hosting server (shribalajikripadham.online).
+ * Features:
+ * - Auto-Backup toggle & state tracking.
+ * - Device & Master Sync Key for cross-device synchronization.
+ * - Connectivity checks to prevent hung requests on offline states.
+ * - Persistent JSON list of cloud-synced documents.
  */
 object CloudBackupStore {
     private const val PREFS_NAME = "docu_cloud_backups"
     private const val KEY_BACKUPS = "backup_list"
     private const val KEY_DEVICE_ID = "docu_device_uuid"
     private const val KEY_CUSTOM_SYNC_KEY = "docu_custom_sync_key"
+    private const val KEY_AUTO_BACKUP = "docu_auto_backup_enabled"
+    private const val KEY_LAST_SYNC_ALL_TIME = "docu_last_sync_all_timestamp"
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
+
+    fun isAutoBackupEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean(KEY_AUTO_BACKUP, false)
+    }
+
+    fun setAutoBackupEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean(KEY_AUTO_BACKUP, enabled).apply()
+    }
+
+    fun getLastSyncAllTime(context: Context): Long {
+        return getPrefs(context).getLong(KEY_LAST_SYNC_ALL_TIME, 0L)
+    }
+
+    fun setLastSyncAllTime(context: Context, time: Long) {
+        getPrefs(context).edit().putLong(KEY_LAST_SYNC_ALL_TIME, time).apply()
+    }
+
+    fun isNetworkConnected(context: Context): Boolean {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            val network = cm?.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(network) ?: return false
+            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (_: Exception) {
+            true // default to true if check fails
+        }
     }
 
     fun getDeviceId(context: Context): String {
@@ -77,7 +113,7 @@ object CloudBackupStore {
         existing.add(0, newItem)
 
         val array = JSONArray()
-        existing.take(100).forEach { item ->
+        existing.take(150).forEach { item ->
             val obj = JSONObject().apply {
                 put("docId", item.docId)
                 put("title", item.title)
@@ -99,7 +135,7 @@ object CloudBackupStore {
         existing.add(0, item)
 
         val array = JSONArray()
-        existing.take(100).forEach { itm ->
+        existing.take(150).forEach { itm ->
             val obj = JSONObject().apply {
                 put("docId", itm.docId)
                 put("title", itm.title)
@@ -137,6 +173,10 @@ object CloudBackupStore {
             }
         } catch (_: Exception) {}
         return list
+    }
+
+    fun hasBackup(context: Context, docId: String): Boolean {
+        return getBackups(context).any { it.docId == docId }
     }
 
     fun deleteBackup(context: Context, docId: String) {

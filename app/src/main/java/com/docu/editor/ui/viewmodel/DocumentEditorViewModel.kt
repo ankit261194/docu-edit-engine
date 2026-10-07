@@ -1041,6 +1041,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 )
                 _uiState.update { it.copy(currentDocHistoryId = saved.id) }
                 refreshRecentDocuments()
+                if (com.docu.editor.core.cloud.CloudBackupStore.isAutoBackupEnabled(context) &&
+                    com.docu.editor.core.cloud.CloudBackupStore.isNetworkConnected(context)
+                ) {
+                    backupSavedDocumentToCloud(saved)
+                }
             } catch (_: Exception) {}
         }
     }
@@ -4274,6 +4279,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
                 if (syncResult != null) {
                     CloudBackupStore.saveBackup(context, syncResult)
+                    val historyId = _uiState.value.currentDocHistoryId
+                    if (historyId != null) {
+                        DocumentHistoryManager.markDocumentCloudSynced(context, historyId, syncResult.docId, syncResult.shareUrl)
+                        refreshRecentDocuments()
+                    }
                     _uiState.update {
                         it.copy(
                             isApplyingEdit = false,
@@ -4846,6 +4856,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
                 if (syncResult != null) {
                     CloudBackupStore.saveBackup(context, syncResult)
+                    DocumentHistoryManager.markDocumentCloudSynced(context, doc.id, syncResult.docId, syncResult.shareUrl)
+                    refreshRecentDocuments()
                     _uiState.update {
                         it.copy(
                             isApplyingEdit = false,
@@ -4872,6 +4884,111 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         errorMessage = "Cloud backup error: ${e.localizedMessage}"
                     )
                 }
+            }
+        }
+    }
+
+    fun isAutoCloudBackupEnabled(): Boolean {
+        return CloudBackupStore.isAutoBackupEnabled(getApplication())
+    }
+
+    fun toggleAutoCloudBackup(enabled: Boolean) {
+        CloudBackupStore.setAutoBackupEnabled(getApplication(), enabled)
+        _uiState.update { it.copy(canvasRevision = it.canvasRevision + 1) }
+    }
+
+    fun getUnsyncedDocumentCount(): Int {
+        return recentDocuments.value.count { !it.isCloudSynced }
+    }
+
+    fun syncAllUnsyncedDocumentsToCloud() {
+        val context = getApplication<Application>()
+        if (!CloudBackupStore.isNetworkConnected(context)) {
+            _uiState.update { it.copy(errorMessage = "No internet connection to sync documents.") }
+            return
+        }
+
+        viewModelScope.launch {
+            val unsynced = DocumentHistoryManager.getSavedDocuments(context).filter { !it.isCloudSynced }
+            if (unsynced.isEmpty()) {
+                _uiState.update { it.copy(successMessage = "All saved documents are already backed up to cloud!") }
+                return@launch
+            }
+
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = true,
+                    processingMessage = "Syncing ${unsynced.size} documents to Web Cloud..."
+                )
+            }
+
+            var successCount = 0
+            for (doc in unsynced) {
+                val file = java.io.File(doc.filePath)
+                if (!file.exists()) continue
+                try {
+                    val syncResult = withContext(Dispatchers.IO) {
+                        val fileBytes = file.readBytes()
+                        val base64Data = Base64.encodeToString(fileBytes, Base64.NO_WRAP)
+                        val isPdf = file.name.endsWith(".pdf", ignoreCase = true)
+                        val devId = CloudBackupStore.getSyncKey(context)
+                        val payload = JSONObject().apply {
+                            put("action", "cloud_upload")
+                            put("token", DOCU_CLOUD_TOKEN)
+                            put("device_id", devId)
+                            put("file_base64", base64Data)
+                            put("file_type", if (isPdf) "pdf" else "jpg")
+                            put("title", doc.title)
+                            put("pages_count", doc.pageCount)
+                        }
+
+                        val url = URL("https://shribalajikripadham.online/api/docu_ai.php")
+                        val conn = url.openConnection() as HttpURLConnection
+                        conn.requestMethod = "POST"
+                        conn.setRequestProperty("Content-Type", "application/json")
+                        conn.setRequestProperty("X-Docu-Token", DOCU_CLOUD_TOKEN)
+                        conn.setRequestProperty("X-Docu-Device-Id", devId)
+                        conn.connectTimeout = 15000
+                        conn.readTimeout = 45000
+                        conn.doOutput = true
+
+                        conn.outputStream.use { os ->
+                            os.write(payload.toString().toByteArray(Charsets.UTF_8))
+                        }
+
+                        if (conn.responseCode == 200) {
+                            val resp = conn.inputStream.bufferedReader().use { it.readText() }
+                            val json = JSONObject(resp)
+                            if (json.optBoolean("success")) {
+                                CloudSyncResult(
+                                    docId = json.optString("doc_id"),
+                                    title = json.optString("title", doc.title),
+                                    shareUrl = json.optString("share_url"),
+                                    downloadUrl = json.optString("download_url"),
+                                    qrUrl = json.optString("qr_url"),
+                                    fileSizeFormatted = json.optString("file_size_formatted", doc.formattedSize),
+                                    pagesCount = json.optInt("pages_count", doc.pageCount)
+                                )
+                            } else null
+                        } else null
+                    }
+
+                    if (syncResult != null) {
+                        CloudBackupStore.saveBackup(context, syncResult)
+                        DocumentHistoryManager.markDocumentCloudSynced(context, doc.id, syncResult.docId, syncResult.shareUrl)
+                        successCount++
+                    }
+                } catch (_: Exception) {}
+            }
+
+            refreshRecentDocuments()
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = false,
+                    processingMessage = null,
+                    successMessage = "✓ Synced $successCount of ${unsynced.size} documents to Web Cloud!",
+                    canvasRevision = it.canvasRevision + 1
+                )
             }
         }
     }

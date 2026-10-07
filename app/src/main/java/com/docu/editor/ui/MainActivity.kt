@@ -1757,9 +1757,15 @@ class MainActivity : ComponentActivity() {
                         if (uiState.showCloudBackupsListDialog) {
                             val backups = remember(uiState.canvasRevision) { viewModel.getCloudBackups() }
                             val syncKey = remember(uiState.canvasRevision) { viewModel.getCurrentSyncKey() }
+                            val isAutoBackup = viewModel.isAutoCloudBackupEnabled()
+                            val unsyncedCount = viewModel.getUnsyncedDocumentCount()
                             CloudBackupsListDialog(
                                 backups = backups,
                                 syncKey = syncKey,
+                                isAutoBackupEnabled = isAutoBackup,
+                                unsyncedCount = unsyncedCount,
+                                onToggleAutoBackup = { viewModel.toggleAutoCloudBackup(it) },
+                                onSyncAllUnsynced = { viewModel.syncAllUnsyncedDocumentsToCloud() },
                                 onOpenUrl = { url ->
                                     try {
                                         startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))

@@ -22,7 +22,11 @@ data class SavedDocumentItem(
     val timestamp: Long,
     val fileSizeBytes: Long,
     val category: String = "All",
-    val extractedOcrText: String = ""
+    val extractedOcrText: String = "",
+    val isCloudSynced: Boolean = false,
+    val cloudDocId: String = "",
+    val cloudShareUrl: String = "",
+    val lastSyncedTime: Long = 0L
 ) {
     val formattedDate: String
         get() = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(timestamp))
@@ -63,7 +67,11 @@ object DocumentHistoryManager {
                             timestamp = obj.getLong("timestamp"),
                             fileSizeBytes = obj.optLong("fileSizeBytes", File(filePath).length()),
                             category = obj.optString("category", "All"),
-                            extractedOcrText = obj.optString("extractedOcrText", "")
+                            extractedOcrText = obj.optString("extractedOcrText", ""),
+                            isCloudSynced = obj.optBoolean("isCloudSynced", false),
+                            cloudDocId = obj.optString("cloudDocId", ""),
+                            cloudShareUrl = obj.optString("cloudShareUrl", ""),
+                            lastSyncedTime = obj.optLong("lastSyncedTime", 0L)
                         )
                     )
                 }
@@ -221,6 +229,25 @@ object DocumentHistoryManager {
         }
     }
 
+    suspend fun markDocumentCloudSynced(
+        context: Context,
+        id: String,
+        cloudDocId: String,
+        cloudShareUrl: String
+    ) = withContext(Dispatchers.IO) {
+        val currentList = getSavedDocuments(context).toMutableList()
+        val index = currentList.indexOfFirst { it.id == id }
+        if (index != -1) {
+            currentList[index] = currentList[index].copy(
+                isCloudSynced = true,
+                cloudDocId = cloudDocId,
+                cloudShareUrl = cloudShareUrl,
+                lastSyncedTime = System.currentTimeMillis()
+            )
+            saveIndex(context, currentList)
+        }
+    }
+
     suspend fun deleteDocument(context: Context, id: String) = withContext(Dispatchers.IO) {
         val currentList = getSavedDocuments(context).toMutableList()
         val toRemove = currentList.find { it.id == id }
@@ -254,6 +281,10 @@ object DocumentHistoryManager {
                 put("fileSizeBytes", item.fileSizeBytes)
                 put("category", item.category)
                 put("extractedOcrText", item.extractedOcrText)
+                put("isCloudSynced", item.isCloudSynced)
+                put("cloudDocId", item.cloudDocId)
+                put("cloudShareUrl", item.cloudShareUrl)
+                put("lastSyncedTime", item.lastSyncedTime)
             }
             array.put(obj)
         }
