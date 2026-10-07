@@ -190,21 +190,26 @@ object CamScannerToolsEngine {
     // =========================================================================
 
     enum class IdPhotoSize(val displayName: String, val widthMm: Int, val heightMm: Int) {
-        PASSPORT_INDIA_US("Passport (2 x 2 inch / 51x51 mm)", 51, 51),
+        GOVT_EXAM_INDIA("Govt Exam - SSC/UPSC/IBPS (35 x 45 mm)", 35, 45),
+        PASSPORT_INDIA_US("Standard Passport (2 x 2 inch / 51 x 51 mm)", 51, 51),
         VISA_SCHENGEN("Schengen / European Visa (35 x 45 mm)", 35, 45),
+        GOVT_EXAM_SIGNATURE("Govt Exam Signature (35 x 15 mm)", 35, 15),
         STAMP_SIZE("Stamp Size (25 x 30 mm)", 25, 30),
         ID_CARD_STANDARD("Standard ID Card (30 x 40 mm)", 30, 40)
     }
 
     /**
      * Creates professional ID / Passport photo with customized background color,
+     * optional Indian Govt exam Name & Date of Photo (DOP) strip,
      * border, and printable multi-photo sheet (6 or 8 copies on 4x6 / A4).
      */
     fun createIdPhoto(
         sourceBitmap: Bitmap,
         size: IdPhotoSize,
         backgroundColor: Int = Color.WHITE,
-        addBorder: Boolean = true
+        addBorder: Boolean = true,
+        candidateName: String? = null,
+        dateOfPhoto: String? = null
     ): Bitmap {
         // Target aspect ratio
         val targetAspect = size.widthMm.toFloat() / size.heightMm.toFloat()
@@ -229,22 +234,69 @@ object CamScannerToolsEngine {
             cropRect.height().coerceAtMost(sourceBitmap.height)
         )
 
-        // Scale to high resolution ID photo (e.g. 600 x 600 or 600 x 771)
         val targetW = 600
         val targetH = (600 / targetAspect).toInt()
         val scaled = Bitmap.createScaledBitmap(cropped, targetW, targetH, true)
         if (cropped != sourceBitmap) cropped.recycle()
 
-        // Background Color Fill & Edge Blending
+        // 1. Studio Background Replacement
+        val segmented = if (backgroundColor != Color.TRANSPARENT && size != IdPhotoSize.GOVT_EXAM_SIGNATURE) {
+            replacePortraitBackground(scaled, backgroundColor)
+        } else {
+            scaled
+        }
+
         val output = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output)
-        canvas.drawColor(backgroundColor)
+        canvas.drawColor(Color.WHITE)
 
-        // Draw portrait photo
-        canvas.drawBitmap(scaled, 0f, 0f, null)
+        canvas.drawBitmap(segmented, 0f, 0f, null)
+        if (segmented != scaled) segmented.recycle()
         scaled.recycle()
 
-        // Optional fine outer border for clean scissor cutting
+        // 2. Govt Exam Name & Date of Photo (DOP) Strip Stamp
+        val hasName = !candidateName.isNullOrBlank()
+        val hasDop = !dateOfPhoto.isNullOrBlank()
+        if (hasName || hasDop) {
+            val stripHeight = (targetH * 0.16f).toInt()
+            val stripTop = targetH - stripHeight
+
+            val stripBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                style = Paint.Style.FILL
+            }
+            canvas.drawRect(0f, stripTop.toFloat(), targetW.toFloat(), targetH.toFloat(), stripBgPaint)
+
+            val stripLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.parseColor("#0F172A")
+                strokeWidth = 2.5f
+                style = Paint.Style.STROKE
+            }
+            canvas.drawLine(0f, stripTop.toFloat(), targetW.toFloat(), stripTop.toFloat(), stripLinePaint)
+
+            val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.BLACK
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                textAlign = Paint.Align.CENTER
+            }
+
+            if (hasName && hasDop) {
+                textPaint.textSize = (stripHeight * 0.36f).coerceIn(18f, 26f)
+                canvas.drawText(candidateName!!.trim().uppercase(), targetW / 2f, stripTop + (stripHeight * 0.44f), textPaint)
+                textPaint.textSize = (stripHeight * 0.30f).coerceIn(15f, 22f)
+                val dopFormatted = if (dateOfPhoto!!.trim().startsWith("DOP", ignoreCase = true)) dateOfPhoto.trim() else "DOP: ${dateOfPhoto.trim()}"
+                canvas.drawText(dopFormatted, targetW / 2f, stripTop + (stripHeight * 0.86f), textPaint)
+            } else if (hasName) {
+                textPaint.textSize = (stripHeight * 0.48f).coerceIn(20f, 30f)
+                canvas.drawText(candidateName!!.trim().uppercase(), targetW / 2f, stripTop + (stripHeight * 0.65f), textPaint)
+            } else if (hasDop) {
+                textPaint.textSize = (stripHeight * 0.44f).coerceIn(18f, 26f)
+                val dopFormatted = if (dateOfPhoto!!.trim().startsWith("DOP", ignoreCase = true)) dateOfPhoto.trim() else "DOP: ${dateOfPhoto.trim()}"
+                canvas.drawText(dopFormatted, targetW / 2f, stripTop + (stripHeight * 0.65f), textPaint)
+            }
+        }
+
+        // 3. Optional fine outer border for clean scissor cutting
         if (addBorder) {
             val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
@@ -254,6 +306,84 @@ object CamScannerToolsEngine {
             canvas.drawRect(1f, 1f, (targetW - 1).toFloat(), (targetH - 1).toFloat(), borderPaint)
         }
 
+        return output
+    }
+
+    /**
+     * Replaces ambient background of headshot with studio background color (White, Blue, Grey)
+     * using corner backdrop sampling and color distance flood fill.
+     */
+    private fun replacePortraitBackground(source: Bitmap, targetBgColor: Int): Bitmap {
+        val w = source.width
+        val h = source.height
+        val output = source.copy(Bitmap.Config.ARGB_8888, true)
+        val pixels = IntArray(w * h)
+        output.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        // Sample ambient backdrop color from top corners
+        var sampleR = 0
+        var sampleG = 0
+        var sampleB = 0
+        var sampleCount = 0
+        val sampleSize = min(30, min(w, h))
+
+        for (y in 0 until sampleSize) {
+            for (x in 0 until sampleSize) {
+                val p = pixels[y * w + x]
+                sampleR += (p shr 16) and 0xFF
+                sampleG += (p shr 8) and 0xFF
+                sampleB += p and 0xFF
+                sampleCount++
+            }
+            for (x in (w - sampleSize) until w) {
+                val p = pixels[y * w + x]
+                sampleR += (p shr 16) and 0xFF
+                sampleG += (p shr 8) and 0xFF
+                sampleB += p and 0xFF
+                sampleCount++
+            }
+        }
+
+        if (sampleCount == 0) return output
+        val bgR = sampleR / sampleCount
+        val bgG = sampleG / sampleCount
+        val bgB = sampleB / sampleCount
+
+        val targetR = (targetBgColor shr 16) and 0xFF
+        val targetG = (targetBgColor shr 8) and 0xFF
+        val targetB = targetBgColor and 0xFF
+
+        val maxColorDist = 58.0
+        val maxY = (h * 0.78).toInt() // Focus on upper body backdrop
+
+        for (y in 0 until maxY) {
+            for (x in 0 until w) {
+                val idx = y * w + x
+                val p = pixels[idx]
+                val r = (p shr 16) and 0xFF
+                val g = (p shr 8) and 0xFF
+                val b = p and 0xFF
+
+                val dist = kotlin.math.sqrt(
+                    ((r - bgR) * (r - bgR) + (g - bgG) * (g - bgG) + (b - bgB) * (b - bgB)).toDouble()
+                )
+
+                if (dist < maxColorDist) {
+                    val factor = (dist / maxColorDist).coerceIn(0.0, 1.0)
+                    if (factor < 0.45) {
+                        pixels[idx] = (0xFF shl 24) or (targetR shl 16) or (targetG shl 8) or targetB
+                    } else {
+                        // Soft edge anti-aliasing blend
+                        val blendR = (targetR * (1.0 - factor) + r * factor).toInt()
+                        val blendG = (targetG * (1.0 - factor) + g * factor).toInt()
+                        val blendB = (targetB * (1.0 - factor) + b * factor).toInt()
+                        pixels[idx] = (0xFF shl 24) or (blendR shl 16) or (blendG shl 8) or blendB
+                    }
+                }
+            }
+        }
+
+        output.setPixels(pixels, 0, w, 0, 0, w, h)
         return output
     }
 

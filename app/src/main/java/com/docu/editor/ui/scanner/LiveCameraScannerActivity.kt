@@ -8,6 +8,10 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.PointF
 import android.graphics.drawable.GradientDrawable
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -97,6 +101,37 @@ class LiveCameraScannerActivity : ComponentActivity() {
     private val batchCapturedPaths = ArrayList<String>()
     private lateinit var batchModeChip: TextView
     private lateinit var finishBatchChip: TextView
+    private lateinit var batchThumbnailBadge: FrameLayout
+    private lateinit var batchThumbnailImg: ImageView
+    private lateinit var batchBadgeCountText: TextView
+
+    // Enterprise Zero Motion Blur Sensor Integration
+    private var sensorManager: SensorManager? = null
+    private var motionSensor: Sensor? = null
+    private var isDeviceSteady: Boolean = true
+    private var smoothMotionMagnitude: Float = 0f
+    private val gravityFilter = FloatArray(3)
+
+    private val sensorListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            val rawMotion = if (event.sensor.type == Sensor.TYPE_LINEAR_ACCELERATION) {
+                kotlin.math.sqrt(event.values[0] * event.values[0] + event.values[1] * event.values[1] + event.values[2] * event.values[2])
+            } else {
+                val alpha = 0.8f
+                gravityFilter[0] = alpha * gravityFilter[0] + (1 - alpha) * event.values[0]
+                gravityFilter[1] = alpha * gravityFilter[1] + (1 - alpha) * event.values[1]
+                gravityFilter[2] = alpha * gravityFilter[2] + (1 - alpha) * event.values[2]
+                val lx = event.values[0] - gravityFilter[0]
+                val ly = event.values[1] - gravityFilter[1]
+                val lz = event.values[2] - gravityFilter[2]
+                kotlin.math.sqrt(lx * lx + ly * ly + lz * lz)
+            }
+            smoothMotionMagnitude = 0.7f * smoothMotionMagnitude + 0.3f * rawMotion
+            isDeviceSteady = (smoothMotionMagnitude < 0.38f)
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
 
     private var lastCorners: DocumentCorners? = null
     private var analysisFrameW: Int = 1
@@ -108,6 +143,10 @@ class LiveCameraScannerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+        motionSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
+            ?: sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -292,6 +331,49 @@ class LiveCameraScannerActivity : ComponentActivity() {
             }
         }
         shutterContainer.addView(shutterButton)
+
+        batchThumbnailBadge = FrameLayout(this).apply {
+            visibility = View.GONE
+            layoutParams = FrameLayout.LayoutParams(130, 160).apply {
+                gravity = Gravity.CENTER_VERTICAL or Gravity.START
+                setMargins(40, 0, 0, 0)
+            }
+            background = GradientDrawable().apply {
+                cornerRadius = 20f
+                setColor(Color.argb(200, 30, 41, 59))
+                setStroke(3, Color.rgb(0, 230, 118))
+            }
+            setPadding(6, 6, 6, 6)
+            setOnClickListener { showBatchReviewDialog() }
+        }
+
+        batchThumbnailImg = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+        batchThumbnailBadge.addView(batchThumbnailImg)
+
+        batchBadgeCountText = TextView(this).apply {
+            text = "0"
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.rgb(16, 185, 129))
+            }
+            layoutParams = FrameLayout.LayoutParams(52, 52).apply {
+                gravity = Gravity.TOP or Gravity.END
+                setMargins(0, 0, 0, 0)
+            }
+        }
+        batchThumbnailBadge.addView(batchBadgeCountText)
+
+        shutterContainer.addView(batchThumbnailBadge)
 
         finishBatchChip = TextView(this).apply {
             visibility = View.GONE
@@ -750,9 +832,12 @@ class LiveCameraScannerActivity : ComponentActivity() {
             val isSteady = stableFrameCount >= 4
             overlayView.updateCorners(corners, isSteady, frameW, frameH, progress)
 
-            if (isSteady) {
+            if (!isDeviceSteady) {
+                statusText.text = "⚠️ Steady your device... hold still"
+                stableFrameCount = max(0, stableFrameCount - 2)
+            } else if (isSteady) {
                 if (autoSnapEnabled) {
-                    statusText.text = "Hold still... Auto-snapping (${(progress * 100).toInt()}%)"
+                    statusText.text = "🎯 Perfect alignment & steady! Auto-snapping (${(progress * 100).toInt()}%)"
                     if (stableFrameCount >= 18 && !isCapturing) {
                         playShutterSound()
                         captureHighResAndFinish(corners)
@@ -959,7 +1044,17 @@ class LiveCameraScannerActivity : ComponentActivity() {
                         fullBitmap.recycle()
 
                         batchCapturedPaths.add(outFile.absolutePath)
+                        val thumbBmp = decodeSampledBitmapFromFile(outFile.absolutePath, 180)
                         withContext(Dispatchers.Main) {
+                            if (thumbBmp != null) {
+                                batchThumbnailImg.setImageBitmap(thumbBmp)
+                            }
+                            batchThumbnailBadge.visibility = View.VISIBLE
+                            batchBadgeCountText.text = "${batchCapturedPaths.size}"
+                            batchThumbnailBadge.animate().scaleX(1.15f).scaleY(1.15f).setDuration(120).withEndAction {
+                                batchThumbnailBadge.animate().scaleX(1.0f).scaleY(1.0f).setDuration(120).start()
+                            }.start()
+
                             finishBatchChip.visibility = View.VISIBLE
                             finishBatchChip.text = "Finish (${batchCapturedPaths.size}) ▶"
                             statusText.text = "✅ Page ${batchCapturedPaths.size} scanned! Flip page to scan next 📄"
@@ -1166,6 +1261,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.argb(120, 255, 255, 255))
                 statusText.text = "Point camera at document..."
                 finishBatchChip.visibility = View.GONE
+                batchThumbnailBadge.visibility = View.GONE
                 overlayView.isIdCardMode = false
                 overlayView.isBookMode = false
                 overlayView.invalidate()
@@ -1179,6 +1275,9 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 statusText.text = "Batch scan mode: Shoot sequence of pages"
                 if (batchCapturedPaths.isNotEmpty()) {
                     finishBatchChip.visibility = View.VISIBLE
+                    batchThumbnailBadge.visibility = View.VISIBLE
+                } else {
+                    batchThumbnailBadge.visibility = View.GONE
                 }
                 overlayView.isIdCardMode = false
                 overlayView.isBookMode = false
@@ -1192,6 +1291,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(251, 146, 60))
                 statusText.text = "🪪 Align front of ID card in frame"
                 finishBatchChip.visibility = View.GONE
+                batchThumbnailBadge.visibility = View.GONE
                 overlayView.isIdCardMode = true
                 overlayView.isBookMode = false
                 overlayView.idCardGuideText = "ALIGN ID CARD FRONT"
@@ -1204,6 +1304,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(250, 204, 21))
                 statusText.text = "📖 Align book: Left & Right pages will auto-split"
                 finishBatchChip.visibility = View.GONE
+                batchThumbnailBadge.visibility = View.GONE
                 overlayView.isIdCardMode = false
                 overlayView.isBookMode = true
                 overlayView.invalidate()
@@ -1216,6 +1317,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(168, 85, 247))
                 statusText.text = "📊 Whiteboard mode: Anti-glare contrast filter active"
                 finishBatchChip.visibility = View.GONE
+                batchThumbnailBadge.visibility = View.GONE
                 overlayView.isIdCardMode = false
                 overlayView.isBookMode = false
                 overlayView.invalidate()
@@ -1228,6 +1330,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(45, 212, 191))
                 statusText.text = "🛂 Align passport identity page in frame"
                 finishBatchChip.visibility = View.GONE
+                batchThumbnailBadge.visibility = View.GONE
                 overlayView.isIdCardMode = true
                 overlayView.isBookMode = false
                 overlayView.idCardGuideText = "ALIGN PASSPORT PHOTO PAGE"
@@ -1420,6 +1523,18 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 vibrator?.vibrate(VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE))
             }
         } catch (_: Exception) {}
+    }
+
+    override fun onResume() {
+        super.onResume()
+        motionSensor?.let {
+            sensorManager?.registerListener(sensorListener, it, SensorManager.SENSOR_DELAY_UI)
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        sensorManager?.unregisterListener(sensorListener)
     }
 
     override fun onDestroy() {

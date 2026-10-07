@@ -68,6 +68,27 @@ object AutoFitFontCondenser {
     }
 
     private fun breakLongWord(word: String, targetWidth: Float, paint: Paint): List<String> {
+        // Try breaking at punctuation delimiters like '/', '-', '_', ',', '@' first
+        val delimiterRegex = Regex("(?<=[/\\-_,@.])|(?=[/\\-_,@.])")
+        val subTokens = word.split(delimiterRegex).filter { it.isNotEmpty() }
+        if (subTokens.size > 1) {
+            val chunks = mutableListOf<String>()
+            var current = StringBuilder()
+            for (sub in subTokens) {
+                val test = "$current$sub"
+                if (paint.measureText(test) <= targetWidth || current.isEmpty()) {
+                    current.append(sub)
+                } else {
+                    chunks.add(current.toString())
+                    current = StringBuilder(sub)
+                }
+            }
+            if (current.isNotEmpty()) chunks.add(current.toString())
+            if (chunks.all { paint.measureText(it) <= targetWidth }) {
+                return chunks
+            }
+        }
+
         val chunks = mutableListOf<String>()
         var current = StringBuilder()
         for (i in word.indices) {
@@ -101,7 +122,8 @@ object AutoFitFontCondenser {
         val lineCount = max(1, lines.size)
 
         // Maintain consistent document typography: calculate per-line target height
-        val targetHeight = (max(8, targetBounds.height()).toFloat() / max(1, originalLines))
+        val effectiveLineCount = max(originalLines, lineCount)
+        val targetHeight = (max(8, targetBounds.height()).toFloat() / effectiveLineCount)
 
         // 1. Initial font size estimate based on EM box vs visual cap-height.
         var fontSize = (targetHeight * 0.85f) * sizeMultiplier
@@ -185,10 +207,14 @@ object AutoFitFontCondenser {
         val fontMetrics = paint.fontMetrics
         val lineHeight = fontMetrics.descent - fontMetrics.ascent + fontMetrics.leading
 
+        val totalBlockHeight = lineCount * lineHeight
         val baselineY = if (lineCount == 1 && originalLines == 1) {
             val totalTextHeight = fontMetrics.descent - fontMetrics.ascent
             val topY = targetBounds.centerY().toFloat() - totalTextHeight / 2f
             topY - fontMetrics.ascent
+        } else if (targetBounds.height() > totalBlockHeight) {
+            val topPad = (targetBounds.height() - totalBlockHeight) / 2f
+            (targetBounds.top.toFloat() + topPad) - fontMetrics.ascent
         } else {
             targetBounds.top.toFloat() - fontMetrics.ascent
         }

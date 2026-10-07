@@ -1089,6 +1089,29 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(selectedItem = item) }
     }
 
+    fun updateSelectedItemBounds(item: DetectedTextItem, newBounds: Rect) {
+        if (item.boundingBox == newBounds) return
+        val currentBitmap = _uiState.value.currentBitmap ?: return
+        val clampedBounds = Rect(
+            newBounds.left.coerceIn(0, (currentBitmap.width - 10).coerceAtLeast(0)),
+            newBounds.top.coerceIn(0, (currentBitmap.height - 10).coerceAtLeast(0)),
+            newBounds.right.coerceIn(newBounds.left + 10, currentBitmap.width),
+            newBounds.bottom.coerceIn(newBounds.top + 10, currentBitmap.height)
+        )
+        val updatedItem = item.copy(boundingBox = clampedBounds)
+        val updatedItems = _uiState.value.detectedItems.map {
+            if (it.id == item.id) updatedItem else it
+        }
+        _uiState.update {
+            it.copy(
+                detectedItems = updatedItems,
+                selectedItem = updatedItem,
+                hasUnsavedChanges = true,
+                canvasRevision = it.canvasRevision + 1
+            )
+        }
+    }
+
     fun setMagicEraserBrushRadius(radius: Float) {
         _uiState.update { it.copy(magicEraserBrushRadius = radius.coerceIn(8f, 80f)) }
     }

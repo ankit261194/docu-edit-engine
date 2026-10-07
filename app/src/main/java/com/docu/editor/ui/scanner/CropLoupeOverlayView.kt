@@ -87,11 +87,52 @@ class CropLoupeOverlayView(context: Context) : View(context) {
     private val loupeBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         style = Paint.Style.STROKE
-        strokeWidth = 8f
+        strokeWidth = 7f
     }
 
     private val loupeCrosshairPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(0, 230, 118)
+        style = Paint.Style.STROKE
+        strokeWidth = 2.5f
+    }
+
+    private val loupeShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(110, 0, 0, 0)
+        style = Paint.Style.STROKE
+        strokeWidth = 14f
+    }
+
+    private val loupeAccentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(0, 230, 118)
+        style = Paint.Style.STROKE
+        strokeWidth = 2.5f
+    }
+
+    private val loupeStemPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.FILL_AND_STROKE
+        strokeWidth = 4f
+    }
+
+    private val loupeBadgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(220, 15, 23, 42)
+        style = Paint.Style.FILL
+    }
+
+    private val loupeBadgeTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(0, 230, 118)
+        textSize = 24f
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        textAlign = Paint.Align.CENTER
+    }
+
+    private val touchGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(90, 0, 230, 118)
+        style = Paint.Style.FILL
+    }
+
+    private val touchReticlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
         style = Paint.Style.STROKE
         strokeWidth = 3f
     }
@@ -272,28 +313,58 @@ class CropLoupeOverlayView(context: Context) : View(context) {
     }
 
     private fun drawMagnifierLoupe(canvas: Canvas, bmp: Bitmap, screenPt: PointF, bmpPt: PointF) {
-        val loupeRadius = 160f
-        val margin = 40f
+        val loupeRadius = 150f
+        val offsetDistance = 210f // ~70dp directly above finger
 
-        // Position loupe opposite to the touch point (top-left or top-right)
-        val loupeCenterX = if (screenPt.x > width / 2f) {
-            loupeRadius + margin
-        } else {
-            width - loupeRadius - margin
+        // 1. Dynamic thumb-following positioning
+        val loupeCenterX = screenPt.x.coerceIn(loupeRadius + 24f, width.toFloat() - loupeRadius - 24f)
+        var isFlippedBelow = false
+        var loupeCenterY = screenPt.y - offsetDistance
+
+        // If finger touches near top edge/status bar, smoothly flip below the touch point
+        if (loupeCenterY - loupeRadius < 40f) {
+            loupeCenterY = screenPt.y + offsetDistance
+            isFlippedBelow = true
         }
-        val loupeCenterY = loupeRadius + margin + 60f
 
+        // 2. Sleek pointer stem / callout triangle connecting loupe to touch point
+        val stemPath = Path().apply {
+            if (isFlippedBelow) {
+                val baseLeft = loupeCenterX - 24f
+                val baseRight = loupeCenterX + 24f
+                val baseY = loupeCenterY - loupeRadius
+                moveTo(baseLeft, baseY)
+                lineTo(screenPt.x, screenPt.y + 24f)
+                lineTo(baseRight, baseY)
+                close()
+            } else {
+                val baseLeft = loupeCenterX - 24f
+                val baseRight = loupeCenterX + 24f
+                val baseY = loupeCenterY + loupeRadius
+                moveTo(baseLeft, baseY)
+                lineTo(screenPt.x, screenPt.y - 24f)
+                lineTo(baseRight, baseY)
+                close()
+            }
+        }
+        canvas.drawPath(stemPath, loupeStemPaint)
+
+        // 3. Touch Point Reticle & Aura right under user's finger
+        canvas.drawCircle(screenPt.x, screenPt.y, 34f, touchGlowPaint)
+        canvas.drawCircle(screenPt.x, screenPt.y, 20f, touchReticlePaint)
+        canvas.drawCircle(screenPt.x, screenPt.y, 6f, cornerHandleInnerPaint)
+
+        // 4. Draw Loupe Zoomed Content
         canvas.save()
         val clipPath = Path().apply {
             addCircle(loupeCenterX, loupeCenterY, loupeRadius, Path.Direction.CW)
         }
         canvas.clipPath(clipPath)
 
-        // Draw dark background inside loupe
+        // Dark background behind bitmap in case sampling touches bounds
         canvas.drawColor(Color.BLACK)
 
-        // 2.5x Zoomed portion of the source bitmap
-        val zoomFactor = 2.5f
+        val zoomFactor = 2.8f
         val sampleSizeBmp = (loupeRadius * 2f) / (zoomFactor * bmpScale)
         val sampleLeft = (bmpPt.x - sampleSizeBmp / 2f).toInt().coerceIn(0, bmp.width)
         val sampleTop = (bmpPt.y - sampleSizeBmp / 2f).toInt().coerceIn(0, bmp.height)
@@ -307,25 +378,42 @@ class CropLoupeOverlayView(context: Context) : View(context) {
             loupeCenterX + loupeRadius,
             loupeCenterY + loupeRadius
         )
-
         canvas.drawBitmap(bmp, srcSample, dstSample, null)
 
-        // Precision Crosshairs (+)
-        canvas.drawLine(
-            loupeCenterX - 40f, loupeCenterY,
-            loupeCenterX + 40f, loupeCenterY,
-            loupeCrosshairPaint
-        )
-        canvas.drawLine(
-            loupeCenterX, loupeCenterY - 40f,
-            loupeCenterX, loupeCenterY + 40f,
-            loupeCrosshairPaint
-        )
+        // Precision Crosshairs with center viewing gap (so exact pixel is never occluded)
+        val crossArmLen = 50f
+        val centerGap = 10f
+        // Horizontal left & right arms
+        canvas.drawLine(loupeCenterX - crossArmLen, loupeCenterY, loupeCenterX - centerGap, loupeCenterY, loupeCrosshairPaint)
+        canvas.drawLine(loupeCenterX + centerGap, loupeCenterY, loupeCenterX + crossArmLen, loupeCenterY, loupeCrosshairPaint)
+        // Vertical top & bottom arms
+        canvas.drawLine(loupeCenterX, loupeCenterY - crossArmLen, loupeCenterX, loupeCenterY - centerGap, loupeCrosshairPaint)
+        canvas.drawLine(loupeCenterX, loupeCenterY + centerGap, loupeCenterX, loupeCenterY + crossArmLen, loupeCrosshairPaint)
+
+        // Sub-pixel tick marks
+        val tickPaint = Paint(loupeCrosshairPaint).apply { strokeWidth = 1.5f; color = Color.argb(160, 0, 230, 118) }
+        canvas.drawLine(loupeCenterX - 25f, loupeCenterY - 8f, loupeCenterX - 25f, loupeCenterY + 8f, tickPaint)
+        canvas.drawLine(loupeCenterX + 25f, loupeCenterY - 8f, loupeCenterX + 25f, loupeCenterY + 8f, tickPaint)
+        canvas.drawLine(loupeCenterX - 8f, loupeCenterY - 25f, loupeCenterX + 8f, loupeCenterY - 25f, tickPaint)
+        canvas.drawLine(loupeCenterX - 8f, loupeCenterY + 25f, loupeCenterX + 8f, loupeCenterY + 25f, tickPaint)
+
+        // Center micro-dot
+        canvas.drawCircle(loupeCenterX, loupeCenterY, 3f, loupeCrosshairPaint)
 
         canvas.restore()
 
-        // White border ring around loupe
+        // 5. Multi-Layer Concentric Precision Rims around Loupe
+        canvas.drawCircle(loupeCenterX, loupeCenterY, loupeRadius + 5f, loupeShadowPaint)
         canvas.drawCircle(loupeCenterX, loupeCenterY, loupeRadius, loupeBorderPaint)
+        canvas.drawCircle(loupeCenterX, loupeCenterY, loupeRadius - 4f, loupeAccentPaint)
+
+        // 6. "2.8× ZOOM" Pill Badge at the top rim of the magnifier
+        val badgeW = 140f
+        val badgeH = 34f
+        val badgeY = loupeCenterY - loupeRadius + 22f
+        val badgeRect = RectF(loupeCenterX - badgeW / 2f, badgeY - badgeH / 2f, loupeCenterX + badgeW / 2f, badgeY + badgeH / 2f)
+        canvas.drawRoundRect(badgeRect, 17f, 17f, loupeBadgePaint)
+        canvas.drawText("2.8× ZOOM", loupeCenterX, badgeY + 8f, loupeBadgeTextPaint)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -357,11 +445,26 @@ class CropLoupeOverlayView(context: Context) : View(context) {
                     val maxW = bmp?.width?.toFloat() ?: 4000f
                     val maxH = bmp?.height?.toFloat() ?: 4000f
 
+                    val snapThreshold = 16f
+                    var snapped = false
+                    var ptX = bmpPt.x
+                    var ptY = bmpPt.y
+                    if (kotlin.math.abs(ptX - 0f) < snapThreshold) { ptX = 0f; snapped = true }
+                    if (kotlin.math.abs(ptX - maxW) < snapThreshold) { ptX = maxW; snapped = true }
+                    if (kotlin.math.abs(ptY - 0f) < snapThreshold) { ptY = 0f; snapped = true }
+                    if (kotlin.math.abs(ptY - maxH) < snapThreshold) { ptY = maxH; snapped = true }
+                    if (snapped) {
+                        try {
+                            performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                        } catch (_: Exception) {}
+                    }
+                    val adjustedPt = PointF(ptX, ptY)
+
                     corners = when (activeHandleIndex) {
-                        0 -> corners.copy(topLeft = bmpPt)
-                        1 -> corners.copy(topRight = bmpPt)
-                        2 -> corners.copy(bottomRight = bmpPt)
-                        3 -> corners.copy(bottomLeft = bmpPt)
+                        0 -> corners.copy(topLeft = adjustedPt)
+                        1 -> corners.copy(topRight = adjustedPt)
+                        2 -> corners.copy(bottomRight = adjustedPt)
+                        3 -> corners.copy(bottomLeft = adjustedPt)
                         4 -> { // Top Edge: Shift TL and TR
                             corners.copy(
                                 topLeft = PointF((corners.topLeft.x + dx).coerceIn(0f, maxW), (corners.topLeft.y + dy).coerceIn(0f, maxH)),

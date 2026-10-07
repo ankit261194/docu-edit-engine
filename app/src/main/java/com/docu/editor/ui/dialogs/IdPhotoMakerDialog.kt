@@ -35,8 +35,15 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,6 +77,10 @@ fun IdPhotoMakerDialog(
     var selectedBgColor by remember { mutableIntStateOf(android.graphics.Color.WHITE) }
     var processedPhoto by remember { mutableStateOf<Bitmap?>(null) }
     var isSheetMode by remember { mutableStateOf(false) }
+    var addGovtStrip by remember { mutableStateOf(false) }
+    var candidateName by remember { mutableStateOf("") }
+    val todayFormatted = remember { SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()).format(Date()) }
+    var dateOfPhoto by remember { mutableStateOf(todayFormatted) }
 
     val bgColors = listOf(
         Pair("White", android.graphics.Color.WHITE),
@@ -85,7 +96,9 @@ fun IdPhotoMakerDialog(
             sourceBitmap = src,
             size = selectedSize,
             backgroundColor = selectedBgColor,
-            addBorder = true
+            addBorder = true,
+            candidateName = if (addGovtStrip) candidateName else null,
+            dateOfPhoto = if (addGovtStrip) dateOfPhoto else null
         )
         processedPhoto = if (isSheetMode) {
             CamScannerToolsEngine.createPrintableSheet(single, copies = 6)
@@ -94,7 +107,7 @@ fun IdPhotoMakerDialog(
         }
     }
 
-    LaunchedEffect(initialBitmap, selectedSize, selectedBgColor, isSheetMode) {
+    LaunchedEffect(initialBitmap, selectedSize, selectedBgColor, isSheetMode, addGovtStrip, candidateName, dateOfPhoto) {
         activeBitmap = initialBitmap
         if (initialBitmap != null) {
             renderIdPhoto()
@@ -312,6 +325,99 @@ fun IdPhotoMakerDialog(
                             ) {
                                 Text(sizePreset.displayName, fontSize = 12.5.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, color = MaterialTheme.colorScheme.onSurface)
                                 Text("${sizePreset.widthMm}x${sizePreset.heightMm} mm", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Govt Exam Name & Date of Photo (DOP) Bottom Strip
+                Card(
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = if (addGovtStrip) Color(0xFFF5F3FF) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, if (addGovtStrip) Color(0xFF7C3AED) else MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Govt Exam Name & DOP Strip",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    "SSC / UPSC / IBPS mandatory photo strip",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Switch(
+                                checked = addGovtStrip,
+                                onCheckedChange = {
+                                    addGovtStrip = it
+                                    renderIdPhoto()
+                                },
+                                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF7C3AED))
+                            )
+                        }
+
+                        if (addGovtStrip) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = candidateName,
+                                onValueChange = {
+                                    candidateName = it
+                                    renderIdPhoto()
+                                },
+                                label = { Text("Candidate Name (e.g. AMIT KUMAR)", fontSize = 11.sp) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = Color(0xFF7C3AED),
+                                    unfocusedBorderColor = Color(0xFFCBD5E1)
+                                )
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = dateOfPhoto,
+                                    onValueChange = {
+                                        dateOfPhoto = it
+                                        renderIdPhoto()
+                                    },
+                                    label = { Text("Date of Photo (DD-MM-YYYY)", fontSize = 11.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = Color(0xFF7C3AED),
+                                        unfocusedBorderColor = Color(0xFFCBD5E1)
+                                    )
+                                )
+                                Button(
+                                    onClick = {
+                                        dateOfPhoto = todayFormatted
+                                        renderIdPhoto()
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEDE9FE)),
+                                    shape = RoundedCornerShape(10.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(52.dp)
+                                ) {
+                                    Text("Today", color = Color(0xFF7C3AED), fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }

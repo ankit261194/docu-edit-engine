@@ -30,13 +30,82 @@ object SpreadsheetExportEngine {
     }
 
     /**
-     * Clusters OCR text items into geometrically aligned table rows and columns.
+     * Estimates the dominant tilt/skew angle in degrees across document text lines.
+     */
+    fun estimateDocumentSkewAngle(items: List<DetectedTextItem>): Double {
+        if (items.size < 4) return 0.0
+        val angles = mutableListOf<Double>()
+        for (i in 0 until items.size - 1) {
+            for (j in i + 1 until min(i + 15, items.size)) {
+                val a = items[i].boundingBox
+                val b = items[j].boundingBox
+                val dx = (b.centerX() - a.centerX()).toDouble()
+                val dy = (b.centerY() - a.centerY()).toDouble()
+                if (abs(dx) in 60.0..800.0 && abs(dy) < 50.0) {
+                    val deg = Math.toDegrees(kotlin.math.atan2(dy, dx))
+                    if (abs(deg) in 0.3..15.0) {
+                        angles.add(deg)
+                    }
+                }
+            }
+        }
+        if (angles.isEmpty()) return 0.0
+        angles.sort()
+        return angles[angles.size / 2]
+    }
+
+    /**
+     * Rotates text item bounding boxes around document center by -skewAngle to achieve true 0.0° horizontal alignment.
+     */
+    fun deskewTextItems(items: List<DetectedTextItem>, skewAngle: Double): List<DetectedTextItem> {
+        val minX = items.minOfOrNull { it.boundingBox.left } ?: 0
+        val maxX = items.maxOfOrNull { it.boundingBox.right } ?: 1000
+        val minY = items.minOfOrNull { it.boundingBox.top } ?: 0
+        val maxY = items.maxOfOrNull { it.boundingBox.bottom } ?: 1000
+        val docCenterX = (minX + maxX) / 2.0
+        val docCenterY = (minY + maxY) / 2.0
+
+        val rad = Math.toRadians(-skewAngle)
+        val cosA = kotlin.math.cos(rad)
+        val sinA = kotlin.math.sin(rad)
+
+        return items.map { item ->
+            val b = item.boundingBox
+            val cx = b.centerX().toDouble()
+            val cy = b.centerY().toDouble()
+
+            val ncx = docCenterX + (cx - docCenterX) * cosA - (cy - docCenterY) * sinA
+            val ncy = docCenterY + (cx - docCenterX) * sinA + (cy - docCenterY) * cosA
+
+            val halfW = b.width() / 2
+            val halfH = b.height() / 2
+
+            val newRect = android.graphics.Rect(
+                (ncx - halfW).toInt(),
+                (ncy - halfH).toInt(),
+                (ncx + halfW).toInt(),
+                (ncy + halfH).toInt()
+            )
+            item.copy(boundingBox = newRect)
+        }
+    }
+
+    /**
+     * Clusters OCR text items into geometrically aligned table rows and columns with automatic document deskewing.
      */
     fun extractTableRows(items: List<DetectedTextItem>): List<List<String>> {
         if (items.isEmpty()) return emptyList()
 
+        // Auto-deskew bounding boxes to true 0.0° if document is tilted
+        val skewAngle = estimateDocumentSkewAngle(items)
+        val effectiveItems = if (abs(skewAngle) >= 0.35) {
+            deskewTextItems(items, skewAngle)
+        } else {
+            items
+        }
+
         // 1. Try high-fidelity spatial grid clustering from TableGridDetector
-        val gridTable = com.docu.editor.core.layout.TableGridDetector.detectBorderlessTable(items)
+        val gridTable = com.docu.editor.core.layout.TableGridDetector.detectBorderlessTable(effectiveItems)
         if (gridTable != null && gridTable.rowCount >= 2 && gridTable.colCount >= 2) {
             val extracted = gridTable.rows.map { rowCells ->
                 rowCells.map { it.text.trim() }
@@ -48,7 +117,7 @@ object SpreadsheetExportEngine {
         }
 
         // 2. High-Precision Spatial Baseline & Column Anchor Clustering
-        val sorted = items.sortedBy { it.boundingBox.top }
+        val sorted = effectiveItems.sortedBy { it.boundingBox.top }
         val rowClusters = mutableListOf<MutableList<DetectedTextItem>>()
 
         for (item in sorted) {

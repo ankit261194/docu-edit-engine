@@ -66,6 +66,7 @@ fun PageThumbnailStrip(
     onDeleteSelectedPages: (Set<Int>) -> Unit,
     onExportSelectedPages: (Set<Int>) -> Unit,
     onRotateSelectedPages: (Set<Int>) -> Unit,
+    onOpenPagesOverview: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isSelectMode by remember { mutableStateOf(false) }
@@ -109,6 +110,22 @@ fun PageThumbnailStrip(
                         Text(
                             text = if (isSelectMode) "Done" else "Select Pages",
                             color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Surface(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onOpenPagesOverview() },
+                        color = Color(0xFF1E293B),
+                        border = BorderStroke(1.dp, Color(0xFF475569))
+                    ) {
+                        Text(
+                            text = "🗂️ Grid Studio",
+                            color = Color(0xFF38BDF8),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)

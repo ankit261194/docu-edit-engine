@@ -973,6 +973,7 @@ class MainActivity : ComponentActivity() {
                                 activeMode = uiState.activeToolMode,
                                 canvasRevision = uiState.canvasRevision,
                                 onTextItemTapped = { viewModel.selectTextItem(it) },
+                                onTextItemBoundsChanged = { item, newBounds -> viewModel.updateSelectedItemBounds(item, newBounds) },
                                 onLassoSelectionChanged = { viewModel.setLassoSelection(it) },
                                 onWhiteoutTouch = { x, y -> viewModel.applyWhiteoutCircle(x, y) },
                                 onInsertTextTouch = { x, y -> viewModel.insertNewTextItem(x, y) },
@@ -1086,6 +1087,9 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onRotateSelectedPages = { pages ->
                                         pages.forEach { viewModel.rotatePageAt(it) }
+                                    },
+                                    onOpenPagesOverview = {
+                                        viewModel.showPagesOverview(true)
                                     },
                                     modifier = Modifier
                                         .align(Alignment.BottomCenter)

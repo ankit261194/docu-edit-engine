@@ -132,6 +132,7 @@ fun DocumentInteractiveCanvas(
     onCommitBlackoutRect: (android.graphics.RectF) -> Unit = {},
     magicEraserBrushRadius: Float = 28f,
     onCommitMagicEraserStroke: (points: List<android.graphics.PointF>, brushRadius: Float) -> Unit = { _, _ -> },
+    onTextItemBoundsChanged: (DetectedTextItem, android.graphics.Rect) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
@@ -152,6 +153,8 @@ fun DocumentInteractiveCanvas(
     var hudPosition by remember { mutableStateOf<Offset?>(null) }
     var lastTapTime by remember { mutableStateOf(0L) }
     var lastTapPosition by remember { mutableStateOf(Offset.Zero) }
+    var liveTextDragBounds by remember { mutableStateOf<android.graphics.Rect?>(null) }
+    var liveBrushScreenPos by remember { mutableStateOf<Offset?>(null) }
 
     val currentCanvasLayers by rememberUpdatedState(canvasLayers)
     val currentSelectedLayerId by rememberUpdatedState(selectedLayerId)
@@ -172,6 +175,7 @@ fun DocumentInteractiveCanvas(
     val currentOnOverlayRotateChanged by rememberUpdatedState(onOverlayRotateChanged)
     val currentOnSelectLayer by rememberUpdatedState(onSelectLayer)
     val currentOnTextItemTapped by rememberUpdatedState(onTextItemTapped)
+    val currentOnTextItemBoundsChanged by rememberUpdatedState(onTextItemBoundsChanged)
     val currentOnInsertTextTouch by rememberUpdatedState(onInsertTextTouch)
     val currentOnWhiteoutTouch by rememberUpdatedState(onWhiteoutTouch)
     val currentOnCommitMarkupStroke by rememberUpdatedState(onCommitMarkupStroke)
@@ -206,6 +210,7 @@ fun DocumentInteractiveCanvas(
                 if (activeMode == EditorToolMode.WHITEOUT) {
                     detectDragGestures(
                         onDragStart = { startOffset ->
+                            liveBrushScreenPos = startOffset
                             val fitScale = min(
                                 currentContainerSize.width.toFloat() / bitmap.width,
                                 currentContainerSize.height.toFloat() / bitmap.height
@@ -224,6 +229,7 @@ fun DocumentInteractiveCanvas(
                         },
                         onDrag = { change, _ ->
                             change.consume()
+                            liveBrushScreenPos = change.position
                             val fitScale = min(
                                 currentContainerSize.width.toFloat() / bitmap.width,
                                 currentContainerSize.height.toFloat() / bitmap.height
@@ -239,6 +245,12 @@ fun DocumentInteractiveCanvas(
                             if (bitmapX in 0f..bitmap.width.toFloat() && bitmapY in 0f..bitmap.height.toFloat()) {
                                 currentOnWhiteoutTouch(bitmapX, bitmapY)
                             }
+                        },
+                        onDragEnd = {
+                            liveBrushScreenPos = null
+                        },
+                        onDragCancel = {
+                            liveBrushScreenPos = null
                         }
                     )
                 } else if (activeMode == EditorToolMode.HIGHLIGHTER || activeMode == EditorToolMode.MARKUP_PEN) {
@@ -295,6 +307,7 @@ fun DocumentInteractiveCanvas(
                 } else if (activeMode == EditorToolMode.MAGIC_ERASER) {
                     detectDragGestures(
                         onDragStart = { startOffset ->
+                            liveBrushScreenPos = startOffset
                             val fitScale = min(
                                 currentContainerSize.width.toFloat() / bitmap.width,
                                 currentContainerSize.height.toFloat() / bitmap.height
@@ -314,6 +327,7 @@ fun DocumentInteractiveCanvas(
                         },
                         onDrag = { change, _ ->
                             change.consume()
+                            liveBrushScreenPos = change.position
                             val fitScale = min(
                                 currentContainerSize.width.toFloat() / bitmap.width,
                                 currentContainerSize.height.toFloat() / bitmap.height
@@ -331,6 +345,7 @@ fun DocumentInteractiveCanvas(
                             }
                         },
                         onDragEnd = {
+                            liveBrushScreenPos = null
                             if (liveMarkupPoints.size >= 2) {
                                 currentOnCommitMagicEraserStroke(
                                     liveMarkupPoints.toList(),
@@ -340,6 +355,7 @@ fun DocumentInteractiveCanvas(
                             liveMarkupPoints.clear()
                         },
                         onDragCancel = {
+                            liveBrushScreenPos = null
                             liveMarkupPoints.clear()
                         }
                     )
@@ -631,6 +647,47 @@ fun DocumentInteractiveCanvas(
                             }
                         }
 
+                        if (chosenHandle == CanvasHandleType.NONE && currentSelected == null && currentActiveOverlayBitmap == null && activeMode == EditorToolMode.TEXT_EDIT) {
+                            val sItem = currentSelectedItem
+                            if (sItem != null) {
+                                val tDrawW = sItem.boundingBox.width() * effectiveScale
+                                val tDrawH = sItem.boundingBox.height() * effectiveScale
+                                val tScreenX = baseLeft + (sItem.boundingBox.left * effectiveScale)
+                                val tScreenY = baseTop + (sItem.boundingBox.top * effectiveScale)
+                                val handleRadius = 26.dp.toPx()
+
+                                when {
+                                    kotlin.math.hypot((startOffset.x - tScreenX).toDouble(), (startOffset.y - tScreenY).toDouble()) <= handleRadius -> {
+                                        chosenHandle = CanvasHandleType.CORNER_TOP_LEFT
+                                    }
+                                    kotlin.math.hypot((startOffset.x - (tScreenX + tDrawW)).toDouble(), (startOffset.y - tScreenY).toDouble()) <= handleRadius -> {
+                                        chosenHandle = CanvasHandleType.CORNER_TOP_RIGHT
+                                    }
+                                    kotlin.math.hypot((startOffset.x - tScreenX).toDouble(), (startOffset.y - (tScreenY + tDrawH)).toDouble()) <= handleRadius -> {
+                                        chosenHandle = CanvasHandleType.CORNER_BOTTOM_LEFT
+                                    }
+                                    kotlin.math.hypot((startOffset.x - (tScreenX + tDrawW)).toDouble(), (startOffset.y - (tScreenY + tDrawH)).toDouble()) <= handleRadius -> {
+                                        chosenHandle = CanvasHandleType.CORNER_BOTTOM_RIGHT
+                                    }
+                                    kotlin.math.hypot((startOffset.x - (tScreenX + tDrawW / 2f)).toDouble(), (startOffset.y - tScreenY).toDouble()) <= handleRadius -> {
+                                        chosenHandle = CanvasHandleType.EDGE_TOP
+                                    }
+                                    kotlin.math.hypot((startOffset.x - (tScreenX + tDrawW / 2f)).toDouble(), (startOffset.y - (tScreenY + tDrawH)).toDouble()) <= handleRadius -> {
+                                        chosenHandle = CanvasHandleType.EDGE_BOTTOM
+                                    }
+                                    kotlin.math.hypot((startOffset.x - tScreenX).toDouble(), (startOffset.y - (tScreenY + tDrawH / 2f)).toDouble()) <= handleRadius -> {
+                                        chosenHandle = CanvasHandleType.EDGE_LEFT
+                                    }
+                                    kotlin.math.hypot((startOffset.x - (tScreenX + tDrawW)).toDouble(), (startOffset.y - (tScreenY + tDrawH / 2f)).toDouble()) <= handleRadius -> {
+                                        chosenHandle = CanvasHandleType.EDGE_RIGHT
+                                    }
+                                    startOffset.x in (tScreenX - 8f)..(tScreenX + tDrawW + 8f) && startOffset.y in (tScreenY - 8f)..(tScreenY + tDrawH + 8f) -> {
+                                        chosenHandle = CanvasHandleType.BODY
+                                    }
+                                }
+                            }
+                        }
+
                         activeHandle = chosenHandle
 
                         var isDrag = false
@@ -647,6 +704,14 @@ fun DocumentInteractiveCanvas(
                             val change = event.changes.firstOrNull() ?: break
                             if (change.changedToUp()) {
                                 // Finger lifted!
+                                if (isDrag && chosenHandle != CanvasHandleType.NONE) {
+                                    val sItem = currentSelectedItem
+                                    val finalBox = liveTextDragBounds
+                                    if (sItem != null && finalBox != null && activeMode == EditorToolMode.TEXT_EDIT) {
+                                        currentOnTextItemBoundsChanged(sItem, finalBox)
+                                    }
+                                }
+                                liveTextDragBounds = null
                                 val isTap = !isDrag || (chosenHandle == CanvasHandleType.NONE && totalPan.getDistance() < 28.dp.toPx())
                                 if (isTap) {
                                     val now = System.currentTimeMillis()
@@ -730,13 +795,16 @@ fun DocumentInteractiveCanvas(
                             if (isDrag && chosenHandle != CanvasHandleType.NONE) {
                                 change.consume()
                                 val curActive = currentCanvasLayers.firstOrNull { it.id == currentSelectedLayerId }
-                                val lDrawW = (curActive?.bitmap?.width ?: currentActiveOverlayBitmap?.width ?: 100) * (curActive?.scale ?: currentOverlayScale) * effectiveScale
-                                val lDrawH = (curActive?.bitmap?.height ?: currentActiveOverlayBitmap?.height ?: 100) * (curActive?.scale ?: currentOverlayScale) * effectiveScale
-                                val lScreenX = baseLeft + ((curActive?.x ?: currentOverlayPositionX) * effectiveScale)
-                                val lScreenY = baseTop + ((curActive?.y ?: currentOverlayPositionY) * effectiveScale)
-                                val pivot = Offset(lScreenX + lDrawW / 2f, lScreenY + lDrawH / 2f)
+                                val sTextItem = currentSelectedItem
 
-                                when (chosenHandle) {
+                                if (curActive != null || currentActiveOverlayBitmap != null) {
+                                    val lDrawW = (curActive?.bitmap?.width ?: currentActiveOverlayBitmap?.width ?: 100) * (curActive?.scale ?: currentOverlayScale) * effectiveScale
+                                    val lDrawH = (curActive?.bitmap?.height ?: currentActiveOverlayBitmap?.height ?: 100) * (curActive?.scale ?: currentOverlayScale) * effectiveScale
+                                    val lScreenX = baseLeft + ((curActive?.x ?: currentOverlayPositionX) * effectiveScale)
+                                    val lScreenY = baseTop + ((curActive?.y ?: currentOverlayPositionY) * effectiveScale)
+                                    val pivot = Offset(lScreenX + lDrawW / 2f, lScreenY + lDrawH / 2f)
+
+                                    when (chosenHandle) {
                                     CanvasHandleType.BODY -> {
                                         val deltaDocX = dragDelta.x / effectiveScale
                                         val deltaDocY = dragDelta.y / effectiveScale
@@ -887,16 +955,81 @@ fun DocumentInteractiveCanvas(
                                     val hudCenterY = (lScreenY - 50.dp.toPx()).coerceAtLeast(20.dp.toPx())
                                     hudPosition = Offset(hudCenterX - 65.dp.toPx(), hudCenterY)
                                 }
-                            }
+                            } else if (sTextItem != null && activeMode == EditorToolMode.TEXT_EDIT) {
+                                val deltaDocX = dragDelta.x / effectiveScale
+                                val deltaDocY = dragDelta.y / effectiveScale
+                                val baseBox = liveTextDragBounds ?: sTextItem.boundingBox
+                                var l = baseBox.left.toFloat()
+                                var t = baseBox.top.toFloat()
+                                var r = baseBox.right.toFloat()
+                                var b = baseBox.bottom.toFloat()
 
-                            lastPos = currPos
+                                val minW = 20f
+                                val minH = 12f
+
+                                when (chosenHandle) {
+                                    CanvasHandleType.BODY -> {
+                                        val w = r - l
+                                        val h = b - t
+                                        l = (l + deltaDocX).coerceIn(0f, (bitmap.width - w).coerceAtLeast(0f))
+                                        t = (t + deltaDocY).coerceIn(0f, (bitmap.height - h).coerceAtLeast(0f))
+                                        r = l + w
+                                        b = t + h
+                                    }
+                                    CanvasHandleType.CORNER_TOP_LEFT -> {
+                                        l = (l + deltaDocX).coerceIn(0f, r - minW)
+                                        t = (t + deltaDocY).coerceIn(0f, b - minH)
+                                    }
+                                    CanvasHandleType.CORNER_TOP_RIGHT -> {
+                                        r = (r + deltaDocX).coerceIn(l + minW, bitmap.width.toFloat())
+                                        t = (t + deltaDocY).coerceIn(0f, b - minH)
+                                    }
+                                    CanvasHandleType.CORNER_BOTTOM_LEFT -> {
+                                        l = (l + deltaDocX).coerceIn(0f, r - minW)
+                                        b = (b + deltaDocY).coerceIn(t + minH, bitmap.height.toFloat())
+                                    }
+                                    CanvasHandleType.CORNER_BOTTOM_RIGHT -> {
+                                        r = (r + deltaDocX).coerceIn(l + minW, bitmap.width.toFloat())
+                                        b = (b + deltaDocY).coerceIn(t + minH, bitmap.height.toFloat())
+                                    }
+                                    CanvasHandleType.EDGE_TOP -> {
+                                        t = (t + deltaDocY).coerceIn(0f, b - minH)
+                                    }
+                                    CanvasHandleType.EDGE_BOTTOM -> {
+                                        b = (b + deltaDocY).coerceIn(t + minH, bitmap.height.toFloat())
+                                    }
+                                    CanvasHandleType.EDGE_LEFT -> {
+                                        l = (l + deltaDocX).coerceIn(0f, r - minW)
+                                    }
+                                    CanvasHandleType.EDGE_RIGHT -> {
+                                        r = (r + deltaDocX).coerceIn(l + minW, bitmap.width.toFloat())
+                                    }
+                                    else -> {}
+                                }
+
+                                val newBox = android.graphics.Rect(l.toInt(), t.toInt(), r.toInt(), b.toInt())
+                                liveTextDragBounds = newBox
+
+                                val sBoxLeft = baseLeft + (newBox.left * effectiveScale)
+                                val sBoxTop = baseTop + (newBox.top * effectiveScale)
+                                val sBoxWidth = newBox.width() * effectiveScale
+
+                                hudDimensions = "📏 ${newBox.width()} × ${newBox.height()} pt"
+                                val hudCenterX = (sBoxLeft + sBoxWidth / 2f).coerceIn(80f, currentContainerSize.width.toFloat() - 80f)
+                                val hudCenterY = (sBoxTop - 45.dp.toPx()).coerceAtLeast(20.dp.toPx())
+                                hudPosition = Offset(hudCenterX - 65.dp.toPx(), hudCenterY)
+                            }
                         }
 
-                        // Drag finished or cancelled
-                        snapGuides.clear()
-                        activeHandle = CanvasHandleType.NONE
-                        hudDimensions = null
-                        hudPosition = null
+                        lastPos = currPos
+                    }
+
+                    // Drag finished or cancelled
+                    snapGuides.clear()
+                    activeHandle = CanvasHandleType.NONE
+                    liveTextDragBounds = null
+                    hudDimensions = null
+                    hudPosition = null
                     }
                 }
             }
@@ -934,7 +1067,7 @@ fun DocumentInteractiveCanvas(
                     val isSingleSelected = item.id == selectedItem?.id
                     val isLassoSelected = selectedIds.contains(item.id)
                     val isSearchMatch = searchMatchingIndices.contains(idx)
-                    val box = item.boundingBox
+                    val box = if (isSingleSelected && liveTextDragBounds != null) liveTextDragBounds!! else item.boundingBox
 
                     val boxLeft = baseLeft + (box.left * effectiveScale)
                     val boxTop = baseTop + (box.top * effectiveScale)
@@ -954,37 +1087,114 @@ fun DocumentInteractiveCanvas(
                             style = Stroke(width = 2.dp.toPx())
                         )
                     } else if (isSingleSelected) {
-                        // High-contrast Emerald/Cyan Selection with 4 Corner Knobs
+                        // High-contrast Pro 8-Point Bounding Box Selection
+                        val themeColor = Color(0xFF0284C7)
                         drawRoundRect(
-                            color = Color(0xFF0284C7).copy(alpha = 0.20f),
+                            color = themeColor.copy(alpha = 0.18f),
                             topLeft = Offset(boxLeft, boxTop),
                             size = Size(boxWidth, boxHeight),
                             cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx())
                         )
                         drawRoundRect(
-                            color = Color(0xFF0284C7),
+                            color = themeColor,
                             topLeft = Offset(boxLeft, boxTop),
                             size = Size(boxWidth, boxHeight),
                             cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()),
-                            style = Stroke(width = 2.5.dp.toPx())
+                            style = Stroke(width = 2.dp.toPx())
                         )
-                        val knobRadius = 4.5.dp.toPx()
-                        val knobCorners = listOf(
+
+                        // 4 Corner Knobs with High-Visibility White Core & Outer Ring
+                        val cornerKnobRadius = 5.dp.toPx()
+                        val cornerKnobs = listOf(
                             Offset(boxLeft, boxTop),
                             Offset(boxLeft + boxWidth, boxTop),
                             Offset(boxLeft, boxTop + boxHeight),
                             Offset(boxLeft + boxWidth, boxTop + boxHeight)
                         )
-                        for (corner in knobCorners) {
+                        for (corner in cornerKnobs) {
                             drawCircle(
-                                color = Color.White,
-                                radius = knobRadius,
+                                color = Color(0x44000000),
+                                radius = cornerKnobRadius + 1.5.dp.toPx(),
                                 center = corner
                             )
                             drawCircle(
-                                color = Color(0xFF0284C7),
-                                radius = knobRadius,
+                                color = Color.White,
+                                radius = cornerKnobRadius,
+                                center = corner
+                            )
+                            drawCircle(
+                                color = themeColor,
+                                radius = cornerKnobRadius,
                                 center = corner,
+                                style = Stroke(width = 2.dp.toPx())
+                            )
+                        }
+
+                        // 4 Mid-Edge Pill Handles (Top, Bottom, Left, Right)
+                        val hPillW = 14.dp.toPx().coerceAtMost(boxWidth * 0.4f)
+                        val hPillH = 4.5.dp.toPx()
+                        val topPillCenter = Offset(boxLeft + boxWidth / 2f, boxTop)
+                        val bottomPillCenter = Offset(boxLeft + boxWidth / 2f, boxTop + boxHeight)
+
+                        if (hPillW >= 8.dp.toPx()) {
+                            drawRoundRect(
+                                color = Color.White,
+                                topLeft = Offset(topPillCenter.x - hPillW / 2f, topPillCenter.y - hPillH / 2f),
+                                size = Size(hPillW, hPillH),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(hPillH / 2f)
+                            )
+                            drawRoundRect(
+                                color = themeColor,
+                                topLeft = Offset(topPillCenter.x - hPillW / 2f, topPillCenter.y - hPillH / 2f),
+                                size = Size(hPillW, hPillH),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(hPillH / 2f),
+                                style = Stroke(width = 1.5.dp.toPx())
+                            )
+                            drawRoundRect(
+                                color = Color.White,
+                                topLeft = Offset(bottomPillCenter.x - hPillW / 2f, bottomPillCenter.y - hPillH / 2f),
+                                size = Size(hPillW, hPillH),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(hPillH / 2f)
+                            )
+                            drawRoundRect(
+                                color = themeColor,
+                                topLeft = Offset(bottomPillCenter.x - hPillW / 2f, bottomPillCenter.y - hPillH / 2f),
+                                size = Size(hPillW, hPillH),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(hPillH / 2f),
+                                style = Stroke(width = 1.5.dp.toPx())
+                            )
+                        }
+
+                        val vPillW = 4.5.dp.toPx()
+                        val vPillH = 14.dp.toPx().coerceAtMost(boxHeight * 0.4f)
+                        val leftPillCenter = Offset(boxLeft, boxTop + boxHeight / 2f)
+                        val rightPillCenter = Offset(boxLeft + boxWidth, boxTop + boxHeight / 2f)
+
+                        if (vPillH >= 8.dp.toPx()) {
+                            drawRoundRect(
+                                color = Color.White,
+                                topLeft = Offset(leftPillCenter.x - vPillW / 2f, leftPillCenter.y - vPillH / 2f),
+                                size = Size(vPillW, vPillH),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(vPillW / 2f)
+                            )
+                            drawRoundRect(
+                                color = themeColor,
+                                topLeft = Offset(leftPillCenter.x - vPillW / 2f, leftPillCenter.y - vPillH / 2f),
+                                size = Size(vPillW, vPillH),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(vPillW / 2f),
+                                style = Stroke(width = 1.5.dp.toPx())
+                            )
+                            drawRoundRect(
+                                color = Color.White,
+                                topLeft = Offset(rightPillCenter.x - vPillW / 2f, rightPillCenter.y - vPillH / 2f),
+                                size = Size(vPillW, vPillH),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(vPillW / 2f)
+                            )
+                            drawRoundRect(
+                                color = themeColor,
+                                topLeft = Offset(rightPillCenter.x - vPillW / 2f, rightPillCenter.y - vPillH / 2f),
+                                size = Size(vPillW, vPillH),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(vPillW / 2f),
                                 style = Stroke(width = 1.5.dp.toPx())
                             )
                         }
@@ -1069,6 +1279,50 @@ fun DocumentInteractiveCanvas(
                         cap = StrokeCap.Round
                     )
                 }
+            }
+
+            // 2.2.1 Draw live brush size indicator & glowing reticle for Magic Eraser and Whiteout
+            val brushPos = liveBrushScreenPos
+            if (brushPos != null && (activeMode == EditorToolMode.MAGIC_ERASER || activeMode == EditorToolMode.WHITEOUT)) {
+                val isEraser = activeMode == EditorToolMode.MAGIC_ERASER
+                val radiusPx = if (isEraser) {
+                    magicEraserBrushRadius * effectiveScale
+                } else {
+                    24f * effectiveScale
+                }
+                val themeColor = if (isEraser) Color(0xFFD946EF) else Color(0xFF38BDF8)
+
+                // Soft glowing outer aura
+                drawCircle(
+                    color = themeColor.copy(alpha = 0.28f),
+                    radius = radiusPx + 4.dp.toPx(),
+                    center = brushPos
+                )
+                // Translucent interior fill
+                drawCircle(
+                    color = themeColor.copy(alpha = 0.16f),
+                    radius = radiusPx,
+                    center = brushPos
+                )
+                // Crisp perimeter ring
+                drawCircle(
+                    color = themeColor,
+                    radius = radiusPx,
+                    center = brushPos,
+                    style = Stroke(width = 2.dp.toPx())
+                )
+                // Center millimeter-accuracy crosshair reticle
+                drawCircle(
+                    color = Color.White,
+                    radius = 2.5.dp.toPx(),
+                    center = brushPos
+                )
+                drawCircle(
+                    color = themeColor,
+                    radius = 2.5.dp.toPx(),
+                    center = brushPos,
+                    style = Stroke(width = 1.dp.toPx())
+                )
             }
 
             // 2.3 Draw live Redaction box preview
