@@ -21,7 +21,12 @@ object DocumentFilters {
         REMOVE_FINGERS,   // Automated YCrCb skin segmentation & border intrusion inpainting
         DEWARP_CURVED_PAGE, // Non-linear cylindrical remap flattening curved book spine pages
         CLEAN_BW,         // Crisp high-contrast black & white fax mode
-        GRAYSCALE         // Smooth leveled gray tone
+        GRAYSCALE,        // Smooth leveled gray tone
+        VIVID_DOC,        // CLAHE LAB Chroma Boost (Vivid colors for certificates & brochures)
+        STUDIO_WHITE,     // Studio-grade paper illumination whitening with crisp text
+        BLUEPRINT,        // Engineering drawing & blueprint cyanotype inversion
+        SEPIA,            // Archival warm sepia tone mapping
+        INK_SHARPENER     // Laplacian Anti-Smudge stroke de-bleeding & edge sharpening
     }
 
     suspend fun applyFilter(bitmap: Bitmap, filter: FilterType): Bitmap = withContext(Dispatchers.Default) {
@@ -34,6 +39,11 @@ object DocumentFilters {
             FilterType.DEWARP_CURVED_PAGE -> BookDewarpEngine.dewarpPage(bitmap)
             FilterType.CLEAN_BW -> applyCleanBw(bitmap)
             FilterType.GRAYSCALE -> applyEnhancedGrayscale(bitmap)
+            FilterType.VIVID_DOC -> applyVividDoc(bitmap)
+            FilterType.STUDIO_WHITE -> applyStudioWhite(bitmap)
+            FilterType.BLUEPRINT -> applyBlueprint(bitmap)
+            FilterType.SEPIA -> applySepia(bitmap)
+            FilterType.INK_SHARPENER -> applyInkSharpener(bitmap)
         }
     }
 
@@ -407,6 +417,277 @@ object DocumentFilters {
             background.release()
             normalized.release()
             resultRgb.release()
+            resultRgba.release()
+        }
+    }
+
+    /**
+     * Vivid Document: CLAHE luminance contrast + LAB chroma boost + unsharp mask.
+     * Ideal for color certificates, brochures, and glossy forms.
+     */
+    fun applyVividDoc(source: Bitmap): Bitmap {
+        val srcRgba = Mat()
+        val srcRgb = Mat()
+        val labMat = Mat()
+        val labChannels = mutableListOf<Mat>()
+        val clahe = Imgproc.createCLAHE(2.5, Size(8.0, 8.0))
+        val equalizedL = Mat()
+        val boostedRgb = Mat()
+        val blurred = Mat()
+        val sharpenedRgb = Mat()
+        val resultRgba = Mat()
+
+        return try {
+            Utils.bitmapToMat(source, srcRgba)
+            Imgproc.cvtColor(srcRgba, srcRgb, Imgproc.COLOR_RGBA2RGB)
+            Imgproc.cvtColor(srcRgb, labMat, Imgproc.COLOR_RGB2Lab)
+            Core.split(labMat, labChannels)
+
+            // Equalize luminance with CLAHE for crisp local text contrast
+            clahe.apply(labChannels[0], equalizedL)
+            equalizedL.copyTo(labChannels[0])
+
+            // Boost chroma A & B for vivid color pop
+            val aCh = labChannels[1]
+            val bCh = labChannels[2]
+            aCh.convertTo(aCh, -1, 1.35, -44.55)
+            bCh.convertTo(bCh, -1, 1.35, -44.55)
+
+            Core.merge(labChannels, labMat)
+            Imgproc.cvtColor(labMat, boostedRgb, Imgproc.COLOR_Lab2RGB)
+
+            // Crisp unsharp mask
+            Imgproc.GaussianBlur(boostedRgb, blurred, Size(3.0, 3.0), 0.0)
+            Core.addWeighted(boostedRgb, 1.25, blurred, -0.25, 0.0, sharpenedRgb)
+
+            Imgproc.cvtColor(sharpenedRgb, resultRgba, Imgproc.COLOR_RGB2RGBA)
+            val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(resultRgba, output)
+            output
+        } finally {
+            srcRgba.release()
+            srcRgb.release()
+            labMat.release()
+            labChannels.forEach { it.release() }
+            equalizedL.release()
+            boostedRgb.release()
+            blurred.release()
+            sharpenedRgb.release()
+            resultRgba.release()
+        }
+    }
+
+    /**
+     * Studio White: Per-channel background illumination division with high-key paper whitening LUT.
+     * Yields pristine 255 paper background while preserving colored logos and text.
+     */
+    fun applyStudioWhite(source: Bitmap): Bitmap {
+        val srcRgba = Mat()
+        val srcRgb = Mat()
+        val channels = mutableListOf<Mat>()
+        val dividedChannels = mutableListOf<Mat>()
+        val normalizedRgb = Mat()
+        val contrastRgb = Mat()
+        val resultRgba = Mat()
+
+        return try {
+            Utils.bitmapToMat(source, srcRgba)
+            Imgproc.cvtColor(srcRgba, srcRgb, Imgproc.COLOR_RGBA2RGB)
+            Core.split(srcRgb, channels)
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(51.0, 51.0))
+
+            for (ch in channels) {
+                val bg = Mat()
+                val chFloat = Mat()
+                val bgFloat = Mat()
+                val divFloat = Mat()
+                val divU8 = Mat()
+
+                Imgproc.morphologyEx(ch, bg, Imgproc.MORPH_CLOSE, kernel)
+                ch.convertTo(chFloat, CvType.CV_32F)
+                bg.convertTo(bgFloat, CvType.CV_32F)
+                bg.release()
+
+                Core.divide(chFloat, bgFloat, divFloat, 255.0)
+                chFloat.release()
+                bgFloat.release()
+
+                divFloat.convertTo(divU8, CvType.CV_8U)
+                divFloat.release()
+                dividedChannels.add(divU8)
+            }
+            kernel.release()
+            Core.merge(dividedChannels, normalizedRgb)
+
+            // Ultra-clean studio white LUT: threshold background > 195 to absolute 255
+            val lut = Mat(1, 256, CvType.CV_8U)
+            val lutData = ByteArray(256)
+            for (i in 0..255) {
+                val v = when {
+                    i >= 195 -> 255
+                    i <= 30 -> 0
+                    else -> {
+                        val norm = (i - 30).toDouble() / (195 - 30)
+                        (Math.pow(norm, 1.25) * 255.0).coerceIn(0.0, 255.0).toInt()
+                    }
+                }
+                lutData[i] = v.toByte()
+            }
+            lut.put(0, 0, lutData)
+            Core.LUT(normalizedRgb, lut, contrastRgb)
+            lut.release()
+
+            Imgproc.cvtColor(contrastRgb, resultRgba, Imgproc.COLOR_RGB2RGBA)
+            val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(resultRgba, output)
+            output
+        } finally {
+            srcRgba.release()
+            srcRgb.release()
+            channels.forEach { it.release() }
+            dividedChannels.forEach { it.release() }
+            normalizedRgb.release()
+            contrastRgb.release()
+            resultRgba.release()
+        }
+    }
+
+    /**
+     * Blueprint: Inverted cyanotype color LUT mapping for architectural and engineering plans.
+     */
+    fun applyBlueprint(source: Bitmap): Bitmap {
+        val srcRgba = Mat()
+        val gray = Mat()
+        val inverted = Mat()
+        val bpRgb = Mat()
+        val resultRgba = Mat()
+
+        return try {
+            Utils.bitmapToMat(source, srcRgba)
+            Imgproc.cvtColor(srcRgba, gray, Imgproc.COLOR_RGBA2GRAY)
+            Imgproc.equalizeHist(gray, gray)
+            Core.bitwise_not(gray, inverted)
+
+            // Blueprint LUT: 0 -> deep prussian navy (18, 38, 76), 255 -> crisp cyan-white (225, 245, 255)
+            val lut = Mat(1, 256, CvType.CV_8UC3)
+            val lutData = ByteArray(256 * 3)
+            for (i in 0..255) {
+                val t = i.toFloat() / 255f
+                val r = (18f * (1f - t) + 225f * t).toInt().coerceIn(0, 255)
+                val g = (38f * (1f - t) + 245f * t).toInt().coerceIn(0, 255)
+                val b = (76f * (1f - t) + 255f * t).toInt().coerceIn(0, 255)
+                lutData[i * 3 + 0] = r.toByte()
+                lutData[i * 3 + 1] = g.toByte()
+                lutData[i * 3 + 2] = b.toByte()
+            }
+            lut.put(0, 0, lutData)
+            val inv3ch = Mat()
+            Imgproc.cvtColor(inverted, inv3ch, Imgproc.COLOR_GRAY2RGB)
+            Core.LUT(inv3ch, lut, bpRgb)
+            inv3ch.release()
+            lut.release()
+
+            Imgproc.cvtColor(bpRgb, resultRgba, Imgproc.COLOR_RGB2RGBA)
+            val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(resultRgba, output)
+            output
+        } finally {
+            srcRgba.release()
+            gray.release()
+            inverted.release()
+            bpRgb.release()
+            resultRgba.release()
+        }
+    }
+
+    /**
+     * Vintage Sepia: Mathematical 3x3 color transform for warm archival document tone.
+     */
+    fun applySepia(source: Bitmap): Bitmap {
+        val srcRgba = Mat()
+        val srcRgb = Mat()
+        val sepiaMat = Mat()
+        val resultRgba = Mat()
+
+        return try {
+            Utils.bitmapToMat(source, srcRgba)
+            Imgproc.cvtColor(srcRgba, srcRgb, Imgproc.COLOR_RGBA2RGB)
+
+            val kernel = Mat(3, 3, CvType.CV_32F)
+            kernel.put(0, 0, floatArrayOf(
+                0.393f, 0.769f, 0.189f,
+                0.349f, 0.686f, 0.168f,
+                0.272f, 0.534f, 0.131f
+            ))
+            Core.transform(srcRgb, sepiaMat, kernel)
+            kernel.release()
+
+            Imgproc.cvtColor(sepiaMat, resultRgba, Imgproc.COLOR_RGB2RGBA)
+            val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(resultRgba, output)
+            output
+        } finally {
+            srcRgba.release()
+            srcRgb.release()
+            sepiaMat.release()
+            resultRgba.release()
+        }
+    }
+
+    /**
+     * Ink Sharpener & Anti-Smudge: Bilateral de-bleeding + Laplacian edge high-pass filter.
+     * Sharpens bleeding ink, smudged handwriting, and faint dot-matrix printouts.
+     */
+    fun applyInkSharpener(source: Bitmap): Bitmap {
+        val srcRgba = Mat()
+        val srcRgb = Mat()
+        val filtered = Mat()
+        val laplacian = Mat()
+        val sharpRgb = Mat()
+        val resultRgba = Mat()
+
+        return try {
+            Utils.bitmapToMat(source, srcRgba)
+            Imgproc.cvtColor(srcRgba, srcRgb, Imgproc.COLOR_RGBA2RGB)
+
+            Imgproc.bilateralFilter(srcRgb, filtered, 7, 50.0, 50.0)
+
+            Imgproc.Laplacian(filtered, laplacian, CvType.CV_16S, 3)
+            val laplacianU8 = Mat()
+            Core.convertScaleAbs(laplacian, laplacianU8)
+            laplacian.release()
+
+            Core.addWeighted(filtered, 1.0, laplacianU8, 0.35, 0.0, sharpRgb)
+            laplacianU8.release()
+
+            val lut = Mat(1, 256, CvType.CV_8U)
+            val lutData = ByteArray(256)
+            for (i in 0..255) {
+                val v = if (i < 120) {
+                    (i * 0.88).toInt().coerceIn(0, 255)
+                } else if (i > 210) {
+                    255
+                } else {
+                    i
+                }
+                lutData[i] = v.toByte()
+            }
+            lut.put(0, 0, lutData)
+            val finalRgb = Mat()
+            Core.LUT(sharpRgb, lut, finalRgb)
+            lut.release()
+
+            Imgproc.cvtColor(finalRgb, resultRgba, Imgproc.COLOR_RGB2RGBA)
+            finalRgb.release()
+
+            val output = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(resultRgba, output)
+            output
+        } finally {
+            srcRgba.release()
+            srcRgb.release()
+            filtered.release()
+            sharpRgb.release()
             resultRgba.release()
         }
     }

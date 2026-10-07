@@ -207,6 +207,7 @@ fun DocumentBottomBar(
                                 },
                                 label = {
                                     val chipText = when (filter) {
+                                        DocumentFilterMode.ORIGINAL -> "🖼️ Original"
                                         DocumentFilterMode.MAGIC_COLOR -> "✨ Magic Color"
                                         DocumentFilterMode.SHADOW_REMOVER -> "🌤️ Remove Shadow"
                                         DocumentFilterMode.WATERMARK_REMOVER -> "🧹 Erase Watermark"
@@ -214,7 +215,11 @@ fun DocumentBottomBar(
                                         DocumentFilterMode.BOOK_DEWARP -> "📖 Flatten Page"
                                         DocumentFilterMode.CLEAN_BW -> "📄 Clean B&W"
                                         DocumentFilterMode.GRAYSCALE -> "🔘 Grayscale"
-                                        else -> filter.displayName
+                                        DocumentFilterMode.VIVID_DOC -> "🎨 Vivid Doc"
+                                        DocumentFilterMode.STUDIO_WHITE -> "💡 Studio White"
+                                        DocumentFilterMode.BLUEPRINT -> "📐 Blueprint"
+                                        DocumentFilterMode.SEPIA -> "📜 Vintage Sepia"
+                                        DocumentFilterMode.INK_SHARPENER -> "🖋️ Ink Anti-Smudge"
                                     }
                                     Text(
                                         text = chipText,

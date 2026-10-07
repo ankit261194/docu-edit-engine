@@ -90,7 +90,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
     private var isTorchOn = false
     private var isCapturing = false
 
-    enum class ScannerMode { SINGLE, BATCH, ID_CARD, BOOK }
+    enum class ScannerMode { SINGLE, BATCH, ID_CARD, BOOK, WHITEBOARD, PASSPORT }
     private var scannerMode = ScannerMode.SINGLE
     private var isBatchMode = false
     private var idCardFrontBitmap: Bitmap? = null
@@ -136,6 +136,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
 
         // 2. Real-Time Document Corner Tracking Overlay
         overlayView = ScannerOverlayView(this).apply {
+            autoSnapEnabled = this@LiveCameraScannerActivity.autoSnapEnabled
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
@@ -685,8 +686,14 @@ class LiveCameraScannerActivity : ComponentActivity() {
     private fun handleFrameResult(corners: DocumentCorners?, frameW: Int, frameH: Int) {
         if (isCapturing || cropLoupeOverlayView.visibility == View.VISIBLE) return
 
-        if (scannerMode == ScannerMode.ID_CARD) {
-            statusText.text = if (idCardFrontBitmap == null) "🪪 Align ID card FRONT in frame" else "🪪 Align ID card BACK in frame"
+        if (scannerMode == ScannerMode.ID_CARD || scannerMode == ScannerMode.PASSPORT) {
+            statusText.text = if (scannerMode == ScannerMode.PASSPORT) {
+                "🛂 Align passport photo page in frame"
+            } else if (idCardFrontBitmap == null) {
+                "🪪 Align ID card FRONT in frame"
+            } else {
+                "🪪 Align ID card BACK in frame"
+            }
             stableFrameCount++
             val progress = (stableFrameCount.toFloat() / 20f).coerceIn(0f, 1f)
             overlayView.updateCorners(null, true, frameW, frameH, progress)
@@ -900,9 +907,9 @@ class LiveCameraScannerActivity : ComponentActivity() {
                     }
 
                     if (scannerMode == ScannerMode.BOOK) {
-                        val halfW = fullBitmap.width / 2
-                        val leftBmp = Bitmap.createBitmap(fullBitmap, 0, 0, halfW, fullBitmap.height)
-                        val rightBmp = Bitmap.createBitmap(fullBitmap, halfW, 0, fullBitmap.width - halfW, fullBitmap.height)
+                        val splitResult = com.docu.editor.core.dewarp.BookSplitEngine.splitBookSpread(fullBitmap, autoDewarpCurvature = true)
+                        val leftBmp = splitResult.leftPage
+                        val rightBmp = splitResult.rightPage
                         fullBitmap.recycle()
 
                         val outLeft = File(cacheDir, "scanned_book_p1_${System.currentTimeMillis()}.jpg")
@@ -1115,6 +1122,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
 
     private fun toggleAutoSnap() {
         autoSnapEnabled = !autoSnapEnabled
+        overlayView.autoSnapEnabled = autoSnapEnabled
         if (autoSnapEnabled) {
             autoSnapChip.text = "⚡ AUTO-SNAP: ACTIVE"
             autoSnapChip.setTextColor(Color.rgb(0, 230, 118))
@@ -1124,6 +1132,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
             autoSnapChip.setTextColor(Color.WHITE)
             (autoSnapChip.background as? GradientDrawable)?.setStroke(2, Color.WHITE)
         }
+        overlayView.invalidate()
     }
 
     private fun toggleBatchMode() {
@@ -1131,7 +1140,9 @@ class LiveCameraScannerActivity : ComponentActivity() {
             ScannerMode.SINGLE -> ScannerMode.BATCH
             ScannerMode.BATCH -> ScannerMode.ID_CARD
             ScannerMode.ID_CARD -> ScannerMode.BOOK
-            ScannerMode.BOOK -> ScannerMode.SINGLE
+            ScannerMode.BOOK -> ScannerMode.WHITEBOARD
+            ScannerMode.WHITEBOARD -> ScannerMode.PASSPORT
+            ScannerMode.PASSPORT -> ScannerMode.SINGLE
         }
         isBatchMode = (scannerMode == ScannerMode.BATCH)
 
@@ -1182,6 +1193,31 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 finishBatchChip.visibility = View.GONE
                 overlayView.isIdCardMode = false
                 overlayView.isBookMode = true
+                overlayView.invalidate()
+                idCardFrontBitmap?.recycle()
+                idCardFrontBitmap = null
+            }
+            ScannerMode.WHITEBOARD -> {
+                batchModeChip.text = "📊 WHITEBOARD"
+                batchModeChip.setTextColor(Color.rgb(168, 85, 247))
+                (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(168, 85, 247))
+                statusText.text = "📊 Whiteboard mode: Anti-glare contrast filter active"
+                finishBatchChip.visibility = View.GONE
+                overlayView.isIdCardMode = false
+                overlayView.isBookMode = false
+                overlayView.invalidate()
+                idCardFrontBitmap?.recycle()
+                idCardFrontBitmap = null
+            }
+            ScannerMode.PASSPORT -> {
+                batchModeChip.text = "🛂 PASSPORT"
+                batchModeChip.setTextColor(Color.rgb(45, 212, 191))
+                (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(45, 212, 191))
+                statusText.text = "🛂 Align passport identity page in frame"
+                finishBatchChip.visibility = View.GONE
+                overlayView.isIdCardMode = true
+                overlayView.isBookMode = false
+                overlayView.idCardGuideText = "ALIGN PASSPORT PHOTO PAGE"
                 overlayView.invalidate()
                 idCardFrontBitmap?.recycle()
                 idCardFrontBitmap = null

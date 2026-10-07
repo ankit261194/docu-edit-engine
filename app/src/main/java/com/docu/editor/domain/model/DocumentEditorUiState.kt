@@ -49,7 +49,12 @@ enum class DocumentFilterMode(val displayName: String) {
     FINGER_REMOVER("Remove Fingers"),
     BOOK_DEWARP("Flatten Book Page"),
     CLEAN_BW("Clean B&W"),
-    GRAYSCALE("Grayscale")
+    GRAYSCALE("Grayscale"),
+    VIVID_DOC("Vivid Document"),
+    STUDIO_WHITE("Studio White"),
+    BLUEPRINT("Blueprint"),
+    SEPIA("Vintage Sepia"),
+    INK_SHARPENER("Ink Anti-Smudge")
 }
 
 data class DocumentEditorUiState(

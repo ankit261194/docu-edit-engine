@@ -42,6 +42,7 @@ class ScannerOverlayView @JvmOverloads constructor(
     var bookGuideText: String = "ALIGN OPEN BOOK • AUTO 2-PAGE SPLIT"
 
     var autoSnapProgress: Float = 0f // 0.0f to 1.0f
+    var autoSnapEnabled: Boolean = false
 
     // Smooth interpolated corner coordinates
     private var smoothP1: PointF? = null
@@ -165,7 +166,7 @@ class ScannerOverlayView @JvmOverloads constructor(
             canvas.drawText(idCardGuideText, width / 2f, cardRect.top - 24f, textPaint)
 
             // Draw Auto-Snap countdown ring around center if holding still
-            if (autoSnapProgress > 0f) {
+            if (autoSnapEnabled && autoSnapProgress > 0f) {
                 drawCenterSnapRing(canvas, cardRect.centerX(), cardRect.centerY(), 50f, autoSnapProgress)
             }
             return
@@ -206,19 +207,54 @@ class ScannerOverlayView @JvmOverloads constructor(
             canvas.drawText(bookGuideText, width / 2f, bookRect.top - 30f, textPaint)
             canvas.drawText("Center spine between pages will auto-cut into 2 sheets", width / 2f, bookRect.top - 65f, subTextPaint)
 
-            if (autoSnapProgress > 0f) {
+            if (autoSnapEnabled && autoSnapProgress > 0f) {
                 drawCenterSnapRing(canvas, centerX, bookRect.centerY(), 60f, autoSnapProgress)
             }
             return
         }
 
         // 3. LIVE DOCUMENT AUTO-EDGE TRACKING
+        val strokeColor = if (isStable) Color.rgb(56, 189, 248) else Color.rgb(255, 255, 255) // Clean Sky Cyan or Crisp White
+        val bracketPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 6.5f
+            strokeCap = Paint.Cap.ROUND
+            color = strokeColor
+        }
+        val guideLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 2.5f
+            color = Color.argb(120, 56, 189, 248)
+            pathEffect = DashPathEffect(floatArrayOf(14f, 14f), 0f)
+        }
+
         val pts = rawCorners
         if (pts == null) {
+            // Draw default center viewfinder alignment brackets when searching for document
+            val viewW = width * 0.82f
+            val viewH = viewW * 1.414f // A4 proportion
+            val vl = (width - viewW) / 2f
+            val vt = (height - viewH) / 2f - 30f
+            val vr = vl + viewW
+            val vb = vt + viewH
+
+            val defaultBracketPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = 4.5f
+                strokeCap = Paint.Cap.ROUND
+                color = Color.argb(130, 255, 255, 255)
+            }
+            val bLen = 42f
+            drawCornerBracket(canvas, vl, vt, bLen, 1f, 1f, defaultBracketPaint)
+            drawCornerBracket(canvas, vr, vt, bLen, -1f, 1f, defaultBracketPaint)
+            drawCornerBracket(canvas, vr, vb, bLen, -1f, -1f, defaultBracketPaint)
+            drawCornerBracket(canvas, vl, vb, bLen, 1f, -1f, defaultBracketPaint)
+
             smoothP1 = null
             smoothP2 = null
             smoothP3 = null
             smoothP4 = null
+            postInvalidateOnAnimation()
             return
         }
 
@@ -230,8 +266,8 @@ class ScannerOverlayView @JvmOverloads constructor(
         val targetP3 = PointF(pts.bottomRight.x * scaleX, pts.bottomRight.y * scaleY)
         val targetP4 = PointF(pts.bottomLeft.x * scaleX, pts.bottomLeft.y * scaleY)
 
-        // Exponential Moving Average (EMA) smoothing factor: 0.55
-        val alpha = 0.55f
+        // Heavy low-pass EMA filter (alpha = 0.22) eliminates hand tremor & camera sensor noise
+        val alpha = 0.22f
         smoothP1 = interpolate(smoothP1, targetP1, alpha)
         smoothP2 = interpolate(smoothP2, targetP2, alpha)
         smoothP3 = interpolate(smoothP3, targetP3, alpha)
@@ -242,42 +278,45 @@ class ScannerOverlayView @JvmOverloads constructor(
         val p3 = smoothP3!!
         val p4 = smoothP4!!
 
-        val strokeColor = if (isStable) Color.rgb(0, 230, 118) else Color.rgb(0, 229, 255)
-        val fillColor = if (isStable) Color.argb(45, 0, 230, 118) else Color.argb(25, 0, 229, 255)
-
-        polygonPaint.color = strokeColor
-        fillPaint.color = fillColor
-        cornerReticlePaint.color = strokeColor
-
-        // Draw bounded quadrilateral polygon
+        // 1. Subtle, clean perimeter dashed guideline (NO shaking solid green box)
         path.reset()
         path.moveTo(p1.x, p1.y)
         path.lineTo(p2.x, p2.y)
         path.lineTo(p3.x, p3.y)
         path.lineTo(p4.x, p4.y)
         path.close()
+        canvas.drawPath(path, guideLinePaint)
 
-        // Draw subtle glowing paper polygon
-        canvas.drawPath(path, fillPaint)
-        canvas.drawPath(path, polygonPaint)
+        // 2. High-precision corner alignment brackets (┌ ┐ └ ┘)
+        val bracketLen = 52f
+        drawCornerBracket(canvas, p1.x, p1.y, bracketLen, 1f, 1f, bracketPaint)
+        drawCornerBracket(canvas, p2.x, p2.y, bracketLen, -1f, 1f, bracketPaint)
+        drawCornerBracket(canvas, p3.x, p3.y, bracketLen, -1f, -1f, bracketPaint)
+        drawCornerBracket(canvas, p4.x, p4.y, bracketLen, 1f, -1f, bracketPaint)
 
-        // Draw circular corner reticles with target nodes
-        val cornerRadius = 22f
-        val points = arrayOf(p1, p2, p3, p4)
-        for (pt in points) {
-            canvas.drawCircle(pt.x, pt.y, cornerRadius, cornerReticlePaint)
-            canvas.drawCircle(pt.x, pt.y, cornerRadius, cornerBorderPaint)
-            canvas.drawCircle(pt.x, pt.y, 6f, cornerBorderPaint)
+        // 3. Subtle corner dots
+        val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = strokeColor
         }
+        canvas.drawCircle(p1.x, p1.y, 6f, dotPaint)
+        canvas.drawCircle(p2.x, p2.y, 6f, dotPaint)
+        canvas.drawCircle(p3.x, p3.y, 6f, dotPaint)
+        canvas.drawCircle(p4.x, p4.y, 6f, dotPaint)
 
-        // Draw Auto-Snap countdown progress ring at polygon center when stable
-        if (isStable && autoSnapProgress > 0f) {
+        // 4. Auto-Snap countdown progress ring ONLY when explicitly in Auto-Snap mode and stable
+        if (autoSnapEnabled && isStable && autoSnapProgress > 0f) {
             val docCenterX = (p1.x + p2.x + p3.x + p4.x) / 4f
             val docCenterY = (p1.y + p2.y + p3.y + p4.y) / 4f
             drawCenterSnapRing(canvas, docCenterX, docCenterY, 55f, autoSnapProgress)
         }
 
         postInvalidateOnAnimation()
+    }
+
+    private fun drawCornerBracket(canvas: Canvas, x: Float, y: Float, len: Float, dx: Float, dy: Float, paint: Paint) {
+        canvas.drawLine(x, y, x + dx * len, y, paint)
+        canvas.drawLine(x, y, x, y + dy * len, paint)
     }
 
     private fun drawCenterSnapRing(canvas: Canvas, cx: Float, cy: Float, radius: Float, progress: Float) {

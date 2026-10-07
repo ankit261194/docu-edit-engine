@@ -56,6 +56,8 @@ import com.docu.editor.core.scanner.PerspectiveTransformer
 import com.docu.editor.core.scanner.model.DocumentCorners
 import com.docu.editor.core.watermark.WatermarkEngine
 import com.docu.editor.core.dewarp.BookCurveDewarper
+import com.docu.editor.core.dewarp.BookSplitEngine
+import com.docu.editor.core.cv.EraseMarksEngine
 import com.docu.editor.core.signature.SignatureExtractor
 import com.docu.editor.core.signature.StampExtractor
 import com.docu.editor.core.export.DocxExportEngine
@@ -1477,6 +1479,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     DocumentFilterMode.BOOK_DEWARP -> DocumentFilters.FilterType.DEWARP_CURVED_PAGE
                     DocumentFilterMode.CLEAN_BW -> DocumentFilters.FilterType.CLEAN_BW
                     DocumentFilterMode.GRAYSCALE -> DocumentFilters.FilterType.GRAYSCALE
+                    DocumentFilterMode.VIVID_DOC -> DocumentFilters.FilterType.VIVID_DOC
+                    DocumentFilterMode.STUDIO_WHITE -> DocumentFilters.FilterType.STUDIO_WHITE
+                    DocumentFilterMode.BLUEPRINT -> DocumentFilters.FilterType.BLUEPRINT
+                    DocumentFilterMode.SEPIA -> DocumentFilters.FilterType.SEPIA
+                    DocumentFilterMode.INK_SHARPENER -> DocumentFilters.FilterType.INK_SHARPENER
                 }
                 DocumentFilters.applyFilter(base, filterType)
             }
@@ -1520,6 +1527,90 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             _uiState.update {
                 it.copy(
                     currentBitmap = adjusted,
+                    canUndo = true,
+                    canRedo = false,
+                    canvasRevision = it.canvasRevision + 1
+                )
+            }
+        }
+    }
+
+    // --- Enterprise Ink & Rubber Stamp Remover ---
+
+    fun eraseMarks(mode: EraseMarksEngine.EraseMode = EraseMarksEngine.EraseMode.ALL_MARKS, customColor: Int = Color.BLUE) {
+        val current = _uiState.value.currentBitmap ?: return
+        val curPageIdx = _uiState.value.currentPdfPageIndex
+
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "🪄 Erasing ink marks & preserving printed text...") }
+
+            val cleaned = withContext(Dispatchers.Default) {
+                EraseMarksEngine.eraseMarks(current, mode, customColor)
+            }
+
+            editedPagesMap[curPageIdx] = cleaned
+
+            val modeName = when (mode) {
+                EraseMarksEngine.EraseMode.ALL_MARKS -> "All handwriting & stamps erased"
+                EraseMarksEngine.EraseMode.RUBBER_STAMPS -> "Rubber stamps erased"
+                EraseMarksEngine.EraseMode.BLUE_PEN -> "Blue pen ink erased"
+                EraseMarksEngine.EraseMode.CUSTOM_COLOR -> "Custom ink marks erased"
+            }
+
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = false,
+                    processingMessage = null,
+                    currentBitmap = cleaned,
+                    successMessage = "✓ $modeName",
+                    canUndo = true,
+                    canRedo = false,
+                    canvasRevision = it.canvasRevision + 1
+                )
+            }
+        }
+    }
+
+    // --- Enterprise Book 2-Page Spine Splitter ---
+
+    fun splitCurrentBookSpread(autoDewarp: Boolean = true) {
+        val current = _uiState.value.currentBitmap ?: return
+        val curPageIdx = _uiState.value.currentPdfPageIndex
+        val totalCount = _uiState.value.pdfPageCount
+
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "📖 Detecting spine & splitting into 2 pages...") }
+
+            val result = withContext(Dispatchers.Default) {
+                BookSplitEngine.splitBookSpread(current, autoDewarpCurvature = autoDewarp)
+            }
+
+            val newEdited = mutableMapOf<Int, Bitmap>()
+            for (i in 0..curPageIdx) {
+                editedPagesMap[i]?.let { newEdited[i] = it }
+            }
+            newEdited[curPageIdx] = result.leftPage
+            newEdited[curPageIdx + 1] = result.rightPage
+
+            for (i in (curPageIdx + 1)..totalCount) {
+                editedPagesMap[i]?.let { newEdited[i + 1] = it }
+            }
+            editedPagesMap.clear()
+            editedPagesMap.putAll(newEdited)
+
+            val newTotalCount = max(2, totalCount + 1)
+
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = false,
+                    processingMessage = null,
+                    currentBitmap = result.leftPage,
+                    pdfPageCount = newTotalCount,
+                    successMessage = "✓ Book 2-Page split: Page ${curPageIdx + 1} & ${curPageIdx + 2} ready",
                     canUndo = true,
                     canRedo = false,
                     canvasRevision = it.canvasRevision + 1
