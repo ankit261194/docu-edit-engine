@@ -232,11 +232,33 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                var pendingInitialToolMode by remember { mutableStateOf<com.docu.editor.domain.model.EditorToolMode?>(null) }
+                var pendingInitialFilter by remember { mutableStateOf<com.docu.editor.domain.model.DocumentFilterMode?>(null) }
+                var pendingOpenOcrExtract by remember { mutableStateOf(false) }
+
                 // File Open Launcher
                 val filePickerLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenDocument()
                 ) { uri: Uri? ->
-                    uri?.let { viewModel.loadDocumentUri(it) }
+                    uri?.let {
+                        viewModel.loadDocumentUri(
+                            it,
+                            autoApplyMagicColor = (pendingInitialFilter == com.docu.editor.domain.model.DocumentFilterMode.MAGIC_COLOR),
+                            initialToolMode = pendingInitialToolMode ?: com.docu.editor.domain.model.EditorToolMode.TEXT_EDIT,
+                            initialFilter = pendingInitialFilter,
+                            onLoaded = {
+                                if (pendingOpenOcrExtract) {
+                                    viewModel.showOcrTextExtractDialog(true)
+                                    pendingOpenOcrExtract = false
+                                }
+                                if (pendingInitialToolMode == com.docu.editor.domain.model.EditorToolMode.FILTERS) {
+                                    viewModel.showFiltersSheet(true)
+                                }
+                            }
+                        )
+                        pendingInitialToolMode = null
+                        pendingInitialFilter = null
+                    }
                 }
 
                 val countCamPickerLauncher = rememberLauncherForActivityResult(
@@ -1266,6 +1288,8 @@ class MainActivity : ComponentActivity() {
                                     launchScannerWithMode(LiveCameraScannerActivity.ScannerMode.SINGLE)
                                 },
                                 onOpenFileClicked = {
+                                    pendingInitialToolMode = com.docu.editor.domain.model.EditorToolMode.TEXT_EDIT
+                                    pendingInitialFilter = null
                                     filePickerLauncher.launch(arrayOf("image/*", "application/pdf"))
                                 },
                                 onIdCardClicked = {
@@ -1384,6 +1408,8 @@ class MainActivity : ComponentActivity() {
                                     if (uiState.currentBitmap != null) {
                                         viewModel.applyFilter(DocumentFilterMode.SHADOW_REMOVER)
                                     } else {
+                                        pendingInitialToolMode = com.docu.editor.domain.model.EditorToolMode.MAGIC_ERASER
+                                        pendingInitialFilter = DocumentFilterMode.SHADOW_REMOVER
                                         filePickerLauncher.launch(arrayOf("image/*"))
                                     }
                                 },
@@ -1391,6 +1417,8 @@ class MainActivity : ComponentActivity() {
                                     if (uiState.currentBitmap != null) {
                                         viewModel.setActiveToolMode(EditorToolMode.MAGIC_ERASER)
                                     } else {
+                                        pendingInitialToolMode = com.docu.editor.domain.model.EditorToolMode.MAGIC_ERASER
+                                        pendingInitialFilter = null
                                         filePickerLauncher.launch(arrayOf("image/*"))
                                     }
                                 },
@@ -1402,6 +1430,8 @@ class MainActivity : ComponentActivity() {
                                     if (uiState.currentBitmap != null) {
                                         viewModel.showFiltersSheet(true)
                                     } else {
+                                        pendingInitialToolMode = com.docu.editor.domain.model.EditorToolMode.FILTERS
+                                        pendingInitialFilter = DocumentFilterMode.MAGIC_COLOR
                                         filePickerLauncher.launch(arrayOf("image/*"))
                                     }
                                 },
@@ -1411,6 +1441,8 @@ class MainActivity : ComponentActivity() {
                                         viewModel.setEditedBitmap(restored)
                                         Toast.makeText(this@MainActivity, "Photo restored & enhanced!", Toast.LENGTH_SHORT).show()
                                     } else {
+                                        pendingInitialToolMode = com.docu.editor.domain.model.EditorToolMode.FILTERS
+                                        pendingInitialFilter = DocumentFilterMode.PHOTO_RESTORE
                                         filePickerLauncher.launch(arrayOf("image/*"))
                                     }
                                 },
@@ -1421,7 +1453,8 @@ class MainActivity : ComponentActivity() {
                                     if (uiState.currentBitmap != null) {
                                         viewModel.showOcrTextExtractDialog(true)
                                     } else {
-                                        bulkBatchOcrPickerLauncher.launch(arrayOf("image/*", "application/pdf"))
+                                        pendingOpenOcrExtract = true
+                                        filePickerLauncher.launch(arrayOf("image/*", "application/pdf"))
                                     }
                                 },
                                 onIdPhotoMaker = {
@@ -2292,13 +2325,34 @@ class MainActivity : ComponentActivity() {
                                 onPickPhotoClicked = {
                                     idPhotoPickerLauncher.launch(arrayOf("image/*"))
                                 },
-                                onSaveToGallery = { bmp, prefix ->
-                                    val time = System.currentTimeMillis()
-                                    val uri = DocuStorageUtil.saveBitmapToGallery(this@MainActivity, bmp, "${prefix}_$time")
-                                    if (uri != null) {
-                                        Toast.makeText(this@MainActivity, "Saved to Gallery (DocuEdit album)!", Toast.LENGTH_LONG).show()
-                                    } else {
-                                        Toast.makeText(this@MainActivity, "Failed to save photo to Gallery", Toast.LENGTH_SHORT).show()
+                                onSaveToGallery = { bmp, prefix, targetKb ->
+                                    lifecycleScope.launch {
+                                        try {
+                                            val time = System.currentTimeMillis()
+                                            val tempFile = File(cacheDir, "${prefix}_$time.jpg")
+                                            val finalBytes: Long = if (targetKb != null) {
+                                                val res = com.docu.editor.core.export.TargetFileSizeEngine.compressBitmapToTargetKb(
+                                                    bitmap = bmp,
+                                                    targetKb = targetKb,
+                                                    outputFile = tempFile
+                                                )
+                                                res.finalBytes
+                                            } else {
+                                                tempFile.outputStream().use {
+                                                    bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 98, it)
+                                                }
+                                                tempFile.length()
+                                            }
+                                            val uri = DocuStorageUtil.saveImageFileToGallery(this@MainActivity, tempFile, "${prefix}_$time.jpg")
+                                            if (uri != null) {
+                                                val sizeStr = if (targetKb != null) " (${finalBytes / 1024} KB)" else ""
+                                                Toast.makeText(this@MainActivity, "Saved to Gallery$sizeStr (DocuEdit album)!", Toast.LENGTH_LONG).show()
+                                            } else {
+                                                Toast.makeText(this@MainActivity, "Failed to save photo to Gallery", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            Toast.makeText(this@MainActivity, "Save failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 },
                                 onExportPdf = { bmp, prefix ->

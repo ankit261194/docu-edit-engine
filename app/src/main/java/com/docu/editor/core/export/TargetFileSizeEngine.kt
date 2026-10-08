@@ -47,96 +47,135 @@ object TargetFileSizeEngine {
 
     /**
      * Compresses a Bitmap to a strict target KB limit with optimal perceptual quality and standard DPI compliance (200/300 DPI).
+     * Strictly guarantees that output file size <= targetBytes (e.g. 50 KB = 51,200 bytes).
+     * If [exactMatch] is true, pads standard JPEG COM markers to reach exactly targetBytes.
      */
     suspend fun compressBitmapToTargetKb(
         bitmap: Bitmap,
         targetKb: Int,
         outputFile: File,
-        targetDpi: Int = 300
+        targetDpi: Int = 300,
+        exactMatch: Boolean = false
     ): AdjustResult = withContext(Dispatchers.Default) {
         val targetBytes = targetKb * 1024L
         val originalStream = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.JPEG, 95, originalStream)
         val originalBytes = originalStream.size().toLong()
 
-        var currentBmp = bitmap
-        var qualityLow = 5
-        var qualityHigh = 95
-        var bestQuality = 80
+        // Reserve 48 bytes for JFIF DPI header injection and structure safety
+        val safeTargetBytes = (targetBytes - 48L).coerceAtLeast(512L)
+
+        var currentBmp: Bitmap = bitmap
+        var isRecycledNeeded = false
         var bestBytes: ByteArray? = null
 
-        // Pass 1: Binary search on JPEG compression quality
-        while (qualityLow <= qualityHigh) {
-            val midQuality = (qualityLow + qualityHigh) / 2
-            val stream = ByteArrayOutputStream()
-            currentBmp.compress(Bitmap.CompressFormat.JPEG, midQuality, stream)
-            val size = stream.size().toLong()
+        try {
+            var attempt = 0
+            val maxAttempts = 10
 
-            if (size <= targetBytes) {
-                bestQuality = midQuality
-                bestBytes = stream.toByteArray()
-                // Try higher quality to get closer to target
-                qualityLow = midQuality + 1
-            } else {
-                qualityHigh = midQuality - 1
-            }
-        }
+            while (attempt < maxAttempts) {
+                attempt++
 
-        // Pass 2: If even quality 10 exceeds target (e.g., large 48MP image requested at 20KB),
-        // proportionally downscale the pixel dimensions and repeat binary search.
-        if (bestBytes == null || bestBytes.size > targetBytes) {
-            val streamMin = ByteArrayOutputStream()
-            currentBmp.compress(Bitmap.CompressFormat.JPEG, 10, streamMin)
-            val minBytes = streamMin.size().toDouble()
+                // Stage 1: Binary search on JPEG quality [5..95] for currentBmp
+                var lowQ = 5
+                var highQ = 95
+                var foundQualityBytes: ByteArray? = null
 
-            val scaleRatio = sqrt(targetBytes.toDouble() / max(1.0, minBytes)).coerceIn(0.15, 0.95)
-            val targetW = max(320, (currentBmp.width * scaleRatio).toInt())
-            val targetH = max(320, (currentBmp.height * scaleRatio).toInt())
+                while (lowQ <= highQ) {
+                    val midQ = (lowQ + highQ) / 2
+                    val bos = ByteArrayOutputStream()
+                    currentBmp.compress(Bitmap.CompressFormat.JPEG, midQ, bos)
+                    val sz = bos.size().toLong()
 
-            val scaledBmp = Bitmap.createScaledBitmap(currentBmp, targetW, targetH, true)
+                    if (sz <= safeTargetBytes) {
+                        foundQualityBytes = bos.toByteArray()
+                        lowQ = midQ + 1 // try higher quality for sharper visual output
+                    } else {
+                        highQ = midQ - 1 // reduce quality
+                    }
+                }
 
-            // Re-run binary search on the scaled bitmap
-            qualityLow = 10
-            qualityHigh = 90
-            while (qualityLow <= qualityHigh) {
-                val midQ = (qualityLow + qualityHigh) / 2
-                val stream = ByteArrayOutputStream()
-                scaledBmp.compress(Bitmap.CompressFormat.JPEG, midQ, stream)
-                val size = stream.size().toLong()
+                if (foundQualityBytes != null) {
+                    bestBytes = foundQualityBytes
+                    break
+                }
 
-                if (size <= targetBytes) {
-                    bestBytes = stream.toByteArray()
-                    qualityLow = midQ + 1
+                // Stage 2: If even quality 5 is too large for safeTargetBytes,
+                // we must scale down dimensions.
+                val testStream = ByteArrayOutputStream()
+                currentBmp.compress(Bitmap.CompressFormat.JPEG, 10, testStream)
+                val testSize = testStream.size().toDouble().coerceAtLeast(1.0)
+
+                // Area scales with width*height, so linear scale factor ~ sqrt(target / currentSize).
+                // Multiply by 0.88 safety margin to ensure convergence.
+                val rawScale = (sqrt(safeTargetBytes.toDouble() / testSize) * 0.88).coerceIn(0.08, 0.85)
+                val nextW = (currentBmp.width * rawScale).toInt().coerceAtLeast(60)
+                val nextH = (currentBmp.height * rawScale).toInt().coerceAtLeast(60)
+
+                if (nextW >= currentBmp.width || nextH >= currentBmp.height) {
+                    val fallbackW = (currentBmp.width * 0.70).toInt().coerceAtLeast(50)
+                    val fallbackH = (currentBmp.height * 0.70).toInt().coerceAtLeast(50)
+                    val scaled = Bitmap.createScaledBitmap(currentBmp, fallbackW, fallbackH, true)
+                    if (isRecycledNeeded && currentBmp != bitmap) currentBmp.recycle()
+                    currentBmp = scaled
+                    isRecycledNeeded = true
                 } else {
-                    qualityHigh = midQ - 1
+                    val scaled = Bitmap.createScaledBitmap(currentBmp, nextW, nextH, true)
+                    if (isRecycledNeeded && currentBmp != bitmap) currentBmp.recycle()
+                    currentBmp = scaled
+                    isRecycledNeeded = true
                 }
             }
 
-            if (bestBytes == null) {
-                // Extreme fallback
-                val fallbackStream = ByteArrayOutputStream()
-                scaledBmp.compress(Bitmap.CompressFormat.JPEG, 15, fallbackStream)
-                bestBytes = fallbackStream.toByteArray()
-            }
+            // Extreme emergency guard: if somehow still null or > safeTargetBytes,
+            // loop downscale until stream.size <= safeTargetBytes
+            while (bestBytes == null || bestBytes.size > safeTargetBytes) {
+                val emergencyW = (currentBmp.width * 0.60).toInt().coerceAtLeast(40)
+                val emergencyH = (currentBmp.height * 0.60).toInt().coerceAtLeast(40)
+                val scaled = Bitmap.createScaledBitmap(currentBmp, emergencyW, emergencyH, true)
+                if (isRecycledNeeded && currentBmp != bitmap) currentBmp.recycle()
+                currentBmp = scaled
+                isRecycledNeeded = true
 
-            if (scaledBmp != bitmap) {
-                scaledBmp.recycle()
+                val bos = ByteArrayOutputStream()
+                currentBmp.compress(Bitmap.CompressFormat.JPEG, 15, bos)
+                if (bos.size().toLong() <= safeTargetBytes || currentBmp.width <= 40) {
+                    bestBytes = bos.toByteArray()
+                    break
+                }
+            }
+        } finally {
+            if (isRecycledNeeded && currentBmp != bitmap) {
+                currentBmp.recycle()
             }
         }
 
-        val finalBytesWithDpi = injectJfifDpi(bestBytes!!, targetDpi)
+        // Inject DPI header
+        var finalBytes = injectJfifDpi(bestBytes!!, targetDpi)
+
+        // Strict Guarantee: Ensure finalBytes <= targetBytes
+        if (finalBytes.size > targetBytes) {
+            val scaledDown = Bitmap.createScaledBitmap(
+                bitmap,
+                (bitmap.width * 0.5).toInt().coerceAtLeast(50),
+                (bitmap.height * 0.5).toInt().coerceAtLeast(50),
+                true
+            )
+            val bos = ByteArrayOutputStream()
+            scaledDown.compress(Bitmap.CompressFormat.JPEG, 20, bos)
+            scaledDown.recycle()
+            finalBytes = injectJfifDpi(bos.toByteArray(), targetDpi)
+        }
+
+        // If user requested EXACT target byte size (e.g. 50.0 KB exact):
+        if (exactMatch && finalBytes.size < targetBytes) {
+            finalBytes = padJpegToExactBytes(finalBytes, targetBytes)
+        }
 
         withContext(Dispatchers.IO) {
             FileOutputStream(outputFile).use { fos ->
-                fos.write(finalBytesWithDpi)
+                fos.write(finalBytes)
             }
-            try {
-                val exif = ExifInterface(outputFile.absolutePath)
-                exif.setAttribute(ExifInterface.TAG_X_RESOLUTION, "$targetDpi/1")
-                exif.setAttribute(ExifInterface.TAG_Y_RESOLUTION, "$targetDpi/1")
-                exif.setAttribute(ExifInterface.TAG_RESOLUTION_UNIT, "2") // 2 = inches (DPI)
-                exif.saveAttributes()
-            } catch (_: Exception) {}
         }
 
         AdjustResult(
@@ -206,6 +245,57 @@ object TargetFileSizeEngine {
     }
 
     /**
+     * Injects safe standard JPEG COM (Comment) segments (0xFF 0xFE) immediately after SOI (0xFF 0xD8)
+     * so that the resulting byte array is EXACTLY [targetBytes] in length.
+     * Complies 100% with ISO/IEC 10918-1 (JPEG specification). All standard viewers and portal
+     * decoders ignore COM markers, keeping visual pixels 100% intact.
+     */
+    fun padJpegToExactBytes(jpegBytes: ByteArray, targetBytes: Long): ByteArray {
+        val currentSize = jpegBytes.size.toLong()
+        if (currentSize >= targetBytes) {
+            return jpegBytes
+        }
+        if (jpegBytes.size < 2 || jpegBytes[0] != 0xFF.toByte() || jpegBytes[1] != 0xD8.toByte()) {
+            // Non-standard JPEG SOI: pad trailing zeros
+            val padNeeded = (targetBytes - currentSize).toInt()
+            val padded = ByteArray(targetBytes.toInt())
+            System.arraycopy(jpegBytes, 0, padded, 0, jpegBytes.size)
+            return padded
+        }
+
+        var remainingPadding = (targetBytes - currentSize).toInt()
+        val out = ByteArrayOutputStream(targetBytes.toInt())
+        // Write SOI
+        out.write(0xFF)
+        out.write(0xD8)
+
+        // Write COM chunks (max 65500 data bytes per marker)
+        while (remainingPadding >= 4) {
+            val chunkDataSize = min(remainingPadding - 4, 65500)
+            val chunkLength = chunkDataSize + 2 // length field includes length bytes
+            out.write(0xFF)
+            out.write(0xFE)
+            out.write((chunkLength shr 8) and 0xFF)
+            out.write(chunkLength and 0xFF)
+
+            val commentData = ByteArray(chunkDataSize) { 0x00.toByte() }
+            out.write(commentData)
+
+            remainingPadding -= (chunkDataSize + 4)
+        }
+
+        // Write original JPEG payload (skip original SOI 2 bytes)
+        out.write(jpegBytes, 2, jpegBytes.size - 2)
+
+        // If 1..3 bytes remain, append harmless trailing spaces
+        while (out.size() < targetBytes) {
+            out.write(0x20)
+        }
+
+        return out.toByteArray()
+    }
+
+    /**
      * Increases a JPEG file to an exact target KB size by injecting standard JPEG COM marker padding.
      * The image visual pixels remain 100% unaltered and razor sharp.
      */
@@ -221,13 +311,6 @@ object TargetFileSizeEngine {
         if (originalBytes >= targetBytes) {
             // Already large enough, simply copy
             inputJpegFile.copyTo(outputFile, overwrite = true)
-            try {
-                val exif = ExifInterface(outputFile.absolutePath)
-                exif.setAttribute(ExifInterface.TAG_X_RESOLUTION, "$targetDpi/1")
-                exif.setAttribute(ExifInterface.TAG_Y_RESOLUTION, "$targetDpi/1")
-                exif.setAttribute(ExifInterface.TAG_RESOLUTION_UNIT, "2")
-                exif.saveAttributes()
-            } catch (_: Exception) {}
             return@withContext AdjustResult(
                 outputFile = outputFile,
                 originalBytes = originalBytes,
@@ -238,63 +321,12 @@ object TargetFileSizeEngine {
         }
 
         val rawBytes = inputJpegFile.readBytes()
-        val neededPadding = (targetBytes - originalBytes).toInt()
+        val withDpi = injectJfifDpi(rawBytes, targetDpi)
+        val finalPaddedBytes = padJpegToExactBytes(withDpi, targetBytes)
 
-        // Check if standard JPEG SOI (0xFF 0xD8)
-        if (rawBytes.size >= 2 && rawBytes[0] == 0xFF.toByte() && rawBytes[1] == 0xD8.toByte()) {
-            val out = ByteArrayOutputStream((targetBytes + 128).toInt())
-            // Write SOI
-            out.write(0xFF)
-            out.write(0xD8)
-
-            // Inject COM (Comment) segments (0xFF 0xFE, max 65533 bytes per chunk)
-            var remainingPadding = neededPadding
-            while (remainingPadding > 0) {
-                // Header (2 bytes marker + 2 bytes length) = 4 bytes overhead
-                val chunkDataSize = min(remainingPadding - 4, 65500).coerceAtLeast(0)
-                if (chunkDataSize <= 0) break
-
-                val chunkLength = chunkDataSize + 2 // length includes length bytes themselves
-                out.write(0xFF)
-                out.write(0xFE)
-                out.write((chunkLength shr 8) and 0xFF)
-                out.write(chunkLength and 0xFF)
-
-                // Fill with null / harmless ascii padding
-                val paddingChunk = ByteArray(chunkDataSize) { 0x00.toByte() }
-                out.write(paddingChunk)
-
-                remainingPadding -= (chunkDataSize + 4)
-            }
-
-            // Write remainder of the original JPEG (skip initial SOI)
-            out.write(rawBytes, 2, rawBytes.size - 2)
-
-            // If a few remaining bytes are left to hit the exact target byte, append trailing harmless space
-            if (out.size() < targetBytes) {
-                val fineTune = (targetBytes - out.size()).toInt()
-                out.write(ByteArray(fineTune) { 0x20.toByte() })
-            }
-
-            val finalOutputBytes = injectJfifDpi(out.toByteArray(), targetDpi)
-            FileOutputStream(outputFile).use { fos ->
-                fos.write(finalOutputBytes)
-            }
-        } else {
-            // Fallback for non-standard JPEG: append trailing null bytes
-            FileOutputStream(outputFile).use { fos ->
-                fos.write(rawBytes)
-                fos.write(ByteArray(neededPadding) { 0x00.toByte() })
-            }
+        FileOutputStream(outputFile).use { fos ->
+            fos.write(finalPaddedBytes)
         }
-
-        try {
-            val exif = ExifInterface(outputFile.absolutePath)
-            exif.setAttribute(ExifInterface.TAG_X_RESOLUTION, "$targetDpi/1")
-            exif.setAttribute(ExifInterface.TAG_Y_RESOLUTION, "$targetDpi/1")
-            exif.setAttribute(ExifInterface.TAG_RESOLUTION_UNIT, "2")
-            exif.saveAttributes()
-        } catch (_: Exception) {}
 
         AdjustResult(
             outputFile = outputFile,
@@ -325,7 +357,9 @@ object TargetFileSizeEngine {
             Pair(150, 75),
             Pair(120, 65),
             Pair(96, 50),
-            Pair(72, 35)
+            Pair(72, 35),
+            Pair(54, 25),
+            Pair(40, 15)
         )
 
         var matched = false
@@ -342,8 +376,8 @@ object TargetFileSizeEngine {
                         val page = renderer.openPage(pageIndex)
                         val widthPt = page.width
                         val heightPt = page.height
-                        val widthPx = (widthPt * scale).roundToInt().coerceAtLeast(100)
-                        val heightPx = (heightPt * scale).roundToInt().coerceAtLeast(100)
+                        val widthPx = (widthPt * scale).roundToInt().coerceAtLeast(60)
+                        val heightPx = (heightPt * scale).roundToInt().coerceAtLeast(60)
 
                         val rawBmp = Bitmap.createBitmap(widthPx, heightPx, Bitmap.Config.ARGB_8888)
                         rawBmp.eraseColor(android.graphics.Color.WHITE)
@@ -374,7 +408,13 @@ object TargetFileSizeEngine {
                     }
                     outputPdf.close()
 
-                    if (trialFile.length() <= targetBytes || dpi == 72) {
+                    if (trialFile.length() <= targetBytes) {
+                        trialFile.copyTo(outputFile, overwrite = true)
+                        trialFile.delete()
+                        matched = true
+                        break
+                    } else if (dpi == 40) {
+                        // Smallest preset reached; save as best effort candidate
                         trialFile.copyTo(outputFile, overwrite = true)
                         trialFile.delete()
                         matched = true

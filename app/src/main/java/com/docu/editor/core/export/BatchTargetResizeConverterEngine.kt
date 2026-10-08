@@ -58,6 +58,7 @@ object BatchTargetResizeConverterEngine {
 
     enum class BatchAdjustMode(val label: String) {
         DECREASE_TO_MAX("Compress to <= Target"),
+        EXACT_TARGET("Exact Target KB"),
         INCREASE_TO_MIN("Pad to >= Target")
     }
 
@@ -271,15 +272,21 @@ object BatchTargetResizeConverterEngine {
             ?: throw IllegalStateException("Could not decode image")
 
         try {
-            if (adjustMode == BatchAdjustMode.INCREASE_TO_MIN) {
-                val tempJpg = File.createTempFile("temp_inc_", ".jpg", context.cacheDir)
-                FileOutputStream(tempJpg).use { fos ->
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 92, fos)
+            when (adjustMode) {
+                BatchAdjustMode.INCREASE_TO_MIN -> {
+                    val tempJpg = File.createTempFile("temp_inc_", ".jpg", context.cacheDir)
+                    FileOutputStream(tempJpg).use { fos ->
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 92, fos)
+                    }
+                    TargetFileSizeEngine.increaseJpegToTargetKb(tempJpg, targetKb, outFile, targetDpi)
+                    tempJpg.delete()
                 }
-                TargetFileSizeEngine.increaseJpegToTargetKb(tempJpg, targetKb, outFile, targetDpi)
-                tempJpg.delete()
-            } else {
-                TargetFileSizeEngine.compressBitmapToTargetKb(bitmap, targetKb, outFile, targetDpi)
+                BatchAdjustMode.EXACT_TARGET -> {
+                    TargetFileSizeEngine.compressBitmapToTargetKb(bitmap, targetKb, outFile, targetDpi, exactMatch = true)
+                }
+                BatchAdjustMode.DECREASE_TO_MAX -> {
+                    TargetFileSizeEngine.compressBitmapToTargetKb(bitmap, targetKb, outFile, targetDpi, exactMatch = false)
+                }
             }
         } finally {
             bitmap.recycle()
@@ -373,21 +380,26 @@ object BatchTargetResizeConverterEngine {
 
         try {
             if (compressFormat == Bitmap.CompressFormat.JPEG) {
-                if (adjustMode == BatchAdjustMode.INCREASE_TO_MIN) {
-                    val tempJpg = File.createTempFile("temp_pdf_jpg_", ".jpg", context.cacheDir)
-                    FileOutputStream(tempJpg).use { fos ->
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, 90, fos)
+                when (adjustMode) {
+                    BatchAdjustMode.INCREASE_TO_MIN -> {
+                        val tempJpg = File.createTempFile("temp_pdf_jpg_", ".jpg", context.cacheDir)
+                        FileOutputStream(tempJpg).use { fos ->
+                            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, fos)
+                        }
+                        TargetFileSizeEngine.increaseJpegToTargetKb(tempJpg, targetKb, outFile, targetDpi)
+                        tempJpg.delete()
                     }
-                    TargetFileSizeEngine.increaseJpegToTargetKb(tempJpg, targetKb, outFile, targetDpi)
-                    tempJpg.delete()
-                } else {
-                    TargetFileSizeEngine.compressBitmapToTargetKb(bitmap, targetKb, outFile, targetDpi)
+                    BatchAdjustMode.EXACT_TARGET -> {
+                        TargetFileSizeEngine.compressBitmapToTargetKb(bitmap, targetKb, outFile, targetDpi, exactMatch = true)
+                    }
+                    BatchAdjustMode.DECREASE_TO_MAX -> {
+                        TargetFileSizeEngine.compressBitmapToTargetKb(bitmap, targetKb, outFile, targetDpi, exactMatch = false)
+                    }
                 }
+            } else if (compressFormat == Bitmap.CompressFormat.PNG) {
+                processBitmapToPngStrict(bitmap, targetKb, outFile)
             } else {
-                // Non-JPEG format
-                FileOutputStream(outFile).use { fos ->
-                    bitmap.compress(compressFormat, 90, fos)
-                }
+                processBitmapToWebpStrict(bitmap, targetKb, outFile)
             }
         } finally {
             bitmap.recycle()
@@ -422,25 +434,7 @@ object BatchTargetResizeConverterEngine {
             ?: throw IllegalStateException("Could not decode image")
 
         try {
-            // PNG is lossless; scale if targetKb is very small
-            val targetBytes = targetKb * 1024L
-            val testStream = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.PNG, 100, testStream)
-            val currentSize = testStream.size().toLong()
-
-            val scaledBmp = if (currentSize > targetBytes && targetBytes > 0) {
-                val ratio = kotlin.math.sqrt(targetBytes.toDouble() / currentSize.toDouble()).coerceIn(0.2, 0.95)
-                val nw = max(100, (bitmap.width * ratio).toInt())
-                val nh = max(100, (bitmap.height * ratio).toInt())
-                Bitmap.createScaledBitmap(bitmap, nw, nh, true)
-            } else {
-                bitmap
-            }
-
-            FileOutputStream(outFile).use { fos ->
-                scaledBmp.compress(Bitmap.CompressFormat.PNG, 100, fos)
-            }
-            if (scaledBmp != bitmap) scaledBmp.recycle()
+            processBitmapToPngStrict(bitmap, targetKb, outFile)
         } finally {
             bitmap.recycle()
         }
@@ -456,6 +450,34 @@ object BatchTargetResizeConverterEngine {
         )
     }
 
+    private fun processBitmapToPngStrict(sourceBitmap: Bitmap, targetKb: Int, outFile: File) {
+        val targetBytes = targetKb * 1024L
+        var current = sourceBitmap
+        var isRecyclable = false
+        try {
+            var stream = ByteArrayOutputStream()
+            current.compress(Bitmap.CompressFormat.PNG, 100, stream)
+
+            while (stream.size() > targetBytes && current.width > 40 && current.height > 40) {
+                val ratio = (kotlin.math.sqrt(targetBytes.toDouble() / stream.size().toDouble()) * 0.88).coerceIn(0.1, 0.85)
+                val nw = max(30, (current.width * ratio).toInt())
+                val nh = max(30, (current.height * ratio).toInt())
+                val scaled = Bitmap.createScaledBitmap(current, nw, nh, true)
+                if (isRecyclable) current.recycle()
+                current = scaled
+                isRecyclable = true
+                stream = ByteArrayOutputStream()
+                current.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            }
+
+            FileOutputStream(outFile).use { fos ->
+                fos.write(stream.toByteArray())
+            }
+        } finally {
+            if (isRecyclable) current.recycle()
+        }
+    }
+
     private suspend fun processImageToWebp(
         context: Context,
         item: BatchInputItem,
@@ -467,36 +489,8 @@ object BatchTargetResizeConverterEngine {
         val bitmap = ExifBitmapUtil.decodeUriWithExif(context, item.uri, maxDim = 2880)
             ?: throw IllegalStateException("Could not decode image")
 
-        val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Bitmap.CompressFormat.WEBP_LOSSY
-        } else {
-            @Suppress("DEPRECATION")
-            Bitmap.CompressFormat.WEBP
-        }
-
         try {
-            var quality = 80
-            val targetBytes = targetKb * 1024L
-            var bestBytes: ByteArray? = null
-
-            for (q in listOf(85, 70, 50, 30, 15)) {
-                val bos = ByteArrayOutputStream()
-                bitmap.compress(format, q, bos)
-                val size = bos.size().toLong()
-                if (size <= targetBytes || q == 15) {
-                    bestBytes = bos.toByteArray()
-                    quality = q
-                    break
-                }
-            }
-
-            FileOutputStream(outFile).use { fos ->
-                fos.write(bestBytes ?: run {
-                    val bos = ByteArrayOutputStream()
-                    bitmap.compress(format, quality, bos)
-                    bos.toByteArray()
-                })
-            }
+            processBitmapToWebpStrict(bitmap, targetKb, outFile)
         } finally {
             bitmap.recycle()
         }
@@ -510,6 +504,69 @@ object BatchTargetResizeConverterEngine {
             outputFormat = "WEBP",
             isSuccess = true
         )
+    }
+
+    private fun processBitmapToWebpStrict(sourceBitmap: Bitmap, targetKb: Int, outFile: File) {
+        val targetBytes = targetKb * 1024L
+        val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Bitmap.CompressFormat.WEBP_LOSSY
+        } else {
+            @Suppress("DEPRECATION")
+            Bitmap.CompressFormat.WEBP
+        }
+
+        var current = sourceBitmap
+        var isRecyclable = false
+        var bestBytes: ByteArray? = null
+
+        try {
+            var attempt = 0
+            while (attempt < 8) {
+                attempt++
+                var lowQ = 5
+                var highQ = 95
+                var found: ByteArray? = null
+
+                while (lowQ <= highQ) {
+                    val midQ = (lowQ + highQ) / 2
+                    val bos = ByteArrayOutputStream()
+                    current.compress(format, midQ, bos)
+                    if (bos.size().toLong() <= targetBytes) {
+                        found = bos.toByteArray()
+                        lowQ = midQ + 1
+                    } else {
+                        highQ = midQ - 1
+                    }
+                }
+
+                if (found != null) {
+                    bestBytes = found
+                    break
+                }
+
+                val testBos = ByteArrayOutputStream()
+                current.compress(format, 10, testBos)
+                val ratio = (kotlin.math.sqrt(targetBytes.toDouble() / testBos.size().toDouble().coerceAtLeast(1.0)) * 0.88).coerceIn(0.1, 0.85)
+                val nw = max(40, (current.width * ratio).toInt())
+                val nh = max(40, (current.height * ratio).toInt())
+                val scaled = Bitmap.createScaledBitmap(current, nw, nh, true)
+                if (isRecyclable) current.recycle()
+                current = scaled
+                isRecyclable = true
+            }
+
+            if (bestBytes == null) {
+                val bos = ByteArrayOutputStream()
+                current.compress(format, 10, bos)
+                bestBytes = bos.toByteArray()
+            }
+
+            FileOutputStream(outFile).use { fos ->
+                fos.write(bestBytes)
+            }
+        } finally {
+            if (isRecyclable) current.recycle()
+        }
     }
 
     // --- Packaging & Export Helpers ---
@@ -541,22 +598,19 @@ object BatchTargetResizeConverterEngine {
 
     /**
      * Saves a single processed file to the device Gallery if it is an image,
-     * or to public Downloads if it is a PDF.
+     * or to public Downloads if it is a PDF without re-encoding or size loss.
      */
     fun saveSingleFileToGallery(context: Context, file: File): Uri? {
         if (!file.exists() || file.length() == 0L) return null
         val name = file.name.lowercase()
         val isImage = name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png") || name.endsWith(".webp")
         return if (isImage) {
-            val bmp = BitmapFactory.decodeFile(file.absolutePath)
-            if (bmp != null) {
-                val format = if (name.endsWith(".png")) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
-                val uri = DocuStorageUtil.saveBitmapToGallery(context, bmp, file.nameWithoutExtension, format, 100)
-                bmp.recycle()
-                uri
-            } else {
-                DocuStorageUtil.saveFileToPublicDownloads(context, file, file.name, "image/jpeg")
+            val mime = when {
+                name.endsWith(".png") -> "image/png"
+                name.endsWith(".webp") -> "image/webp"
+                else -> "image/jpeg"
             }
+            DocuStorageUtil.saveImageFileToGallery(context, file, file.name, mime)
         } else {
             DocuStorageUtil.saveFileToPublicDownloads(context, file, file.name, "application/pdf")
         }

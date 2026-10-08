@@ -52,6 +52,7 @@ import androidx.compose.ui.window.Dialog
 
 enum class SizeAdjustMode {
     DECREASE,
+    EXACT,
     INCREASE
 }
 
@@ -116,7 +117,7 @@ fun TargetSizeAdjusterDialog(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = "Pi7 Perceptual Compression & Padding",
+                                text = "Govt Portal Verified · Strict Upper Bound",
                                 color = Color(0xFF64748B),
                                 fontSize = 11.sp
                             )
@@ -129,14 +130,14 @@ fun TargetSizeAdjusterDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Mode Selector: Decrease vs Increase
+                // Mode Selector: Decrease vs Exact vs Increase
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Decrease Button
+                    // Decrease Button (<=)
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(10.dp),
                         color = if (mode == SizeAdjustMode.DECREASE) Color(0xFFEFF6FF) else Color(0xFFF8FAFC),
                         border = BorderStroke(
                             1.5.dp,
@@ -146,30 +147,57 @@ fun TargetSizeAdjusterDialog(
                             .weight(1f)
                             .clickable { mode = SizeAdjustMode.DECREASE }
                     ) {
-                        Row(
-                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                        Column(
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(
-                                Icons.Default.South,
-                                contentDescription = null,
-                                tint = if (mode == SizeAdjustMode.DECREASE) Color(0xFF2563EB) else Color(0xFF64748B),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Decrease Size",
+                                text = "Max (≤)",
                                 fontWeight = if (mode == SizeAdjustMode.DECREASE) FontWeight.Bold else FontWeight.Medium,
                                 color = if (mode == SizeAdjustMode.DECREASE) Color(0xFF1E40AF) else Color(0xFF64748B),
-                                fontSize = 12.sp
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                text = "Portal Safe",
+                                color = if (mode == SizeAdjustMode.DECREASE) Color(0xFF2563EB) else Color(0xFF94A3B8),
+                                fontSize = 9.sp
                             )
                         }
                     }
 
-                    // Increase Button
+                    // Exact Button (==)
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (mode == SizeAdjustMode.EXACT) Color(0xFFECFDF5) else Color(0xFFF8FAFC),
+                        border = BorderStroke(
+                            1.5.dp,
+                            if (mode == SizeAdjustMode.EXACT) Color(0xFF059669) else Color(0xFFE2E8F0)
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { mode = SizeAdjustMode.EXACT }
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "Exact (==)",
+                                fontWeight = if (mode == SizeAdjustMode.EXACT) FontWeight.Bold else FontWeight.Medium,
+                                color = if (mode == SizeAdjustMode.EXACT) Color(0xFF065F46) else Color(0xFF64748B),
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                text = "Exact Byte",
+                                color = if (mode == SizeAdjustMode.EXACT) Color(0xFF059669) else Color(0xFF94A3B8),
+                                fontSize = 9.sp
+                            )
+                        }
+                    }
+
+                    // Increase Button (>=)
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
                         color = if (mode == SizeAdjustMode.INCREASE) Color(0xFFFAF5FF) else Color(0xFFF8FAFC),
                         border = BorderStroke(
                             1.5.dp,
@@ -179,23 +207,20 @@ fun TargetSizeAdjusterDialog(
                             .weight(1f)
                             .clickable { mode = SizeAdjustMode.INCREASE }
                     ) {
-                        Row(
-                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
+                        Column(
+                            modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(
-                                Icons.Default.North,
-                                contentDescription = null,
-                                tint = if (mode == SizeAdjustMode.INCREASE) Color(0xFF9333EA) else Color(0xFF64748B),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Increase Size",
+                                text = "Min (≥)",
                                 fontWeight = if (mode == SizeAdjustMode.INCREASE) FontWeight.Bold else FontWeight.Medium,
                                 color = if (mode == SizeAdjustMode.INCREASE) Color(0xFF6B21A8) else Color(0xFF64748B),
-                                fontSize = 12.sp
+                                fontSize = 11.sp
+                            )
+                            Text(
+                                text = "Inflate",
+                                color = if (mode == SizeAdjustMode.INCREASE) Color(0xFF9333EA) else Color(0xFF94A3B8),
+                                fontSize = 9.sp
                             )
                         }
                     }
@@ -206,17 +231,33 @@ fun TargetSizeAdjusterDialog(
                 // Mode Explanation Banner
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = if (mode == SizeAdjustMode.DECREASE) Color(0xFFF0FDF4) else Color(0xFFFDF4FF),
-                    border = BorderStroke(1.dp, if (mode == SizeAdjustMode.DECREASE) Color(0xFF86EFAC) else Color(0xFFF0ABFC)),
+                    color = when (mode) {
+                        SizeAdjustMode.DECREASE -> Color(0xFFEFF6FF)
+                        SizeAdjustMode.EXACT -> Color(0xFFECFDF5)
+                        SizeAdjustMode.INCREASE -> Color(0xFFFAF5FF)
+                    },
+                    border = BorderStroke(
+                        1.dp,
+                        when (mode) {
+                            SizeAdjustMode.DECREASE -> Color(0xFFBFDBFE)
+                            SizeAdjustMode.EXACT -> Color(0xFFA7F3D0)
+                            SizeAdjustMode.INCREASE -> Color(0xFFE9D5FF)
+                        }
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = if (mode == SizeAdjustMode.DECREASE)
-                            "✨ Strips junk EXIF metadata and optimizes quality loop. Visual sharpness preserved 100%."
-                        else
-                            "🏛️ Injects safe standard metadata padding bytes. Meets SSC/UPSC min-size rules with zero quality loss.",
+                        text = when (mode) {
+                            SizeAdjustMode.DECREASE -> "✅ Strict Max Limit: Guaranteed file size <= ${targetKbText} KB. Never exceeds target for government portal uploads."
+                            SizeAdjustMode.EXACT -> "🎯 Exact Target KB: Iterative compression + standard JPEG padding to reach exactly ${targetKbText}.0 KB."
+                            SizeAdjustMode.INCREASE -> "🏛️ Strict Min Limit: Inflates small images to meet government minimum KB requirements without quality loss."
+                        },
                         fontSize = 11.sp,
-                        color = if (mode == SizeAdjustMode.DECREASE) Color(0xFF166534) else Color(0xFF701A75),
+                        color = when (mode) {
+                            SizeAdjustMode.DECREASE -> Color(0xFF1E40AF)
+                            SizeAdjustMode.EXACT -> Color(0xFF065F46)
+                            SizeAdjustMode.INCREASE -> Color(0xFF6B21A8)
+                        },
                         modifier = Modifier.padding(8.dp)
                     )
                 }
@@ -320,7 +361,11 @@ fun TargetSizeAdjusterDialog(
                     },
                     enabled = isValid,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (mode == SizeAdjustMode.DECREASE) Color(0xFF2563EB) else Color(0xFF9333EA)
+                        containerColor = when (mode) {
+                            SizeAdjustMode.DECREASE -> Color(0xFF2563EB)
+                            SizeAdjustMode.EXACT -> Color(0xFF059669)
+                            SizeAdjustMode.INCREASE -> Color(0xFF9333EA)
+                        }
                     ),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth().height(48.dp)
@@ -328,10 +373,11 @@ fun TargetSizeAdjusterDialog(
                     Icon(Icons.Default.Compress, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = if (mode == SizeAdjustMode.DECREASE)
-                            "🎯 Compress to $targetKbInt KB ($selectedFormat)"
-                        else
-                            "🎯 Increase to $targetKbInt KB ($selectedFormat)",
+                        text = when (mode) {
+                            SizeAdjustMode.DECREASE -> "🎯 Compress to ≤ $targetKbInt KB ($selectedFormat)"
+                            SizeAdjustMode.EXACT -> "🎯 Make Exact $targetKbInt.0 KB ($selectedFormat)"
+                            SizeAdjustMode.INCREASE -> "🎯 Increase to ≥ $targetKbInt KB ($selectedFormat)"
+                        },
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )

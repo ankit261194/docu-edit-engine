@@ -209,6 +209,8 @@ object CamScannerToolsEngine {
         size: IdPhotoSize,
         backgroundColor: Int = Color.WHITE,
         addBorder: Boolean = true,
+        borderWidthPx: Float = 2f,
+        borderColor: Int = Color.parseColor("#CBD5E1"),
         candidateName: String? = null,
         dateOfPhoto: String? = null
     ): Bitmap {
@@ -297,14 +299,15 @@ object CamScannerToolsEngine {
             }
         }
 
-        // 3. Optional fine outer border for clean scissor cutting
-        if (addBorder) {
+        // 3. Fine outer border for clean scissor cutting or govt outline
+        if (addBorder && borderWidthPx > 0f) {
+            val halfBorder = borderWidthPx / 2f
             val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
-                strokeWidth = 2f
-                color = Color.parseColor("#CBD5E1")
+                strokeWidth = borderWidthPx
+                color = borderColor
             }
-            canvas.drawRect(1f, 1f, (targetW - 1).toFloat(), (targetH - 1).toFloat(), borderPaint)
+            canvas.drawRect(halfBorder, halfBorder, (targetW - halfBorder), (targetH - halfBorder), borderPaint)
         }
 
         return output

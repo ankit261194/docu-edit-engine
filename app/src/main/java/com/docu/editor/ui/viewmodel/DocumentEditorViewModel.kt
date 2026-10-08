@@ -212,7 +212,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         if (cachedItems.isEmpty()) {
             viewModelScope.launch(Dispatchers.Default) {
                 try {
-                    val detected = ocrAnalyzer.detectTextBlocks(cachedBmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE)
+                    val detected = ocrAnalyzer.detectTextBlocks(cachedBmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.ELEMENT)
                     pageDetectedItemsMap[pageIndex] = detected
                     if (_uiState.value.currentPdfPageIndex == pageIndex) {
                         _uiState.update { it.copy(detectedItems = detected) }
@@ -246,7 +246,13 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     // --- Loading Documents & Images ---
 
-    fun loadDocumentUri(uri: Uri, autoApplyMagicColor: Boolean = false) {
+    fun loadDocumentUri(
+        uri: Uri,
+        autoApplyMagicColor: Boolean = false,
+        initialToolMode: EditorToolMode = EditorToolMode.TEXT_EDIT,
+        initialFilter: DocumentFilterMode? = null,
+        onLoaded: (() -> Unit)? = null
+    ) {
         editedPagesMap.clear()
         pageDetectedItemsMap.clear()
         pageUndoStacks.clear()
@@ -276,7 +282,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     val bitmap = withContext(Dispatchers.IO) {
                         PdfPageLoader.renderPageToBitmap(context, uri, 0)
                     }
-                    setDocumentBitmap(bitmap, autoApplyMagicColor = false)
+                    setDocumentBitmap(bitmap, autoApplyMagicColor = false, initialToolMode = initialToolMode, initialFilter = initialFilter)
                 } else {
                     _uiState.update {
                         it.copy(
@@ -290,7 +296,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     val bitmap = withContext(Dispatchers.IO) {
                         loadOptimizedBitmapFromUri(uri)
                     }
-                    setDocumentBitmap(bitmap, autoApplyMagicColor = autoApplyMagicColor)
+                    setDocumentBitmap(bitmap, autoApplyMagicColor = autoApplyMagicColor, initialToolMode = initialToolMode, initialFilter = initialFilter)
+                }
+                withContext(Dispatchers.Main) {
+                    onLoaded?.invoke()
                 }
             } catch (e: SecurityException) {
                 _uiState.update {
@@ -992,7 +1001,12 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    private suspend fun setDocumentBitmap(bitmap: Bitmap, autoApplyMagicColor: Boolean = false) {
+    private suspend fun setDocumentBitmap(
+        bitmap: Bitmap,
+        autoApplyMagicColor: Boolean = false,
+        initialToolMode: EditorToolMode = EditorToolMode.TEXT_EDIT,
+        initialFilter: DocumentFilterMode? = null
+    ) {
         val orientedResult = withContext(Dispatchers.Default) {
             com.docu.editor.core.scanner.AutoOrientationEngine.autoOrientAndDeskew(bitmap)
         }
@@ -1001,14 +1015,25 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             scaleDownIfNeeded(sourceBmp, maxDimension = 2560)
         }
 
-        val effectiveBitmap = if (autoApplyMagicColor) {
-            withContext(Dispatchers.Default) {
-                com.docu.editor.core.scanner.DocumentFilters.applyFilter(optimized, com.docu.editor.core.scanner.DocumentFilters.FilterType.MAGIC_COLOR)
+        val effectiveBitmap = when {
+            initialFilter == DocumentFilterMode.PHOTO_RESTORE -> {
+                withContext(Dispatchers.Default) {
+                    com.docu.editor.core.tools.CamScannerToolsEngine.restorePhoto(optimized)
+                }
             }
-        } else {
-            optimized
+            autoApplyMagicColor || initialFilter == DocumentFilterMode.MAGIC_COLOR -> {
+                withContext(Dispatchers.Default) {
+                    com.docu.editor.core.scanner.DocumentFilters.applyFilter(optimized, com.docu.editor.core.scanner.DocumentFilters.FilterType.MAGIC_COLOR)
+                }
+            }
+            initialFilter == DocumentFilterMode.SHADOW_REMOVER -> {
+                withContext(Dispatchers.Default) {
+                    com.docu.editor.core.scanner.DocumentFilters.applyFilter(optimized, com.docu.editor.core.scanner.DocumentFilters.FilterType.REMOVE_SHADOWS)
+                }
+            }
+            else -> optimized
         }
-        val activeFilterMode = if (autoApplyMagicColor) DocumentFilterMode.MAGIC_COLOR else DocumentFilterMode.ORIGINAL
+        val activeFilterMode = initialFilter ?: if (autoApplyMagicColor) DocumentFilterMode.MAGIC_COLOR else DocumentFilterMode.ORIGINAL
 
         _uiState.update {
             it.copy(
@@ -1020,7 +1045,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 isScanning = true,
                 processingMessage = "Analyzing document typography & text...",
                 activeFilter = activeFilterMode,
-                activeToolMode = EditorToolMode.TEXT_EDIT,
+                activeToolMode = initialToolMode,
                 canUndo = false,
                 canRedo = false
             )
@@ -1029,7 +1054,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
         val detected = withContext(Dispatchers.Default) {
             try {
-                ocrAnalyzer.detectTextBlocks(effectiveBitmap, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE)
+                ocrAnalyzer.detectTextBlocks(effectiveBitmap, com.docu.editor.core.ocr.model.TextHierarchyLevel.ELEMENT)
             } catch (_: Exception) {
                 emptyList()
             }
@@ -1044,7 +1069,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 detectedItems = detected,
                 isScanning = false,
                 processingMessage = null,
-                activeToolMode = EditorToolMode.TEXT_EDIT
+                activeToolMode = initialToolMode
             )
         }
 
@@ -1448,12 +1473,17 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     targetItem.boundingBox.width().toFloat().coerceAtLeast(newWidth.toFloat())
                 }
 
-                val wrappedLines = com.docu.editor.core.rendering.AutoFitFontCondenser.autoWrapIfTooWide(
-                    newText,
-                    targetW,
-                    Paint().apply { textSize = singleLineH * 0.85f * sizeMultiplier }
-                ).split("\n")
-                val totalLines = maxOf(1, wrappedLines.size)
+                val isMultiLineInput = newText.contains("\n") || targetItem.text.contains("\n")
+                val totalLines = if (isMultiLineInput) {
+                    val wrappedLines = com.docu.editor.core.rendering.AutoFitFontCondenser.autoWrapIfTooWide(
+                        newText,
+                        targetW,
+                        Paint().apply { textSize = singleLineH * 0.85f * sizeMultiplier }
+                    ).split("\n")
+                    maxOf(1, wrappedLines.size)
+                } else {
+                    1
+                }
                 val finalBottom = (targetItem.boundingBox.top + totalLines * singleLineH).coerceAtMost(currentBitmap.height)
 
                 val finalRight = if (totalLines > 1) {
@@ -1597,8 +1627,12 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             }
 
             val filtered = withContext(Dispatchers.Default) {
-                val filterType = mapFilterModeToType(filter)
-                DocumentFilters.applyFilter(base, filterType, intensity)
+                if (filter == DocumentFilterMode.PHOTO_RESTORE) {
+                    com.docu.editor.core.tools.CamScannerToolsEngine.restorePhoto(base)
+                } else {
+                    val filterType = mapFilterModeToType(filter)
+                    DocumentFilters.applyFilter(base, filterType, intensity)
+                }
             }
 
             editedPagesMap[_uiState.value.currentPdfPageIndex] = filtered
@@ -1708,6 +1742,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         return when (filter) {
             DocumentFilterMode.ORIGINAL -> DocumentFilters.FilterType.ORIGINAL
             DocumentFilterMode.MAGIC_COLOR -> DocumentFilters.FilterType.MAGIC_COLOR
+            DocumentFilterMode.PHOTO_RESTORE -> DocumentFilters.FilterType.VIVID_DOC
             DocumentFilterMode.SHADOW_REMOVER -> DocumentFilters.FilterType.REMOVE_SHADOWS
             DocumentFilterMode.WATERMARK_REMOVER -> DocumentFilters.FilterType.REMOVE_WATERMARK
             DocumentFilterMode.FINGER_REMOVER -> DocumentFilters.FilterType.REMOVE_FINGERS

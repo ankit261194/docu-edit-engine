@@ -1,12 +1,12 @@
 {
-  "versionCode": 41,
-  "versionName": "10.5.0",
+  "versionCode": 43,
+  "versionName": "10.6.0",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.5.0 (Flagship Camera & Filter Overhaul)",
-  "changelog": "🚀 Flagship Pro Release v10.5.0:\n• 1-Click Auto-Crop Green Line: Camera now locks vibrant emerald green border, animated laser sweep, and automatically rectifies document directly into clean page on snap!\n• Multi-Scale Document Filters: Resolution-independent illumination division erases shadows, halos, and makes paper 100% studio white with razor-sharp black text.\n• 12MP Crystal Camera Clarity: Full sensor resolution preserved with 4096px decoding and 96% JPEG compression quality.\n• AI Neural Passport Studio: On-device ML Kit selfie background replacement (White, Light Blue, Deep Blue, Red, Gray).\n• Micro-Toner Paper Texture Blending: In-place text editor blends toner grain and edge bleed for 100% printed paper realism.\n• Advanced Typography: Dedicated Typewriter, Dot-Matrix, Consolas, and Devanagari Hindi support.\n• OpenXML Excel Engine: Multi-cell merges and complex table header support.\n• 3D Book Dewarping: Binding gutter leveling and curvature flattening.\n• Direct Gallery Save: Batch resizer and converters save directly to device gallery.",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.5.0/DocuEdit-v10.5.0-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.5.0/DocuEdit-v10.5.0-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.5.0/DocuEdit-v10.5.0-arm64.apk",
-  "apkFileName": "DocuEdit-v10.5.0-arm64.apk",
+  "releaseTitle": "DocuEdit Pro v10.6.0 (Strict <=50KB Solver, Word OCR Inpainting & Studio Passport)",
+  "changelog": "🚀 Major Pro Release v10.6.0:\n• Strict <=50KB File Size Solver: Guaranteed file size <= targetBytes (e.g. strict <=50 KB for UPSC/SSC portals) with raw MediaStore gallery stream (no re-compression bloat) and Exact/Decrease modes.\n• Word-Level OCR & In-Place Baseline Editing: Tapping a word selects only that word instead of the whole line. Replaced text stays on the exact same baseline with horizontal condensing (no multi-line wrap or ghost letter outlines).\n• Dedicated Home Action Shortcuts: 'Edit Photo/PDF Text', 'Whiteout & Eraser', 'DocuEdit Magic Color', 'Extract Text (OCR)', and 'Restore Photo' now open directly into their specialized active tool modes.\n• Pro Studio Passport Photo Maker: Full-resolution raw size neural mask with smooth Hermite S-curve edge feathering and realistic radial key lighting.\n• Studio Facial Sharpening & Lighting: LAB CLAHE lighting balance, bilateral skin smoothing, and unsharp mask for crystal-clear eyes, hair, and facial clarity.\n• Formal Attire & Suit Replacement: 1-click formal suits, blazers, and white collared shirts with collar height and shoulder width adjustment.\n• Custom Photo Borders & Cutting Guides: 0px, 1px, 2px, 4px border styles with Slate Gray, Black, and White color options.",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.6.0/DocuEdit-v10.6.0-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.6.0/DocuEdit-v10.6.0-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.6.0/DocuEdit-v10.6.0-arm64.apk",
+  "apkFileName": "DocuEdit-v10.6.0-arm64.apk",
   "apkSizeMb": 85.7
 }

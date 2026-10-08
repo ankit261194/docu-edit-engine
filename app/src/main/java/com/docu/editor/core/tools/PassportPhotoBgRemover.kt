@@ -42,13 +42,14 @@ object PassportPhotoBgRemover {
     private val segmenter by lazy {
         val options = SelfieSegmenterOptions.Builder()
             .setDetectorMode(SelfieSegmenterOptions.SINGLE_IMAGE_MODE)
+            .enableRawSizeMask()
             .build()
         Segmentation.getClient(options)
     }
 
     /**
      * Removes the ambient background from a portrait/selfie and replaces it
-     * with the specified studio backdrop color.
+     * with the specified studio backdrop color and realistic soft portrait key lighting.
      */
     suspend fun removeBackgroundAndReplace(
         source: Bitmap,
@@ -89,41 +90,67 @@ object PassportPhotoBgRemover {
                 fullMask
             }
 
-            // Blend source pixels with target studio backdrop
+            // Blend source pixels with target studio backdrop with smooth Hermite transition
             val output = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
             val srcPixels = IntArray(width * height)
             source.getPixels(srcPixels, 0, width, 0, 0, width, height)
 
             val outPixels = IntArray(width * height)
-            val targetColor = targetBackground.colorInt
             val bgIsTransparent = (targetBackground == StudioBackground.TRANSPARENT)
 
-            val bgR = Color.red(targetColor)
-            val bgG = Color.green(targetColor)
-            val bgB = Color.blue(targetColor)
+            val (centerColor, edgeColor) = when (targetBackground) {
+                StudioBackground.WHITE -> Pair(Color.WHITE, Color.parseColor("#EEF2F6"))
+                StudioBackground.LIGHT_BLUE -> Pair(Color.parseColor("#BAE6FD"), Color.parseColor("#60A5FA"))
+                StudioBackground.DEEP_BLUE -> Pair(Color.parseColor("#2563EB"), Color.parseColor("#1E3A8A"))
+                StudioBackground.STUDIO_RED -> Pair(Color.parseColor("#EF4444"), Color.parseColor("#991B1B"))
+                StudioBackground.VISA_GRAY -> Pair(Color.parseColor("#F8FAFC"), Color.parseColor("#E2E8F0"))
+                StudioBackground.TRANSPARENT, StudioBackground.ORIGINAL -> Pair(Color.TRANSPARENT, Color.TRANSPARENT)
+            }
 
-            for (i in 0 until (width * height)) {
-                val p = srcPixels[i]
-                val fgR = (p shr 16) and 0xFF
-                val fgG = (p shr 8) and 0xFF
-                val fgB = p and 0xFF
+            val cR = Color.red(centerColor)
+            val cG = Color.green(centerColor)
+            val cB = Color.blue(centerColor)
 
-                // Apply sigmoid/contrast curve to confidence to tighten hair boundaries
-                val rawAlpha = smoothedMask[i].coerceIn(0f, 1f)
-                val alpha = when {
-                    rawAlpha >= 0.85f -> 1.0f
-                    rawAlpha <= 0.15f -> 0.0f
-                    else -> (rawAlpha - 0.15f) / 0.70f
-                }
+            val eR = Color.red(edgeColor)
+            val eG = Color.green(edgeColor)
+            val eB = Color.blue(edgeColor)
 
-                if (bgIsTransparent) {
-                    val aInt = (alpha * 255f).toInt().coerceIn(0, 255)
-                    outPixels[i] = (aInt shl 24) or (fgR shl 16) or (fgG shl 8) or fgB
-                } else {
-                    val r = (fgR * alpha + bgR * (1f - alpha)).toInt().coerceIn(0, 255)
-                    val g = (fgG * alpha + bgG * (1f - alpha)).toInt().coerceIn(0, 255)
-                    val b = (fgB * alpha + bgB * (1f - alpha)).toInt().coerceIn(0, 255)
-                    outPixels[i] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+            val cx = width * 0.5f
+            val cy = height * 0.38f
+
+            for (y in 0 until height) {
+                val rowOffset = y * width
+                val dy = (y - cy) / height.toFloat()
+
+                for (x in 0 until width) {
+                    val idx = rowOffset + x
+                    val p = srcPixels[idx]
+                    val fgR = (p shr 16) and 0xFF
+                    val fgG = (p shr 8) and 0xFF
+                    val fgB = p and 0xFF
+
+                    // Smooth Hermite cubic curve for natural hair, ears, and collar blending
+                    val raw = smoothedMask[idx].coerceIn(0f, 1f)
+                    val t = ((raw - 0.10f) / 0.80f).coerceIn(0f, 1f)
+                    val alpha = t * t * (3f - 2f * t)
+
+                    if (bgIsTransparent) {
+                        val aInt = (alpha * 255f).toInt().coerceIn(0, 255)
+                        outPixels[idx] = (aInt shl 24) or (fgR shl 16) or (fgG shl 8) or fgB
+                    } else {
+                        val dx = (x - cx) / width.toFloat()
+                        val dist = kotlin.math.sqrt(dx * dx + dy * dy) * 1.35f
+                        val gradT = dist.coerceIn(0f, 1f)
+
+                        val bgR = (cR * (1f - gradT) + eR * gradT).toInt().coerceIn(0, 255)
+                        val bgG = (cG * (1f - gradT) + eG * gradT).toInt().coerceIn(0, 255)
+                        val bgB = (cB * (1f - gradT) + eB * gradT).toInt().coerceIn(0, 255)
+
+                        val r = (fgR * alpha + bgR * (1f - alpha)).toInt().coerceIn(0, 255)
+                        val g = (fgG * alpha + bgG * (1f - alpha)).toInt().coerceIn(0, 255)
+                        val b = (fgB * alpha + bgB * (1f - alpha)).toInt().coerceIn(0, 255)
+                        outPixels[idx] = (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                    }
                 }
             }
 

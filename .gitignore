@@ -19,3 +19,5 @@ Thumbs.db
 *.p12
 *.key
 google-services.json
+
+.kotlin/

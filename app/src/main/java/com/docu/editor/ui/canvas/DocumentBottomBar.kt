@@ -256,6 +256,7 @@ fun DocumentBottomBar(
                                     val chipText = when (filter) {
                                         DocumentFilterMode.ORIGINAL -> "Original"
                                         DocumentFilterMode.MAGIC_COLOR -> "Magic Color"
+                                        DocumentFilterMode.PHOTO_RESTORE -> "Restore Photo"
                                         DocumentFilterMode.SHADOW_REMOVER -> "Remove Shadow"
                                         DocumentFilterMode.WATERMARK_REMOVER -> "Erase Watermark"
                                         DocumentFilterMode.FINGER_REMOVER -> "Remove Fingers"

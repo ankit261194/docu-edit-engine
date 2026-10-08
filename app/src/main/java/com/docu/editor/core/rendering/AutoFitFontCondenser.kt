@@ -114,10 +114,15 @@ object AutoFitFontCondenser {
         originalText: String = "",
         sizeMultiplier: Float = 1.0f
     ): AdjustedTypography {
-        val targetWidth = max(10, targetBounds.width()).toFloat()
+        val targetWidth = max(16, targetBounds.width()).toFloat()
         val originalLines = if (originalText.isNotEmpty()) originalText.split("\n").size else 1
+        val userWantsMultiLine = text.contains("\n") || originalLines > 1
 
-        val effectiveText = autoWrapIfTooWide(text, targetWidth, paint)
+        val effectiveText = if (userWantsMultiLine) {
+            autoWrapIfTooWide(text, targetWidth, paint)
+        } else {
+            text // Single-line document text must NEVER wrap onto a second line underneath
+        }
         val lines = effectiveText.split("\n")
         val lineCount = max(1, lines.size)
 
@@ -166,7 +171,7 @@ object AutoFitFontCondenser {
                     scaleX = ratio.coerceIn(0.85f, 1.0f)
                     trackingEm = -0.012f
                 }
-                ratio in 0.65f..0.85f -> {
+                ratio >= 0.65f && ratio < 0.85f -> {
                     scaleX = 0.85f
                     trackingEm = -0.02f
                     paint.textScaleX = scaleX

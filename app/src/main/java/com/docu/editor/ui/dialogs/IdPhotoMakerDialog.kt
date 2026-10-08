@@ -24,14 +24,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
-import com.docu.editor.core.tools.PassportPhotoBgRemover
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Print
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -52,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -68,6 +67,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.docu.editor.core.tools.CamScannerToolsEngine
+import com.docu.editor.core.tools.PassportAttireEngine
+import com.docu.editor.core.tools.PassportEnhanceEngine
+import com.docu.editor.core.tools.PassportPhotoBgRemover
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -76,7 +78,7 @@ import java.util.Locale
 fun IdPhotoMakerDialog(
     initialBitmap: Bitmap?,
     onPickPhotoClicked: () -> Unit,
-    onSaveToGallery: (Bitmap, String) -> Unit,
+    onSaveToGallery: (Bitmap, String, Int?) -> Unit,
     onExportPdf: (Bitmap, String) -> Unit,
     onSharePrint: (Bitmap) -> Unit,
     onEditInCanvas: (Bitmap) -> Unit,
@@ -88,14 +90,36 @@ fun IdPhotoMakerDialog(
     var enableAiBgCutout by remember { mutableStateOf(true) }
     var isSegmenting by remember { mutableStateOf(false) }
     var segmentedBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var processedPhoto by remember { mutableStateOf<Bitmap?>(null) }
+
+    // Studio Facial Sharpening & Lighting
+    var selectedSharpness by remember { mutableStateOf(PassportEnhanceEngine.StudioSharpness.STUDIO_PRO) }
+    var enhancedBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    // Formal Attire & Suit Replacement
+    var selectedAttire by remember { mutableStateOf(PassportAttireEngine.AttireType.NONE) }
+    var attireOffsetY by remember { mutableFloatStateOf(0f) }
+    var attireScale by remember { mutableFloatStateOf(1.0f) }
+    var attireBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    // Border and Cutting guides
+    var borderThickness by remember { mutableFloatStateOf(2f) }
+    var selectedBorderColor by remember { mutableIntStateOf(android.graphics.Color.parseColor("#CBD5E1")) }
+    var drawCutGuides by remember { mutableStateOf(true) }
+
+    // Print sheet format
     var selectedSheetType by remember { mutableStateOf(CamScannerToolsEngine.PrintSheetType.SINGLE) }
     var customCopies by remember { mutableIntStateOf(6) }
-    var drawCutGuides by remember { mutableStateOf(true) }
+
+    // Govt exam DOP strip
     var addGovtStrip by remember { mutableStateOf(false) }
     var candidateName by remember { mutableStateOf("") }
     val todayFormatted = remember { SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()).format(Date()) }
     var dateOfPhoto by remember { mutableStateOf(todayFormatted) }
+
+    // Export Quality Preset: 0 = 300 DPI Lab Print, 1 = <=50 KB Govt Exam, 2 = <=20 KB Portal
+    var selectedExportPreset by remember { mutableIntStateOf(0) }
+
+    var processedPhoto by remember { mutableStateOf<Bitmap?>(null) }
 
     val bgColors = listOf(
         Pair("Studio White", android.graphics.Color.WHITE),
@@ -105,13 +129,15 @@ fun IdPhotoMakerDialog(
         Pair("Visa Grey", android.graphics.Color.parseColor("#E2E8F0"))
     )
 
-    fun renderIdPhoto(source: Bitmap? = segmentedBitmap ?: activeBitmap) {
+    fun renderIdPhoto(source: Bitmap? = attireBitmap ?: enhancedBitmap ?: segmentedBitmap ?: activeBitmap) {
         val src = source ?: return
         val single = CamScannerToolsEngine.createIdPhoto(
             sourceBitmap = src,
             size = selectedSize,
             backgroundColor = if (enableAiBgCutout) android.graphics.Color.TRANSPARENT else selectedBgColor,
-            addBorder = true,
+            addBorder = (borderThickness > 0f),
+            borderWidthPx = borderThickness,
+            borderColor = selectedBorderColor,
             candidateName = if (addGovtStrip) candidateName else null,
             dateOfPhoto = if (addGovtStrip) dateOfPhoto else null
         )
@@ -130,6 +156,7 @@ fun IdPhotoMakerDialog(
         activeBitmap = initialBitmap
     }
 
+    // Pipeline Step 1: Background Removal
     LaunchedEffect(activeBitmap, enableAiBgCutout, selectedBgColor) {
         val src = activeBitmap ?: return@LaunchedEffect
         if (enableAiBgCutout) {
@@ -145,13 +172,27 @@ fun IdPhotoMakerDialog(
             val cleaned = PassportPhotoBgRemover.removeBackgroundAndReplace(src, studioBg)
             segmentedBitmap = cleaned
             isSegmenting = false
-            renderIdPhoto(cleaned)
         } else {
             segmentedBitmap = src
-            renderIdPhoto(src)
         }
     }
 
+    // Pipeline Step 2: Facial Sharpening & Lighting
+    LaunchedEffect(segmentedBitmap, selectedSharpness) {
+        val src = segmentedBitmap ?: return@LaunchedEffect
+        val enhanced = PassportEnhanceEngine.enhancePortrait(src, selectedSharpness)
+        enhancedBitmap = enhanced
+    }
+
+    // Pipeline Step 3: Formal Attire / Suit Overlay
+    LaunchedEffect(enhancedBitmap, selectedAttire, attireOffsetY, attireScale) {
+        val src = enhancedBitmap ?: return@LaunchedEffect
+        val suited = PassportAttireEngine.applyAttire(src, selectedAttire, attireOffsetY, attireScale)
+        attireBitmap = suited
+        renderIdPhoto(suited)
+    }
+
+    // Pipeline Step 4: Size, Sheet & Borders
     LaunchedEffect(
         selectedSize,
         selectedSheetType,
@@ -159,9 +200,11 @@ fun IdPhotoMakerDialog(
         drawCutGuides,
         addGovtStrip,
         candidateName,
-        dateOfPhoto
+        dateOfPhoto,
+        borderThickness,
+        selectedBorderColor
     ) {
-        renderIdPhoto(segmentedBitmap ?: activeBitmap)
+        renderIdPhoto()
     }
 
     Dialog(
@@ -174,12 +217,12 @@ fun IdPhotoMakerDialog(
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = Modifier
                 .fillMaxWidth(0.95f)
-                .padding(vertical = 16.dp)
+                .padding(vertical = 14.dp)
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp)
+                    .padding(18.dp)
                     .verticalScroll(rememberScrollState())
             ) {
                 // Header
@@ -191,7 +234,7 @@ fun IdPhotoMakerDialog(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(42.dp)
                                 .clip(CircleShape)
                                 .background(Color(0xFFEDE9FE)),
                             contentAlignment = Alignment.Center
@@ -205,15 +248,24 @@ fun IdPhotoMakerDialog(
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "Pro Passport & ID Studio",
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color(0xFF7C3AED)
+                                ) {
+                                    Text("PRO AI", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                }
+                            }
                             Text(
-                                "Passport & ID Photo Studio",
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Text(
-                                "Single click photo sheet & instant gallery export",
-                                fontSize = 11.5.sp,
+                                "AI Cutout, Suit Change, Studio Sharpening & <=50KB Export",
+                                fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
@@ -233,7 +285,7 @@ fun IdPhotoMakerDialog(
                             .fillMaxWidth()
                             .height(260.dp)
                             .clip(RoundedCornerShape(14.dp))
-                            .background(Color(0xFF1E293B)),
+                            .background(Color(0xFF0F172A)),
                         contentAlignment = Alignment.Center
                     ) {
                         Image(
@@ -242,6 +294,26 @@ fun IdPhotoMakerDialog(
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Fit
                         )
+                        if (isSegmenting) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.4f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .background(Color.Black.copy(alpha = 0.75f))
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Applying Studio Backdrop...", color = Color.White, fontSize = 11.5.sp)
+                                }
+                            }
+                        }
                     }
                 } else {
                     Box(
@@ -263,123 +335,7 @@ fun IdPhotoMakerDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Sheet Format Selector (Single, 4x6" Sheet [8], A4 Sheet [32], Custom)
-                Text("Select Print Sheet Format", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                Spacer(modifier = Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    val sheets = listOf(
-                        Triple(CamScannerToolsEngine.PrintSheetType.SINGLE, "Single", "1 Photo"),
-                        Triple(CamScannerToolsEngine.PrintSheetType.PHOTO_PAPER_4X6, "4×6\" Sheet", "8 Photos"),
-                        Triple(CamScannerToolsEngine.PrintSheetType.A4_SHEET, "A4 Sheet", "32 Photos"),
-                        Triple(CamScannerToolsEngine.PrintSheetType.CUSTOM, "Custom", "$customCopies Photos")
-                    )
-
-                    for ((type, title, subtitle) in sheets) {
-                        val isSelected = selectedSheetType == type
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = if (isSelected) Color(0xFF7C3AED) else MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable {
-                                    selectedSheetType = type
-                                    renderIdPhoto()
-                                }
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = title,
-                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = subtitle,
-                                    color = if (isSelected) Color(0xFFEDE9FE) else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 9.5.sp
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // If Custom copies chosen, show copy count slider
-                if (selectedSheetType == CamScannerToolsEngine.PrintSheetType.CUSTOM) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Number of Copies: $customCopies", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            listOf(4, 6, 8, 12, 16, 24).forEach { count ->
-                                Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = if (customCopies == count) Color(0xFFEDE9FE) else MaterialTheme.colorScheme.surfaceVariant,
-                                    border = BorderStroke(1.dp, if (customCopies == count) Color(0xFF7C3AED) else Color.Transparent),
-                                    modifier = Modifier.clickable {
-                                        customCopies = count
-                                        renderIdPhoto()
-                                    }
-                                ) {
-                                    Text(
-                                        text = "$count",
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (customCopies == count) Color(0xFF7C3AED) else MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                    Slider(
-                        value = customCopies.toFloat(),
-                        onValueChange = {
-                            customCopies = it.toInt()
-                            renderIdPhoto()
-                        },
-                        valueRange = 1f..32f,
-                        steps = 30,
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color(0xFF7C3AED),
-                            activeTrackColor = Color(0xFF7C3AED)
-                        )
-                    )
-                }
-
-                // Cutting guidelines toggle (for sheets)
-                if (selectedSheetType != CamScannerToolsEngine.PrintSheetType.SINGLE) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text("Dashed Cutting Guidelines", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                            Text("Subtle hairline scissor marks between photos", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Switch(
-                            checked = drawCutGuides,
-                            onCheckedChange = {
-                                drawCutGuides = it
-                                renderIdPhoto()
-                            },
-                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF7C3AED))
-                        )
-                    }
-                }
-
-                // AI Neural Background Cutout Banner
+                // 1. AI Background Cutout & Studio Lighting
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = if (enableAiBgCutout) Color(0xFFF5F3FF) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
@@ -402,45 +358,28 @@ fun IdPhotoMakerDialog(
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("AI Background Cutout", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = Color(0xFF7C3AED)
-                                    ) {
-                                        Text("STUDIO PRO", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
-                                    }
-                                }
-                                Text("Auto cuts room/bed background & sets studio backdrop", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("AI Studio Background & Lighting", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                Text("Removes home room/bed clutter with smooth studio lighting", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        if (isSegmenting) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                                color = Color(0xFF7C3AED)
-                            )
-                        } else {
-                            Switch(
-                                checked = enableAiBgCutout,
-                                onCheckedChange = { enableAiBgCutout = it },
-                                colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF7C3AED))
-                            )
-                        }
+                        Switch(
+                            checked = enableAiBgCutout,
+                            onCheckedChange = { enableAiBgCutout = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF7C3AED))
+                        )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // Background Color Selector
-                Text("Studio Background Color", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                Spacer(modifier = Modifier.height(8.dp))
+                // Studio Background Colors
+                Text("Studio Backdrop Color", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(modifier = Modifier.height(6.dp))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     for ((name, colorVal) in bgColors) {
                         val isSelected = selectedBgColor == colorVal
@@ -458,28 +397,238 @@ fun IdPhotoMakerDialog(
                                 .background(if (isSelected) Color(0xFFF5F3FF) else MaterialTheme.colorScheme.surface)
                                 .clickable {
                                     selectedBgColor = colorVal
-                                    renderIdPhoto()
                                 }
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .size(16.dp)
+                                    .size(15.dp)
                                     .clip(CircleShape)
                                     .background(Color(colorVal))
                                     .border(1.dp, Color(0xFF94A3B8), CircleShape)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(name, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, color = MaterialTheme.colorScheme.onSurface)
+                            Text(name, fontSize = 11.5.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Standard Dimension Sizes
-                Text("Passport / ID Standard Sizes", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
-                Spacer(modifier = Modifier.height(8.dp))
+                // 2. Studio Facial Sharpening & Lighting Balancer
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("✨ Facial Clarity & Sharpness", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    Text(selectedSharpness.displayName, fontSize = 11.sp, color = Color(0xFF7C3AED), fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    for (level in PassportEnhanceEngine.StudioSharpness.entries) {
+                        val isSelected = selectedSharpness == level
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) Color(0xFF7C3AED) else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { selectedSharpness = level }
+                        ) {
+                            Text(
+                                text = level.displayName,
+                                fontSize = 10.5.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(vertical = 8.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // 3. Formal Attire & Suit Change
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("👔 Formal Attire / Suit Change", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    if (selectedAttire != PassportAttireEngine.AttireType.NONE) {
+                        Text(
+                            "Clear Attire",
+                            fontSize = 11.sp,
+                            color = Color(0xFFEF4444),
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clickable { selectedAttire = PassportAttireEngine.AttireType.NONE }
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    for (attire in PassportAttireEngine.AttireType.entries) {
+                        val isSelected = selectedAttire == attire
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSelected) Color(0xFFEDE9FE) else MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(1.5.dp, if (isSelected) Color(0xFF7C3AED) else Color.Transparent),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { selectedAttire = attire }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(attire.iconEmoji, fontSize = 16.sp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    attire.displayName,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) Color(0xFF7C3AED) else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // If attire selected, show Collar Height & Shoulder Scale sliders
+                if (selectedAttire != PassportAttireEngine.AttireType.NONE) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Collar Height (Neck alignment)", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                Text("${(attireOffsetY * 100).toInt()}%", fontSize = 10.sp, color = Color(0xFF7C3AED), fontWeight = FontWeight.Bold)
+                            }
+                            Slider(
+                                value = attireOffsetY,
+                                onValueChange = { attireOffsetY = it },
+                                valueRange = -0.15f..0.15f,
+                                colors = SliderDefaults.colors(thumbColor = Color(0xFF7C3AED), activeTrackColor = Color(0xFF7C3AED))
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Shoulder Width", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                Text("${(attireScale * 100).toInt()}%", fontSize = 10.sp, color = Color(0xFF7C3AED), fontWeight = FontWeight.Bold)
+                            }
+                            Slider(
+                                value = attireScale,
+                                onValueChange = { attireScale = it },
+                                valueRange = 0.85f..1.25f,
+                                colors = SliderDefaults.colors(thumbColor = Color(0xFF7C3AED), activeTrackColor = Color(0xFF7C3AED))
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // 4. Photo Border Controls
+                Text("🖼️ Photo Border Width & Color", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val borderOptions = listOf(
+                        Pair("None (0px)", 0f),
+                        Pair("Thin (1px)", 1f),
+                        Pair("Studio (2px)", 2f),
+                        Pair("Bold (4px)", 4f)
+                    )
+                    for ((label, px) in borderOptions) {
+                        val isSelected = borderThickness == px
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected) Color(0xFF7C3AED) else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { borderThickness = px }
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 10.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(vertical = 7.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                }
+
+                if (borderThickness > 0f) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Border Color:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        val borderColors = listOf(
+                            Pair("Slate Gray", android.graphics.Color.parseColor("#CBD5E1")),
+                            Pair("Pure Black", android.graphics.Color.BLACK),
+                            Pair("Crisp White", android.graphics.Color.WHITE)
+                        )
+                        for ((name, cVal) in borderColors) {
+                            val isSel = selectedBorderColor == cVal
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (isSel) Color(0xFFEDE9FE) else MaterialTheme.colorScheme.surfaceVariant,
+                                border = BorderStroke(1.dp, if (isSel) Color(0xFF7C3AED) else Color.Transparent),
+                                modifier = Modifier.clickable { selectedBorderColor = cVal }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(cVal))
+                                            .border(0.5.dp, Color(0xFF64748B), CircleShape)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(name, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // 5. Standard Dimension Sizes
+                Text("Passport / ID Dimension Standards", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(modifier = Modifier.height(6.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (sizePreset in CamScannerToolsEngine.IdPhotoSize.entries) {
                         val isSelected = selectedSize == sizePreset
@@ -490,18 +639,15 @@ fun IdPhotoMakerDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
-                                .clickable {
-                                    selectedSize = sizePreset
-                                    renderIdPhoto()
-                                }
+                                .clickable { selectedSize = sizePreset }
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text(sizePreset.displayName, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, color = MaterialTheme.colorScheme.onSurface)
-                                Text("${sizePreset.widthMm}x${sizePreset.heightMm} mm", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(sizePreset.displayName, fontSize = 11.5.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, color = MaterialTheme.colorScheme.onSurface)
+                                Text("${sizePreset.widthMm}×${sizePreset.heightMm} mm", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -509,60 +655,106 @@ fun IdPhotoMakerDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Govt Exam Name & Date of Photo (DOP) Bottom Strip
+                // 6. Print Sheet Format Selector
+                Text("Select Print Sheet Format", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val sheets = listOf(
+                        Triple(CamScannerToolsEngine.PrintSheetType.SINGLE, "Single", "1 Photo"),
+                        Triple(CamScannerToolsEngine.PrintSheetType.PHOTO_PAPER_4X6, "4×6\" Sheet", "8 Photos"),
+                        Triple(CamScannerToolsEngine.PrintSheetType.A4_SHEET, "A4 Sheet", "32 Photos"),
+                        Triple(CamScannerToolsEngine.PrintSheetType.CUSTOM, "Custom", "$customCopies Photos")
+                    )
+
+                    for ((type, title, subtitle) in sheets) {
+                        val isSelected = selectedSheetType == type
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSelected) Color(0xFF7C3AED) else MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { selectedSheetType = type }
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = title,
+                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = subtitle,
+                                    color = if (isSelected) Color(0xFFEDE9FE) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 9.5.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (selectedSheetType != CamScannerToolsEngine.PrintSheetType.SINGLE) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("Dashed Scissor Cutting Lines", fontSize = 11.5.sp, fontWeight = FontWeight.Medium)
+                            Text("Subtle dashed lines between photos on sheet", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = drawCutGuides,
+                            onCheckedChange = { drawCutGuides = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF7C3AED))
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // 7. Govt Exam Name & Date of Photo (DOP) Bottom Strip
                 Card(
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = if (addGovtStrip) Color(0xFFF5F3FF) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                     border = BorderStroke(1.dp, if (addGovtStrip) Color(0xFF7C3AED) else MaterialTheme.colorScheme.outlineVariant)
                 ) {
-                    Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "Govt Exam Name & DOP Strip",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    "SSC / UPSC / IBPS mandatory photo strip",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                Text("Govt Exam Name & DOP Strip", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                Text("SSC / UPSC / IBPS mandatory photo strip", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             Switch(
                                 checked = addGovtStrip,
-                                onCheckedChange = {
-                                    addGovtStrip = it
-                                    renderIdPhoto()
-                                },
+                                onCheckedChange = { addGovtStrip = it },
                                 colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF7C3AED))
                             )
                         }
 
                         if (addGovtStrip) {
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(8.dp))
                             OutlinedTextField(
                                 value = candidateName,
-                                onValueChange = {
-                                    candidateName = it
-                                    renderIdPhoto()
-                                },
+                                onValueChange = { candidateName = it },
                                 label = { Text("Candidate Name (e.g. AMIT KUMAR)", fontSize = 11.sp) },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(10.dp),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = Color(0xFF7C3AED),
-                                    unfocusedBorderColor = Color(0xFFCBD5E1)
-                                )
+                                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFF7C3AED), unfocusedBorderColor = Color(0xFFCBD5E1))
                             )
-
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -570,31 +762,66 @@ fun IdPhotoMakerDialog(
                             ) {
                                 OutlinedTextField(
                                     value = dateOfPhoto,
-                                    onValueChange = {
-                                        dateOfPhoto = it
-                                        renderIdPhoto()
-                                    },
+                                    onValueChange = { dateOfPhoto = it },
                                     label = { Text("Date of Photo (DD-MM-YYYY)", fontSize = 11.sp) },
                                     singleLine = true,
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(10.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color(0xFF7C3AED),
-                                        unfocusedBorderColor = Color(0xFFCBD5E1)
-                                    )
+                                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Color(0xFF7C3AED), unfocusedBorderColor = Color(0xFFCBD5E1))
                                 )
                                 Button(
-                                    onClick = {
-                                        dateOfPhoto = todayFormatted
-                                        renderIdPhoto()
-                                    },
+                                    onClick = { dateOfPhoto = todayFormatted },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEDE9FE)),
                                     shape = RoundedCornerShape(10.dp),
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                    modifier = Modifier.height(52.dp)
+                                    modifier = Modifier.height(50.dp)
                                 ) {
-                                    Text("Today", color = Color(0xFF7C3AED), fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                    Text("Today", color = Color(0xFF7C3AED), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // 8. Output Quality & File Size Options (Direct Govt 50KB Solver)
+                Text("💾 Target Export Quality & File Size", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    val presets = listOf(
+                        Triple(0, "300 DPI Lab Print", "100% Quality"),
+                        Triple(1, "Govt Exam (<=50KB)", "Strict <=50 KB"),
+                        Triple(2, "Small (<=20KB)", "Tight portal")
+                    )
+                    for ((idx, title, desc) in presets) {
+                        val isSelected = selectedExportPreset == idx
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSelected) Color(0xFFEDE9FE) else MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(1.5.dp, if (isSelected) Color(0xFF7C3AED) else Color.Transparent),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { selectedExportPreset = idx }
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = title,
+                                    color = if (isSelected) Color(0xFF7C3AED) else MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = desc,
+                                    color = if (isSelected) Color(0xFF6D28D9) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 9.sp
+                                )
                             }
                         }
                     }
@@ -602,19 +829,24 @@ fun IdPhotoMakerDialog(
 
                 Spacer(modifier = Modifier.height(18.dp))
 
-                // Action Buttons: Direct 1-Click Gallery & PDF Export
+                // 9. Action Buttons
+                val ready = processedPhoto ?: activeBitmap
+                val targetKb = when (selectedExportPreset) {
+                    1 -> 50
+                    2 -> 20
+                    else -> null
+                }
+
                 Column(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    val ready = processedPhoto ?: activeBitmap
-
-                    // 1. Primary Save to Gallery Button
+                    // Save to Gallery
                     Button(
                         onClick = {
                             if (ready != null) {
                                 val namePrefix = if (selectedSheetType == CamScannerToolsEngine.PrintSheetType.SINGLE) "Passport_Photo" else "Passport_Sheet"
-                                onSaveToGallery(ready, namePrefix)
+                                onSaveToGallery(ready, namePrefix, targetKb)
                                 onDismiss()
                             }
                         },
@@ -625,10 +857,11 @@ fun IdPhotoMakerDialog(
                     ) {
                         Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Save to Gallery (High-Res JPG)", fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                        val saveText = if (targetKb != null) "Save to Gallery (Strict <=$targetKb KB JPG)" else "Save to Gallery (300 DPI Lab Print)"
+                        Text(saveText, fontSize = 13.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    // 2. Export Printable PDF Button
+                    // Export Printable PDF
                     Button(
                         onClick = {
                             if (ready != null) {
@@ -644,27 +877,23 @@ fun IdPhotoMakerDialog(
                     ) {
                         Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Export Printable PDF (Downloads)", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        Text("Export Printable PDF (Downloads)", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    // 3. Secondary Actions (Share/Print, Edit in Canvas, Pick Another)
+                    // Secondary Actions
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         OutlinedButton(
-                            onClick = {
-                                if (ready != null) {
-                                    onSharePrint(ready)
-                                }
-                            },
+                            onClick = { if (ready != null) onSharePrint(ready) },
                             enabled = ready != null,
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.weight(1f).height(44.dp)
                         ) {
                             Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Print / Share", fontSize = 11.5.sp)
+                            Text("Print / Share", fontSize = 11.sp)
                         }
 
                         OutlinedButton(
@@ -680,7 +909,7 @@ fun IdPhotoMakerDialog(
                         ) {
                             Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Edit in Canvas", fontSize = 11.5.sp)
+                            Text("Edit in Canvas", fontSize = 11.sp)
                         }
 
                         OutlinedButton(
@@ -688,7 +917,7 @@ fun IdPhotoMakerDialog(
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.weight(1f).height(44.dp)
                         ) {
-                            Text("Pick Photo", fontSize = 11.5.sp)
+                            Text("Pick Photo", fontSize = 11.sp)
                         }
                     }
                 }

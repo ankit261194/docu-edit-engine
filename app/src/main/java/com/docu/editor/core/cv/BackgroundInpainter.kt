@@ -83,12 +83,14 @@ class BackgroundInpainter {
             style = Paint.Style.FILL
         }
 
-        // Slight 1px expansion to eliminate any residual anti-aliased text edge
+        // Proportional expansion to eliminate any residual anti-aliased text edge or outer serifs (e.g. ghost 'U')
+        val extraPadX = (safeTarget.height() * 0.12f).toInt().coerceIn(3, 8)
+        val extraPadY = (safeTarget.height() * 0.08f).toInt().coerceIn(2, 6)
         val fillRect = Rect(
-            max(0, safeTarget.left - 1),
-            max(0, safeTarget.top - 1),
-            min(width, safeTarget.right + 1),
-            min(height, safeTarget.bottom + 1)
+            max(0, safeTarget.left - extraPadX),
+            max(0, safeTarget.top - extraPadY),
+            min(width, safeTarget.right + extraPadX),
+            min(height, safeTarget.bottom + extraPadY)
         )
         canvas.drawRect(fillRect, patchPaint)
 
@@ -174,10 +176,11 @@ class BackgroundInpainter {
 
             Imgproc.threshold(grayMat, maskMat, inkThreshold, 255.0, Imgproc.THRESH_BINARY_INV)
 
-            val relLeft = target.left - cropLeft
-            val relTop = target.top - cropTop
-            val relRight = target.right - cropLeft
-            val relBottom = target.bottom - cropTop
+            val maskPad = (target.height() * 0.12f).toInt().coerceIn(3, 8)
+            val relLeft = max(0, target.left - cropLeft - maskPad)
+            val relTop = max(0, target.top - cropTop - (maskPad / 2))
+            val relRight = min(maskMat.cols(), target.right - cropLeft + maskPad)
+            val relBottom = min(maskMat.rows(), target.bottom - cropTop + (maskPad / 2))
 
             for (r in 0 until maskMat.rows()) {
                 if (r < relTop || r >= relBottom) {

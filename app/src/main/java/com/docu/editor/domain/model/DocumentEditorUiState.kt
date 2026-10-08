@@ -44,6 +44,7 @@ enum class ShapeType(val displayName: String, val icon: String = "⬛") {
 enum class DocumentFilterMode(val displayName: String) {
     ORIGINAL("Original"),
     MAGIC_COLOR("Magic Color"),
+    PHOTO_RESTORE("Restore Photo"),
     SHADOW_REMOVER("Remove Shadow"),
     WATERMARK_REMOVER("Erase Watermark"),
     FINGER_REMOVER("Remove Fingers"),

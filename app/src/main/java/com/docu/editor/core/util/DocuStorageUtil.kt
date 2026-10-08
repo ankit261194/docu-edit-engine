@@ -64,6 +64,58 @@ object DocuStorageUtil {
     }
 
     /**
+     * Saves an existing image file directly to the public Pictures/Gallery (DocuEdit album)
+     * byte-for-byte WITHOUT re-encoding or modifying file size.
+     * Preserves exact file bytes, JFIF DPI headers, COM padding, and target KB compression!
+     */
+    fun saveImageFileToGallery(
+        context: Context,
+        srcFile: File,
+        displayName: String,
+        mimeType: String = "image/jpeg"
+    ): Uri? {
+        return try {
+            val contentResolver = context.contentResolver
+            val fullName = when {
+                mimeType == "image/png" && !displayName.endsWith(".png", true) -> "$displayName.png"
+                mimeType == "image/webp" && !displayName.endsWith(".webp", true) -> "$displayName.webp"
+                (mimeType == "image/jpeg" || mimeType == "image/jpg") &&
+                    !displayName.endsWith(".jpg", true) && !displayName.endsWith(".jpeg", true) -> "$displayName.jpg"
+                else -> displayName
+            }
+
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fullName)
+                put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/DocuEdit")
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+            }
+
+            val targetUri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                ?: return null
+
+            contentResolver.openOutputStream(targetUri)?.use { outStream ->
+                FileInputStream(srcFile).use { inStream ->
+                    inStream.copyTo(outStream)
+                }
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                contentValues.clear()
+                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                contentResolver.update(targetUri, contentValues, null, null)
+            }
+
+            targetUri
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    /**
      * Saves a Bitmap directly to the public Pictures/Gallery (DocuEdit album).
      * Returns the public Content Uri or null on failure.
      */
