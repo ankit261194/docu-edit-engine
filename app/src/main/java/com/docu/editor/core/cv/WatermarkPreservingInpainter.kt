@@ -90,8 +90,14 @@ object WatermarkPreservingInpainter {
             Imgproc.dilate(maskMat, maskMat, kernel)
             kernel.release()
 
-            // 3. Fast Marching Telea Inpainting to propagate watermark lines across stroke cracks
-            Photo.inpaint(rgbMat, maskMat, inpaintMat, 3.0, Photo.INPAINT_TELEA)
+            // 3. Dual Navier-Stokes & Fast Marching Inpainting to propagate watermark lines across stroke cracks
+            val teleaMat = Mat()
+            val nsMat = Mat()
+            Photo.inpaint(rgbMat, maskMat, nsMat, 4.0, Photo.INPAINT_NS)
+            Photo.inpaint(rgbMat, maskMat, teleaMat, 3.0, Photo.INPAINT_TELEA)
+            org.opencv.core.Core.addWeighted(nsMat, 0.75, teleaMat, 0.25, 0.0, inpaintMat)
+            teleaMat.release()
+            nsMat.release()
 
             Imgproc.cvtColor(inpaintMat, restoredCrop, Imgproc.COLOR_RGB2RGBA)
 

@@ -127,13 +127,20 @@ object PaperTextureBlender {
         val w = textLayerBitmap.width
         val h = textLayerBitmap.height
 
+        // 1. Digital PDF Bypass: If paper background is pure smooth white, preserve 100% crispness
+        if (stats.noiseSigma < 1.3f && stats.meanLuma > 242f) {
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            masterCanvas.drawBitmap(textLayerBitmap, 0f, 0f, paint)
+            return
+        }
+
         val pixels = IntArray(w * h)
         textLayerBitmap.getPixels(pixels, 0, w, 0, 0, w, h)
 
         val rng = Random(targetBounds.hashCode().toLong())
-        val noiseStrength = (stats.noiseSigma * 0.45f).coerceIn(2f, 12f)
+        val noiseStrength = (stats.noiseSigma * 0.40f).coerceIn(1.5f, 10f)
 
-        // 1. Synthesize physical toner micro-grain & edge bleed
+        // 2. Synthesize Laser Toner Edge Bleed & Micro-Grain
         for (i in 0 until (w * h)) {
             val p = pixels[i]
             val a = (p ushr 24)
@@ -143,17 +150,18 @@ object PaperTextureBlender {
             val g = (p shr 8) and 0xFF
             val b = p and 0xFF
 
-            // Micro-grain noise calculation
+            // Micro-grain noise calculation (laser toner particles)
             val grain = ((rng.nextGaussian() * noiseStrength)).toInt()
 
             val nr = (r + grain).coerceIn(0, 255)
             val ng = (g + grain).coerceIn(0, 255)
             val nb = (b + grain).coerceIn(0, 255)
 
-            // Micro-edge feathering modulation (sub-pixel ink absorption)
-            val na = if (a < 230) {
-                // Soft edge: subtly blend with paper fiber tone
-                (a * (0.92f + rng.nextFloat() * 0.12f)).toInt().coerceIn(0, 255)
+            // 0.5px Laser toner outer boundary feathering & threshold scattering
+            val na = if (a in 12..238) {
+                val scatter = (rng.nextFloat() - 0.48f) * 0.28f
+                val feathered = (a * (0.91f + scatter)).toInt()
+                feathered.coerceIn(0, 255)
             } else {
                 a
             }
@@ -164,7 +172,7 @@ object PaperTextureBlender {
         val processedLayer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         processedLayer.setPixels(pixels, 0, w, 0, 0, w, h)
 
-        // 2. Physical Ink Substrate Blending
+        // 3. Physical Ink Substrate Blending
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         masterCanvas.drawBitmap(processedLayer, 0f, 0f, paint)
         processedLayer.recycle()

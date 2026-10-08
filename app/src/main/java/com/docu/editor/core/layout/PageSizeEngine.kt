@@ -19,6 +19,8 @@ enum class StandardPageSize(
     A4("A4 (210 × 297 mm)", "International Document", 210f, 297f, 2480, 3508),
     US_LETTER("US Letter (8.5 × 11 in)", "North America Document", 215.9f, 279.4f, 2550, 3300),
     US_LEGAL("US Legal (8.5 × 14 in)", "Legal & Affidavit", 215.9f, 355.6f, 2550, 4200),
+    GOVT_STAMP_PAPER("India Stamp Paper (100mm Blank Header)", "Legal & Govt", 215.9f, 355.6f, 2550, 4200),
+    GOVT_EXAM_FORM("Govt / Job Application Form (A4)", "Official & Govt", 210f, 297f, 2480, 3508),
     A5("A5 (148 × 210 mm)", "Notebook & Receipt", 148f, 210f, 1748, 2480),
     A3("A3 (297 × 420 mm)", "Poster & Ledger", 297f, 420f, 3508, 4960),
     BUSINESS_CARD("Business Card (85 × 55 mm)", "Cards", 85f, 55f, 1004, 650),
@@ -29,7 +31,7 @@ enum class StandardPageSize(
 }
 
 object PageSizeEngine {
-    enum class FitMode { FIT_WITH_MARGINS, FILL_AND_CROP }
+    enum class FitMode { FIT_WITH_MARGINS, FILL_AND_CROP, EXPAND_CANVAS_ONLY }
 
     /**
      * Rescales and reframes the document bitmap onto standard page format
@@ -62,36 +64,53 @@ object PageSizeEngine {
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
 
-        if (fitMode == FitMode.FIT_WITH_MARGINS) {
-            // Fit inside page with neat clean white margins (standard PDF print format)
-            val destRect = if (sourceAspect > targetAspect) {
-                // Wider than target: match width, center vertically
-                val destW = targetW
-                val destH = (destW / sourceAspect).roundToInt()
-                val top = (targetH - destH) / 2
-                Rect(0, top, destW, top + destH)
-            } else {
-                // Taller than target: match height, center horizontally
-                val destH = targetH
-                val destW = (destH * sourceAspect).roundToInt()
+        val isStampPaper = (pageSize == StandardPageSize.GOVT_STAMP_PAPER)
+        val headerOffset = if (isStampPaper) (targetH * 0.28f).roundToInt() else 0
+        val availableH = targetH - headerOffset
+        val availableAspect = targetW.toFloat() / availableH.toFloat()
+
+        when (fitMode) {
+            FitMode.FIT_WITH_MARGINS -> {
+                // Fit inside page with neat clean white margins (standard PDF print format)
+                val destRect = if (sourceAspect > availableAspect) {
+                    val destW = targetW
+                    val destH = (destW / sourceAspect).roundToInt().coerceAtMost(availableH)
+                    val top = headerOffset + (availableH - destH) / 2
+                    Rect(0, top, destW, top + destH)
+                } else {
+                    val destH = availableH
+                    val destW = (destH * sourceAspect).roundToInt().coerceAtMost(targetW)
+                    val left = (targetW - destW) / 2
+                    Rect(left, headerOffset, left + destW, headerOffset + destH)
+                }
+                val srcRect = Rect(0, 0, sourceBitmap.width, sourceBitmap.height)
+                canvas.drawBitmap(sourceBitmap, srcRect, destRect, paint)
+            }
+            FitMode.EXPAND_CANVAS_ONLY -> {
+                // Keep content at 100% scale (or downscale proportionally if overflowing target canvas)
+                val scale = minOf(1.0f, minOf(targetW.toFloat() / sourceBitmap.width, availableH.toFloat() / sourceBitmap.height))
+                val destW = (sourceBitmap.width * scale).roundToInt()
+                val destH = (sourceBitmap.height * scale).roundToInt()
                 val left = (targetW - destW) / 2
-                Rect(left, 0, left + destW, destH)
+                val top = headerOffset + (availableH - destH) / 2
+                val destRect = Rect(left, top, left + destW, top + destH)
+                val srcRect = Rect(0, 0, sourceBitmap.width, sourceBitmap.height)
+                canvas.drawBitmap(sourceBitmap, srcRect, destRect, paint)
             }
-            val srcRect = Rect(0, 0, sourceBitmap.width, sourceBitmap.height)
-            canvas.drawBitmap(sourceBitmap, srcRect, destRect, paint)
-        } else {
-            // Fill page and crop excess edges
-            val srcRect = if (sourceAspect > targetAspect) {
-                val cropW = (sourceBitmap.height * targetAspect).roundToInt()
-                val xOffset = (sourceBitmap.width - cropW) / 2
-                Rect(xOffset, 0, xOffset + cropW, sourceBitmap.height)
-            } else {
-                val cropH = (sourceBitmap.width / targetAspect).roundToInt()
-                val yOffset = (sourceBitmap.height - cropH) / 2
-                Rect(0, yOffset, sourceBitmap.width, yOffset + cropH)
+            FitMode.FILL_AND_CROP -> {
+                // Fill page and crop excess edges
+                val srcRect = if (sourceAspect > availableAspect) {
+                    val cropW = (sourceBitmap.height * availableAspect).roundToInt()
+                    val xOffset = (sourceBitmap.width - cropW) / 2
+                    Rect(xOffset, 0, xOffset + cropW, sourceBitmap.height)
+                } else {
+                    val cropH = (sourceBitmap.width / availableAspect).roundToInt()
+                    val yOffset = (sourceBitmap.height - cropH) / 2
+                    Rect(0, yOffset, sourceBitmap.width, yOffset + cropH)
+                }
+                val destRect = Rect(0, headerOffset, targetW, headerOffset + availableH)
+                canvas.drawBitmap(sourceBitmap, srcRect, destRect, paint)
             }
-            val destRect = Rect(0, 0, targetW, targetH)
-            canvas.drawBitmap(sourceBitmap, srcRect, destRect, paint)
         }
 
         return output

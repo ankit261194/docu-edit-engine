@@ -20,15 +20,39 @@ class AutoUpdateManager(
 ) {
 
     private val tag = "AutoUpdateManager"
+    private val prefs by lazy { context.getSharedPreferences("docu_update_cache", Context.MODE_PRIVATE) }
 
-    suspend fun checkForUpdates(): UpdateInfo = withContext(Dispatchers.IO) {
+    suspend fun checkForUpdates(forceCheck: Boolean = false): UpdateInfo = withContext(Dispatchers.IO) {
         val currentVersion = getInstalledVersionName()
         val currentVersionCode = getInstalledVersionCode()
+
+        val lastCheckTime = prefs.getLong("last_check_timestamp", 0L)
+        val now = System.currentTimeMillis()
+        val sixHoursMs = 6 * 3600 * 1000L
+
+        // 0. 6-Hour Cache Validation to protect GitHub API rate-limits
+        if (!forceCheck && (now - lastCheckTime) < sixHoursMs) {
+            val cachedHasUpdate = prefs.getBoolean("cached_has_update", false)
+            val cachedVer = prefs.getString("cached_latest_version", null)
+            val cachedUrl = prefs.getString("cached_apk_url", null)
+            if (cachedVer != null) {
+                return@withContext UpdateInfo(
+                    hasUpdate = cachedHasUpdate,
+                    currentVersion = currentVersion,
+                    latestVersion = cachedVer,
+                    releaseTitle = prefs.getString("cached_title", "") ?: "",
+                    changelog = prefs.getString("cached_changelog", "") ?: "",
+                    apkDownloadUrl = cachedUrl,
+                    apkFileName = prefs.getString("cached_filename", "DocuEdit-v$cachedVer-arm64.apk")
+                )
+            }
+        }
 
         // 1. Instant Local Check: Scan Downloads directory for newer APK transferred or downloaded
         val localUpdate = checkLocalDownloadsForUpdate(currentVersion, currentVersionCode)
         if (localUpdate != null && localUpdate.hasUpdate) {
             Log.i(tag, "Update found locally in Downloads: ${localUpdate.latestVersion}")
+            saveToCache(localUpdate)
             return@withContext localUpdate
         }
 
@@ -36,6 +60,7 @@ class AutoUpdateManager(
         val cdnUpdate = checkViaVersionJson(currentVersion)
         if (cdnUpdate != null && cdnUpdate.hasUpdate) {
             Log.i(tag, "Update found via CDN version.json: ${cdnUpdate.latestVersion}")
+            saveToCache(cdnUpdate)
             return@withContext cdnUpdate
         }
 
@@ -43,6 +68,7 @@ class AutoUpdateManager(
         val webUpdate = checkViaWebRedirect(currentVersion)
         if (webUpdate != null && webUpdate.hasUpdate) {
             Log.i(tag, "Update found via Web Redirect: ${webUpdate.latestVersion}")
+            saveToCache(webUpdate)
             return@withContext webUpdate
         }
 
@@ -50,10 +76,11 @@ class AutoUpdateManager(
         val apiUpdate = checkViaGithubApi(currentVersion)
         if (apiUpdate != null && apiUpdate.hasUpdate) {
             Log.i(tag, "Update found via GitHub REST API: ${apiUpdate.latestVersion}")
+            saveToCache(apiUpdate)
             return@withContext apiUpdate
         }
 
-        UpdateInfo(
+        val fallback = UpdateInfo(
             hasUpdate = false,
             currentVersion = currentVersion,
             latestVersion = currentVersion,
@@ -62,6 +89,20 @@ class AutoUpdateManager(
             apkDownloadUrl = null,
             apkFileName = null
         )
+        saveToCache(fallback)
+        fallback
+    }
+
+    private fun saveToCache(info: UpdateInfo) {
+        prefs.edit()
+            .putLong("last_check_timestamp", System.currentTimeMillis())
+            .putBoolean("cached_has_update", info.hasUpdate)
+            .putString("cached_latest_version", info.latestVersion)
+            .putString("cached_title", info.releaseTitle)
+            .putString("cached_changelog", info.changelog)
+            .putString("cached_apk_url", info.apkDownloadUrl)
+            .putString("cached_filename", info.apkFileName)
+            .apply()
     }
 
     /**
@@ -319,5 +360,47 @@ class AutoUpdateManager(
             if (candVal < currVal) return false
         }
         return false
+    }
+
+    /**
+     * Downloads APK update silently in the background and posts a 1-click install notification.
+     */
+    suspend fun downloadUpdateSilently(info: UpdateInfo): File? = withContext(Dispatchers.IO) {
+        val downloadUrl = info.apkDownloadUrl ?: return@withContext null
+        try {
+            val fileName = info.apkFileName ?: "DocuEdit-v${info.latestVersion}-arm64.apk"
+            val targetDir = File(context.cacheDir, "updates").apply { mkdirs() }
+            val targetFile = File(targetDir, fileName)
+
+            if (targetFile.exists() && targetFile.length() > 5 * 1024 * 1024L) {
+                com.docu.editor.core.util.DocuNotificationHelper.showUpdateReadyNotification(
+                    context, targetFile, info.latestVersion
+                )
+                return@withContext targetFile
+            }
+
+            val url = URL(downloadUrl)
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 15000
+                readTimeout = 30000
+                instanceFollowRedirects = true
+            }
+
+            if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                val tempFile = File(targetDir, "$fileName.tmp")
+                conn.inputStream.use { input ->
+                    tempFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                tempFile.renameTo(targetFile)
+
+                com.docu.editor.core.util.DocuNotificationHelper.showUpdateReadyNotification(
+                    context, targetFile, info.latestVersion
+                )
+                return@withContext targetFile
+            }
+        } catch (_: Exception) {}
+        null
     }
 }

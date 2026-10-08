@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PresentToAll
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -117,9 +118,12 @@ fun DocumentBottomBar(
     onPagesOverviewClicked: () -> Unit = {},
     onCompressClicked: () -> Unit,
     onTargetSizeClicked: () -> Unit = {},
+    onSearchClicked: () -> Unit = {},
     onExportClicked: () -> Unit,
     onCloudSyncClicked: () -> Unit = {},
     selectedLassoCount: Int = 0,
+    onDuplicateLasso: () -> Unit = {},
+    onMoveLasso: () -> Unit = {},
     onMergeEditLasso: () -> Unit = {},
     onWhiteoutLasso: () -> Unit = {},
     onClearLasso: () -> Unit = {},
@@ -147,6 +151,12 @@ fun DocumentBottomBar(
     onShapeStrokeColorChanged: (Int) -> Unit = {},
     shapeFillColor: Int? = null,
     onShapeFillColorChanged: (Int?) -> Unit = {},
+    shapeCornerRadius: Float = 24f,
+    onShapeCornerRadiusChanged: (Float) -> Unit = {},
+    shapeArrowHeadSize: Float = 36f,
+    onShapeArrowHeadSizeChanged: (Float) -> Unit = {},
+    shapeEmbeddedText: String? = null,
+    onShapeEmbeddedTextChanged: (String?) -> Unit = {},
     onAddShapeLayerClicked: (ShapeType) -> Unit = {},
     onBackgroundRemovalClicked: () -> Unit = {},
     onInsertImageClicked: () -> Unit = {},
@@ -376,6 +386,44 @@ fun DocumentBottomBar(
 
                     Spacer(modifier = Modifier.height(6.dp))
 
+                    if (selectedShapeType == ShapeType.RECTANGLE || selectedShapeType == ShapeType.ROUNDED_RECTANGLE || selectedShapeType == ShapeType.CALLOUT_BUBBLE) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Corner Radius: ${shapeCornerRadius.toInt()}px", fontSize = 11.5.sp, color = Color(0xFF94A3B8))
+                            Slider(
+                                value = shapeCornerRadius,
+                                onValueChange = onShapeCornerRadiusChanged,
+                                valueRange = 0f..60f,
+                                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color(0xFF8B5CF6),
+                                    activeTrackColor = Color(0xFF8B5CF6),
+                                    inactiveTrackColor = Color(0xFF2A2D3D)
+                                )
+                            )
+                        }
+                    } else if (selectedShapeType == ShapeType.ARROW) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Arrow Head: ${shapeArrowHeadSize.toInt()}px", fontSize = 11.5.sp, color = Color(0xFF94A3B8))
+                            Slider(
+                                value = shapeArrowHeadSize,
+                                onValueChange = onShapeArrowHeadSizeChanged,
+                                valueRange = 16f..72f,
+                                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = Color(0xFF8B5CF6),
+                                    activeTrackColor = Color(0xFF8B5CF6),
+                                    inactiveTrackColor = Color(0xFF2A2D3D)
+                                )
+                            )
+                        }
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -434,7 +482,7 @@ fun DocumentBottomBar(
                         .padding(horizontal = 16.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Brush: ${magicEraserBrushRadius.toInt()}px", fontSize = 12.sp, color = Color(0xFF94A3B8))
+                    Text("Brush: ${magicEraserBrushRadius.toInt()}px", fontSize = 12.sp, color = Color(0xFFF472B6))
                     Slider(
                         value = magicEraserBrushRadius,
                         onValueChange = onMagicEraserBrushRadiusChanged,
@@ -443,8 +491,8 @@ fun DocumentBottomBar(
                             .weight(1f)
                             .padding(horizontal = 8.dp),
                         colors = SliderDefaults.colors(
-                            thumbColor = Color(0xFFF59E0B),
-                            activeTrackColor = Color(0xFFF59E0B),
+                            thumbColor = Color(0xFFD946EF),
+                            activeTrackColor = Color(0xFFD946EF),
                             inactiveTrackColor = Color(0xFF2A2D3D)
                         )
                     )
@@ -493,6 +541,22 @@ fun DocumentBottomBar(
                     )
                     Spacer(modifier = Modifier.weight(1f))
                     if (selectedLassoCount > 0) {
+                        Button(
+                            onClick = onDuplicateLasso,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D9488)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text("Duplicate", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Button(
+                            onClick = onMoveLasso,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text("Move", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                         Button(
                             onClick = onMergeEditLasso,
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF8B5CF6)),
@@ -561,6 +625,13 @@ fun DocumentBottomBar(
                             isSelected = false,
                             isPro = true,
                             onClick = onExtractTextClicked
+                        )
+                        ToolDockButton(
+                            icon = Icons.Default.Search,
+                            label = "Find Words",
+                            isSelected = false,
+                            isPro = true,
+                            onClick = onSearchClicked
                         )
                         ToolDockButton(
                             icon = Icons.Default.Check,

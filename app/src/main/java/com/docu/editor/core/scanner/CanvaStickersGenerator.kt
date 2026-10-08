@@ -92,4 +92,111 @@ object CanvaStickersGenerator {
 
         return bitmap
     }
+
+    /**
+     * Dynamic Official Authority & Notary Stamp Generator.
+     * Dual-ring circular seal with curved arc organization text,
+     * center framed current date, custom designation, and high-fidelity ink color.
+     */
+    fun createDynamicAuthorityStamp(
+        organization: String = "DEPARTMENT OF REVENUE",
+        designation: String = "AUTHORIZED SIGNATORY",
+        dateText: String = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date()),
+        inkColor: Int = Color.rgb(30, 58, 138),
+        sealSize: Int = 420
+    ): Bitmap {
+        val size = sealSize.coerceIn(300, 800)
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val center = size / 2f
+
+        val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = inkColor
+            style = Paint.Style.STROKE
+            strokeWidth = 9f
+        }
+
+        // 1. Dual concentric outer rings
+        canvas.drawCircle(center, center, center - 16f, strokePaint)
+
+        strokePaint.strokeWidth = 3f
+        canvas.drawCircle(center, center, center - 30f, strokePaint)
+
+        strokePaint.strokeWidth = 4f
+        val innerRadius = center - 85f
+        canvas.drawCircle(center, center, innerRadius, strokePaint)
+
+        // 2. Curved Arc Text along the Top Ring for Organization
+        val topArcPath = android.graphics.Path().apply {
+            val r = center - 52f
+            val arcRect = RectF(center - r, center - r, center + r, center + r)
+            arcTo(arcRect, 195f, 150f, true)
+        }
+
+        val arcTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = inkColor
+            style = Paint.Style.FILL
+            textSize = 24f
+            typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+            letterSpacing = 0.14f
+        }
+        val safeOrg = if (organization.isBlank()) "OFFICIAL VERIFICATION" else organization.uppercase()
+        canvas.drawTextOnPath(safeOrg, topArcPath, 0f, 0f, arcTextPaint)
+
+        // Curved Arc Text along Bottom Ring
+        val bottomArcPath = android.graphics.Path().apply {
+            val r = center - 52f
+            val arcRect = RectF(center - r, center - r, center + r, center + r)
+            arcTo(arcRect, 15f, 150f, true)
+        }
+        canvas.drawTextOnPath("★ OFFICIAL DOCUMENT SEAL ★", bottomArcPath, 0f, 0f, arcTextPaint)
+
+        // 3. Center Date Pill Box
+        val dateBoxW = innerRadius * 1.45f
+        val dateBoxH = 46f
+        val dateBoxRect = RectF(
+            center - dateBoxW / 2f,
+            center - dateBoxH / 2f - 10f,
+            center + dateBoxW / 2f,
+            center + dateBoxH / 2f - 10f
+        )
+        strokePaint.strokeWidth = 3f
+        canvas.drawRoundRect(dateBoxRect, 8f, 8f, strokePaint)
+
+        // Date Text
+        val datePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = inkColor
+            style = Paint.Style.FILL
+            textSize = 26f
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+            letterSpacing = 0.12f
+        }
+        val dateBaseline = dateBoxRect.centerY() - ((datePaint.descent() + datePaint.ascent()) / 2f)
+        canvas.drawText(dateText, center, dateBaseline, datePaint)
+
+        // 4. Designation Text below Date
+        val desigPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = inkColor
+            style = Paint.Style.FILL
+            textSize = 21f
+            typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+            letterSpacing = 0.10f
+        }
+        val safeDesig = if (designation.isBlank()) "AUTHORIZED SIGNATORY" else designation.uppercase()
+        canvas.drawText(safeDesig, center, center + 44f, desigPaint)
+
+        // Decorative stars above date
+        val starPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = inkColor
+            style = Paint.Style.FILL
+            textSize = 18f
+            textAlign = Paint.Align.CENTER
+        }
+        canvas.drawText("★  ★  ★", center, center - 48f, starPaint)
+
+        return bitmap
+    }
 }

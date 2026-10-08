@@ -220,9 +220,12 @@ object AutoFitFontCondenser {
         val fontMetrics = paint.fontMetrics
         val lineHeight = fontMetrics.descent - fontMetrics.ascent + fontMetrics.leading
 
+        val hasDevanagari = effectiveText.any { it.code in 0x0900..0x097F }
         val baselineY = if (lineCount == 1 && originalLines == 1) {
-            // Anchor to authentic document baseline: bottom of OCR box minus descent
-            if (origHasDescenders) {
+            if (hasDevanagari) {
+                // Devanagari Shirorekha hanging top-line alignment
+                targetBounds.top.toFloat() - fontMetrics.ascent
+            } else if (origHasDescenders) {
                 targetBounds.bottom.toFloat() - fontMetrics.descent
             } else {
                 targetBounds.bottom.toFloat() - (fontMetrics.descent * 0.18f)

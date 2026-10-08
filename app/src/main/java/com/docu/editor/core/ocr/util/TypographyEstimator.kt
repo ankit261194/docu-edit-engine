@@ -51,13 +51,25 @@ object TypographyEstimator {
             0f
         }.coerceIn(-0.1f, 0.6f)
 
+        val numericWeight = when (weight) {
+            FontWeightEstimate.EXTRA_BOLD -> 850
+            FontWeightEstimate.BOLD -> 700
+            FontWeightEstimate.MEDIUM -> 550
+            FontWeightEstimate.LIGHT -> 300
+            FontWeightEstimate.REGULAR -> {
+                ((strokeRatio * 2200f) + (density * 450f)).toInt().coerceIn(350, 490)
+            }
+        }.coerceIn(100, 900)
+
         return TypographyMetrics(
             estimatedFontWeight = weight,
             strokeWidthRatio = strokeRatio,
             glyphDensity = density,
             letterSpacingEm = trackingEm,
             estimatedFontSizePx = height * 0.82f,
-            isSerif = isSerif
+            isSerif = isSerif,
+            strokeThicknessPx = verticalStemWidth,
+            numericFontWeight = numericWeight
         )
     }
 

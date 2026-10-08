@@ -48,7 +48,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -373,7 +373,7 @@ fun BatchResizeStudioDialog(
 
                                     if (inputQueue.isNotEmpty()) {
                                         Spacer(modifier = Modifier.height(10.dp))
-                                        Divider(color = Color(0xFFE2E8F0), thickness = 1.dp)
+                                        HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 1.dp)
                                         Spacer(modifier = Modifier.height(10.dp))
 
                                         // Horizontal scrollable preview list of items
@@ -693,9 +693,9 @@ fun BatchResizeStudioDialog(
                                 progressPercent = 0
                             )
 
-                            scope.launch {
+                            scope.launch(Dispatchers.Default) {
                                 val result = BatchTargetResizeConverterEngine.processBatch(
-                                    context = context,
+                                    context = context.applicationContext,
                                     items = inputQueue,
                                     targetKb = targetKbInt,
                                     outputFormat = selectedOutputFormat,

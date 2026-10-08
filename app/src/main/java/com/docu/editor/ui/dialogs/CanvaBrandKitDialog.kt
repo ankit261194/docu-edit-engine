@@ -42,19 +42,29 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.runtime.mutableIntStateOf
 import com.docu.editor.core.scanner.CanvaBrandKitEngine
 import com.docu.editor.domain.model.BrandPalette
+import com.docu.editor.domain.model.BrandProfile
 
 @Composable
 fun CanvaBrandKitDialog(
     currentPaletteId: String = "canva_signature",
     onApplyPalette: (BrandPalette) -> Unit,
+    onApplyProfile: (BrandProfile) -> Unit = {},
     onDismiss: () -> Unit
 ) {
+    var selectedTab by remember { mutableIntStateOf(0) } // 0: Palettes, 1: Client Profiles
     var selectedPalette by remember {
         mutableStateOf(
             CanvaBrandKitEngine.curatedPalettes.firstOrNull { it.id == currentPaletteId }
                 ?: CanvaBrandKitEngine.curatedPalettes.first()
+        )
+    }
+    var selectedProfile by remember {
+        mutableStateOf(
+            CanvaBrandKitEngine.curatedBrandProfiles.firstOrNull { it.id == currentPaletteId }
+                ?: CanvaBrandKitEngine.curatedBrandProfiles.first()
         )
     }
 
@@ -121,53 +131,188 @@ fun CanvaBrandKitDialog(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                Text(
-                    text = "Curated Brand Palettes",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                // Tab Switcher Row (Palettes vs Profiles)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1E2130))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (selectedTab == 0) Color(0xFFEC4899) else Color.Transparent)
+                            .clickable { selectedTab = 0 }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "🌟 Palettes",
+                            color = if (selectedTab == 0) Color.White else Color(0xFF94A3B8),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (selectedTab == 1) Color(0xFF6366F1) else Color.Transparent)
+                            .clickable { selectedTab = 1 }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "💼 Client Profiles",
+                            color = if (selectedTab == 1) Color.White else Color(0xFF94A3B8),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
 
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    CanvaBrandKitEngine.curatedPalettes.forEach { palette ->
-                        val isSelected = (palette.id == selectedPalette.id)
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) Color(0xFF261D36) else Color(0xFF1E2130)
-                            ),
-                            border = BorderStroke(
-                                width = if (isSelected) 2.dp else 1.dp,
-                                color = if (isSelected) Color(0xFFEC4899) else Color(0xFF2A2D3D)
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { selectedPalette = palette }
-                        ) {
-                            Row(
+                Spacer(modifier = Modifier.height(14.dp))
+
+                if (selectedTab == 0) {
+                    Text(
+                        text = "Curated Brand Palettes",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        CanvaBrandKitEngine.curatedPalettes.forEach { palette ->
+                            val isSelected = (palette.id == selectedPalette.id)
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) Color(0xFF261D36) else Color(0xFF1E2130)
+                                ),
+                                border = BorderStroke(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) Color(0xFFEC4899) else Color(0xFF2A2D3D)
+                                ),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(14.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                    .clickable { selectedPalette = palette }
                             ) {
-                                Text(
-                                    text = palette.name,
-                                    color = Color.White,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = palette.name,
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
 
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    palette.colorsRgb.forEach { cRgb ->
-                                        Box(
-                                            modifier = Modifier
-                                                .size(24.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(cRgb))
-                                                .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        palette.colorsRgb.forEach { cRgb ->
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(24.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color(cRgb))
+                                                    .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "Multi-Client Brand Profiles",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        CanvaBrandKitEngine.curatedBrandProfiles.forEach { profile ->
+                            val isSelected = (profile.id == selectedProfile.id)
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) Color(0xFF1E2145) else Color(0xFF1E2130)
+                                ),
+                                border = BorderStroke(
+                                    width = if (isSelected) 2.dp else 1.dp,
+                                    color = if (isSelected) Color(0xFF6366F1) else Color(0xFF2A2D3D)
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { selectedProfile = profile }
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(14.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = profile.clientName,
+                                            color = Color.White,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+
+                                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            listOf(profile.primaryColorRgb, profile.secondaryColorRgb, profile.accentColorRgb).forEach { cRgb ->
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(22.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color(cRgb))
+                                                        .border(1.dp, Color.White.copy(alpha = 0.2f), CircleShape)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = profile.companyTagline,
+                                        color = Color(0xFF94A3B8),
+                                        fontSize = 11.sp
+                                    )
+
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(
+                                            text = "Font: ${profile.fontFamily}",
+                                            color = Color(0xFF818CF8),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = "•",
+                                            color = Color(0xFF64748B),
+                                            fontSize = 11.sp
+                                        )
+                                        Text(
+                                            text = "Seal: ${profile.stampTitle}",
+                                            color = Color(0xFF38BDF8),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold
                                         )
                                     }
                                 }
@@ -180,17 +325,23 @@ fun CanvaBrandKitDialog(
 
                 Button(
                     onClick = {
-                        onApplyPalette(selectedPalette)
+                        if (selectedTab == 0) {
+                            onApplyPalette(selectedPalette)
+                        } else {
+                            onApplyProfile(selectedProfile)
+                        }
                         onDismiss()
                     },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),
                     shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEC4899))
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (selectedTab == 0) Color(0xFFEC4899) else Color(0xFF6366F1)
+                    )
                 ) {
                     Text(
-                        text = "Apply Brand Kit to Document",
+                        text = if (selectedTab == 0) "Apply Brand Palette to Document" else "Apply Client Profile to Document",
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
                         color = Color.White

@@ -163,6 +163,8 @@ class BackgroundInpainter {
         val rgbMat = Mat()
         val grayMat = Mat()
         val maskMat = Mat()
+        val teleaMat = Mat()
+        val nsMat = Mat()
         val inpaintMat = Mat()
         val restoredCrop = Mat()
 
@@ -172,38 +174,87 @@ class BackgroundInpainter {
             Imgproc.cvtColor(srcMat, grayMat, Imgproc.COLOR_RGBA2GRAY)
 
             val paperLuma = estimateLocalPaperLuma(grayMat)
-            val inkThreshold = (paperLuma - 20.0).coerceIn(40.0, 215.0)
 
-            Imgproc.threshold(grayMat, maskMat, inkThreshold, 255.0, Imgproc.THRESH_BINARY_INV)
+            // 1. Build shadow-free and line-preserving text mask using PrecisionMaskBuilder
+            val relTarget = Rect(
+                max(0, target.left - cropLeft),
+                max(0, target.top - cropTop),
+                min(cropW, target.right - cropLeft),
+                min(cropH, target.bottom - cropTop)
+            )
+            PrecisionMaskBuilder.buildShadowFreeMask(rgbMat, relTarget, maskMat)
 
-            val maskPad = (target.height() * 0.12f).toInt().coerceIn(3, 8)
-            val relLeft = max(0, target.left - cropLeft - maskPad)
-            val relTop = max(0, target.top - cropTop - (maskPad / 2))
-            val relRight = min(maskMat.cols(), target.right - cropLeft + maskPad)
-            val relBottom = min(maskMat.rows(), target.bottom - cropTop + (maskPad / 2))
+            // If precision mask produced very few pixels (e.g. low contrast), fallback to adaptive ink threshold
+            if (org.opencv.core.Core.countNonZero(maskMat) < 10) {
+                val inkThreshold = (paperLuma - 20.0).coerceIn(40.0, 215.0)
+                Imgproc.threshold(grayMat, maskMat, inkThreshold, 255.0, Imgproc.THRESH_BINARY_INV)
 
-            for (r in 0 until maskMat.rows()) {
-                if (r < relTop || r >= relBottom) {
-                    val row = maskMat.row(r)
-                    row.setTo(Scalar(0.0))
-                    row.release()
+                val maskPad = (target.height() * 0.12f).toInt().coerceIn(3, 8)
+                val relLeft = max(0, target.left - cropLeft - maskPad)
+                val relTop = max(0, target.top - cropTop - (maskPad / 2))
+                val relRight = min(maskMat.cols(), target.right - cropLeft + maskPad)
+                val relBottom = min(maskMat.rows(), target.bottom - cropTop + (maskPad / 2))
+
+                for (r in 0 until maskMat.rows()) {
+                    if (r < relTop || r >= relBottom) {
+                        val row = maskMat.row(r)
+                        row.setTo(Scalar(0.0))
+                        row.release()
+                    }
                 }
-            }
-            for (c in 0 until maskMat.cols()) {
-                if (c < relLeft || c >= relRight) {
-                    val col = maskMat.col(c)
-                    col.setTo(Scalar(0.0))
-                    col.release()
+                for (c in 0 until maskMat.cols()) {
+                    if (c < relLeft || c >= relRight) {
+                        val col = maskMat.col(c)
+                        col.setTo(Scalar(0.0))
+                        col.release()
+                    }
                 }
+                val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(5.0, 5.0))
+                Imgproc.dilate(maskMat, maskMat, kernel)
+                kernel.release()
             }
 
-            // 5x5 dilation eliminates all anti-aliased subpixel edge halos around previous text
-            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(5.0, 5.0))
-            Imgproc.dilate(maskMat, maskMat, kernel)
-            kernel.release()
+            // 2. Dual-Engine Navier-Stokes + Telea Inpainting:
+            // Navier-Stokes propagates fluid isophotes (gradients/watermarks) without leaving flat color patches
+            Photo.inpaint(rgbMat, maskMat, nsMat, 5.0, Photo.INPAINT_NS)
+            Photo.inpaint(rgbMat, maskMat, teleaMat, 4.0, Photo.INPAINT_TELEA)
+            org.opencv.core.Core.addWeighted(nsMat, 0.70, teleaMat, 0.30, 0.0, inpaintMat)
 
-            // Navier-Stokes/Telea inpainting with 5.0 radius for zero-halo paper texture continuity
-            Photo.inpaint(rgbMat, maskMat, inpaintMat, 5.0, Photo.INPAINT_TELEA)
+            // 3. Inject matching local micro paper noise
+            val ringMat = Mat()
+            val ringKernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(13.0, 13.0))
+            Imgproc.dilate(maskMat, ringMat, ringKernel)
+            ringKernel.release()
+            org.opencv.core.Core.subtract(ringMat, maskMat, ringMat)
+
+            val meanMat = org.opencv.core.MatOfDouble()
+            val stddevMat = org.opencv.core.MatOfDouble()
+            org.opencv.core.Core.meanStdDev(rgbMat, meanMat, stddevMat, ringMat)
+            ringMat.release()
+            val stdArr = stddevMat.toArray()
+            val grainSigma = if (stdArr.isNotEmpty()) stdArr[0].coerceIn(0.5, 6.0) else 1.5
+            meanMat.release()
+            stddevMat.release()
+
+            if (grainSigma > 1.2) {
+                val floatDst = Mat()
+                inpaintMat.convertTo(floatDst, CvType.CV_32FC3)
+                val noiseMat = Mat(inpaintMat.size(), CvType.CV_32FC3)
+                org.opencv.core.Core.randn(noiseMat, 0.0, grainSigma * 0.55)
+                val floatMask = Mat()
+                maskMat.convertTo(floatMask, CvType.CV_32FC1, 1.0 / 255.0)
+                val chs = mutableListOf<Mat>()
+                org.opencv.core.Core.split(noiseMat, chs)
+                for (ch in chs) org.opencv.core.Core.multiply(ch, floatMask, ch)
+                org.opencv.core.Core.merge(chs, noiseMat)
+                chs.forEach { it.release() }
+                floatMask.release()
+                org.opencv.core.Core.add(floatDst, noiseMat, floatDst)
+                noiseMat.release()
+                floatDst.convertTo(inpaintMat, CvType.CV_8UC3)
+                floatDst.release()
+            }
+
             Imgproc.cvtColor(inpaintMat, restoredCrop, Imgproc.COLOR_RGB2RGBA)
 
             val outCropBitmap = Bitmap.createBitmap(cropW, cropH, Bitmap.Config.ARGB_8888)
@@ -251,6 +302,111 @@ class BackgroundInpainter {
             rgbMat.release()
             grayMat.release()
             maskMat.release()
+            teleaMat.release()
+            nsMat.release()
+            inpaintMat.release()
+            restoredCrop.release()
+        }
+    }
+
+    /**
+     * Pro Inpainting for Whiteout Eraser Brush / Circular Drag.
+     * Replaces circular patch with surrounding paper texture, scanner lighting gradient,
+     * and watermark continuity via Navier-Stokes inpainting.
+     */
+    suspend fun inpaintCircle(
+        sourceBitmap: Bitmap,
+        centerX: Float,
+        centerY: Float,
+        radius: Float
+    ): Bitmap = withContext(Dispatchers.Default) {
+        val width = sourceBitmap.width
+        val height = sourceBitmap.height
+        val padding = (radius * 1.5f + 16f).toInt()
+        val cropL = (centerX - radius - padding).toInt().coerceIn(0, width - 1)
+        val cropT = (centerY - radius - padding).toInt().coerceIn(0, height - 1)
+        val cropR = (centerX + radius + padding).toInt().coerceIn(cropL + 1, width)
+        val cropB = (centerY + radius + padding).toInt().coerceIn(cropT + 1, height)
+        val cropW = max(2, cropR - cropL)
+        val cropH = max(2, cropB - cropT)
+
+        val cropBitmap = Bitmap.createBitmap(sourceBitmap, cropL, cropT, cropW, cropH)
+        val srcMat = Mat()
+        val rgbMat = Mat()
+        val maskMat = Mat.zeros(cropH, cropW, CvType.CV_8UC1)
+        val teleaMat = Mat()
+        val nsMat = Mat()
+        val inpaintMat = Mat()
+        val restoredCrop = Mat()
+
+        try {
+            Utils.bitmapToMat(cropBitmap, srcMat)
+            Imgproc.cvtColor(srcMat, rgbMat, Imgproc.COLOR_RGBA2RGB)
+
+            val localCenter = org.opencv.core.Point((centerX - cropL).toDouble(), (centerY - cropT).toDouble())
+            Imgproc.circle(maskMat, localCenter, radius.toInt(), Scalar(255.0), -1)
+
+            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(5.0, 5.0))
+            Imgproc.dilate(maskMat, maskMat, kernel)
+            kernel.release()
+
+            val inpaintRad = (radius * 0.35).toDouble().coerceIn(3.0, 14.0)
+            Photo.inpaint(rgbMat, maskMat, nsMat, inpaintRad + 2.0, Photo.INPAINT_NS)
+            Photo.inpaint(rgbMat, maskMat, teleaMat, inpaintRad, Photo.INPAINT_TELEA)
+            org.opencv.core.Core.addWeighted(nsMat, 0.70, teleaMat, 0.30, 0.0, inpaintMat)
+
+            val ringMat = Mat()
+            val ringKernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(15.0, 15.0))
+            Imgproc.dilate(maskMat, ringMat, ringKernel)
+            ringKernel.release()
+            org.opencv.core.Core.subtract(ringMat, maskMat, ringMat)
+
+            val meanMat = org.opencv.core.MatOfDouble()
+            val stddevMat = org.opencv.core.MatOfDouble()
+            org.opencv.core.Core.meanStdDev(rgbMat, meanMat, stddevMat, ringMat)
+            ringMat.release()
+            val stdArr = stddevMat.toArray()
+            val grainSigma = if (stdArr.isNotEmpty()) stdArr[0].coerceIn(0.5, 6.0) else 1.5
+            meanMat.release()
+            stddevMat.release()
+
+            if (grainSigma > 1.2) {
+                val floatDst = Mat()
+                inpaintMat.convertTo(floatDst, CvType.CV_32FC3)
+                val noiseMat = Mat(inpaintMat.size(), CvType.CV_32FC3)
+                org.opencv.core.Core.randn(noiseMat, 0.0, grainSigma * 0.55)
+                val floatMask = Mat()
+                maskMat.convertTo(floatMask, CvType.CV_32FC1, 1.0 / 255.0)
+                val chs = mutableListOf<Mat>()
+                org.opencv.core.Core.split(noiseMat, chs)
+                for (ch in chs) org.opencv.core.Core.multiply(ch, floatMask, ch)
+                org.opencv.core.Core.merge(chs, noiseMat)
+                chs.forEach { it.release() }
+                floatMask.release()
+                org.opencv.core.Core.add(floatDst, noiseMat, floatDst)
+                noiseMat.release()
+                floatDst.convertTo(inpaintMat, CvType.CV_8UC3)
+                floatDst.release()
+            }
+
+            Imgproc.cvtColor(inpaintMat, restoredCrop, Imgproc.COLOR_RGB2RGBA)
+            val outCropBitmap = Bitmap.createBitmap(cropW, cropH, Bitmap.Config.ARGB_8888)
+            Utils.matToBitmap(restoredCrop, outCropBitmap)
+
+            val outputBitmap = sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
+            val canvas = Canvas(outputBitmap)
+            canvas.drawBitmap(outCropBitmap, cropL.toFloat(), cropT.toFloat(), null)
+            outCropBitmap.recycle()
+            outputBitmap
+        } catch (_: Throwable) {
+            sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
+        } finally {
+            cropBitmap.recycle()
+            srcMat.release()
+            rgbMat.release()
+            maskMat.release()
+            teleaMat.release()
+            nsMat.release()
             inpaintMat.release()
             restoredCrop.release()
         }

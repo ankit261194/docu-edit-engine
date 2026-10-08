@@ -136,6 +136,68 @@ object PptxExportEngine {
 </Relationships>"""
     }
 
+    data class SlideCard(
+        val bounds: android.graphics.Rect,
+        val items: List<com.docu.editor.core.ocr.model.DetectedTextItem>
+    )
+
+    private fun isBadgeItem(item: com.docu.editor.core.ocr.model.DetectedTextItem): Boolean {
+        val t = item.text.trim()
+        if (t.length !in 1..14) return false
+        val isBadgePattern = t.matches(Regex("""^(STEP\s*\d+|\d{1,2}|TIP|NOTE|SUMMARY|IMPORTANT|PRO|FEATURE|KEY|HIGHLIGHT|[A-Z]{2,6})$""", RegexOption.IGNORE_CASE))
+        val isPillDimension = item.boundingBox.height() <= 36 && item.boundingBox.width() <= 160
+        return isBadgePattern || isPillDimension
+    }
+
+    private fun detectSlideCards(
+        items: List<com.docu.editor.core.ocr.model.DetectedTextItem>,
+        bmpWidth: Int,
+        bmpHeight: Int
+    ): Pair<List<SlideCard>, List<com.docu.editor.core.ocr.model.DetectedTextItem>> {
+        if (items.size < 3) return Pair(emptyList(), items)
+
+        val nonTitleItems = items.filter { item ->
+            !(item.boundingBox.top < (bmpHeight * 0.20) && item.boundingBox.width() > (bmpWidth * 0.60))
+        }
+
+        val clusters = mutableListOf<MutableList<com.docu.editor.core.ocr.model.DetectedTextItem>>()
+        for (item in nonTitleItems.sortedBy { it.boundingBox.top }) {
+            val matchingCluster = clusters.find { cluster ->
+                val minX = cluster.minOf { it.boundingBox.left }
+                val maxX = cluster.maxOf { it.boundingBox.right }
+                val minY = cluster.minOf { it.boundingBox.top }
+                val maxY = cluster.maxOf { it.boundingBox.bottom }
+                val hOverlap = item.boundingBox.left < maxX + 40 && item.boundingBox.right > minX - 40
+                val vClose = item.boundingBox.top <= maxY + (item.boundingBox.height() * 2.2)
+                hOverlap && vClose
+            }
+            if (matchingCluster != null) {
+                matchingCluster.add(item)
+            } else {
+                clusters.add(mutableListOf(item))
+            }
+        }
+
+        val cards = mutableListOf<SlideCard>()
+        val unclustered = items.toMutableList()
+
+        for (cluster in clusters) {
+            val minX = cluster.minOf { it.boundingBox.left }
+            val maxX = cluster.maxOf { it.boundingBox.right }
+            val minY = cluster.minOf { it.boundingBox.top }
+            val maxY = cluster.maxOf { it.boundingBox.bottom }
+            val cardW = maxX - minX
+            val cardH = maxY - minY
+
+            if (cluster.size >= 2 && cardW >= (bmpWidth * 0.15) && cardH >= (bmpHeight * 0.08)) {
+                cards.add(SlideCard(android.graphics.Rect(minX, minY, maxX, maxY), cluster))
+                unclustered.removeAll(cluster)
+            }
+        }
+
+        return Pair(cards, unclustered)
+    }
+
     private fun buildSlideXml(
         slideIndex: Int,
         bmpWidth: Int,
@@ -167,25 +229,216 @@ object PptxExportEngine {
             offY = 0L
         }
 
-        val textShapesXml = StringBuilder()
-        textItems.forEachIndexed { itemIdx, item ->
-            if (item.text.isNotBlank() && bmpWidth > 0 && bmpHeight > 0) {
-                val spX = (offX + (item.boundingBox.left.toDouble() / bmpWidth * fitW)).toLong()
-                val spY = (offY + (item.boundingBox.top.toDouble() / bmpHeight * fitH)).toLong()
-                val spW = ((item.boundingBox.width().toDouble() / bmpWidth * fitW)).toLong().coerceAtLeast(120000L)
-                val spH = ((item.boundingBox.height().toDouble() / bmpHeight * fitH)).toLong().coerceAtLeast(100000L)
+        fun emuX(px: Int): Long = (offX + (px.toDouble() / bmpWidth * fitW)).toLong()
+        fun emuY(px: Int): Long = (offY + (px.toDouble() / bmpHeight * fitH)).toLong()
+        fun emuW(px: Int): Long = ((px.toDouble() / bmpWidth * fitW)).toLong().coerceAtLeast(100000L)
+        fun emuH(px: Int): Long = ((px.toDouble() / bmpHeight * fitH)).toLong().coerceAtLeast(80000L)
 
-                val lineHPoints = (item.boundingBox.height().toDouble() / bmpHeight * fitH) / 12700.0 * 0.78
-                val fontSizeHundredths = (lineHPoints * 100).toInt().coerceIn(600, 7200)
-                val isBold = item.typography.estimatedFontWeight == com.docu.editor.core.ocr.model.FontWeightEstimate.BOLD ||
-                             item.typography.estimatedFontWeight == com.docu.editor.core.ocr.model.FontWeightEstimate.EXTRA_BOLD
-                val hexColor = String.format("%06X", item.inkColorRgb and 0xFFFFFF)
-                val escapedText = escapeXml(item.text)
+        val shapesXml = StringBuilder()
+        var shapeIdCounter = 200
 
-                textShapesXml.append("""
+        if (bmpWidth > 0 && bmpHeight > 0 && textItems.isNotEmpty()) {
+            val (cards, standaloneItems) = detectSlideCards(textItems, bmpWidth, bmpHeight)
+            val (badges, freeItems) = standaloneItems.partition { isBadgeItem(it) }
+
+            // 1. Vector Decomposition: Native Card Containers with subtle borders and elevation
+            cards.forEachIndexed { cardIdx, card ->
+                val padX = (card.bounds.width() * 0.06).toInt().coerceIn(12, 36)
+                val padY = (card.bounds.height() * 0.06).toInt().coerceIn(12, 36)
+                val paddedCard = android.graphics.Rect(
+                    (card.bounds.left - padX).coerceAtLeast(0),
+                    (card.bounds.top - padY).coerceAtLeast(0),
+                    (card.bounds.right + padX).coerceAtMost(bmpWidth),
+                    (card.bounds.bottom + padY).coerceAtMost(bmpHeight)
+                )
+
+                val cX = emuX(paddedCard.left)
+                val cY = emuY(paddedCard.top)
+                val cW = emuW(paddedCard.width())
+                val cH = emuH(paddedCard.height())
+                val sId = shapeIdCounter++
+
+                shapesXml.append("""
       <p:sp>
         <p:nvSpPr>
-          <p:cNvPr id="${100 + itemIdx}" name="Text_${itemIdx + 1}"/>
+          <p:cNvPr id="$sId" name="Vector Card ${cardIdx + 1}"/>
+          <p:cNvSpPr/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm>
+            <a:off x="$cX" y="$cY"/>
+            <a:ext cx="$cW" cy="$cH"/>
+          </a:xfrm>
+          <a:prstGeom prst="roundRect">
+            <a:avLst><a:gd name="adj" fmla="val 3000"/></a:avLst>
+          </a:prstGeom>
+          <a:solidFill>
+            <a:srgbClr val="F8FAFC"/>
+          </a:solidFill>
+          <a:ln w="12700">
+            <a:solidFill><a:srgbClr val="E2E8F0"/></a:solidFill>
+          </a:ln>
+          <a:effectLst>
+            <a:outerShdw blurRad="40000" dist="20000" dir="5400000" algn="b">
+              <a:srgbClr val="000000"><a:alpha val="6000"/></a:srgbClr>
+            </a:outerShdw>
+          </a:effectLst>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr/>
+          <a:lstStyle/>
+          <a:p/>
+        </p:txBody>
+      </p:sp>""")
+            }
+
+            // 2. Vector Decomposition: Native Bullet Badges / Pill Shapes
+            badges.forEachIndexed { badgeIdx, badgeItem ->
+                val bX = emuX(badgeItem.boundingBox.left)
+                val bY = emuY(badgeItem.boundingBox.top)
+                val bW = emuW(badgeItem.boundingBox.width())
+                val bH = emuH(badgeItem.boundingBox.height())
+                val sId = shapeIdCounter++
+                val badgeText = escapeXml(badgeItem.text.trim())
+
+                shapesXml.append("""
+      <p:sp>
+        <p:nvSpPr>
+          <p:cNvPr id="$sId" name="Pill Badge ${badgeIdx + 1}"/>
+          <p:cNvSpPr txBox="0"/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm>
+            <a:off x="$bX" y="$bY"/>
+            <a:ext cx="$bW" cy="$bH"/>
+          </a:xfrm>
+          <a:prstGeom prst="roundRect">
+            <a:avLst><a:gd name="adj" fmla="val 20000"/></a:avLst>
+          </a:prstGeom>
+          <a:solidFill>
+            <a:srgbClr val="4F46E5"/>
+          </a:solidFill>
+          <a:ln w="0"><a:noFill/></a:ln>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr wrap="none" lIns="72000" rIns="72000" tIns="36000" bIns="36000" anchor="ctr"/>
+          <a:lstStyle/>
+          <a:p>
+            <a:pPr algn="ctr"/>
+            <a:r>
+              <a:rPr lang="en-US" sz="900" b="1">
+                <a:solidFill><a:srgbClr val="FFFFFF"/></a:solidFill>
+              </a:rPr>
+              <a:t>$badgeText</a:t>
+            </a:r>
+          </a:p>
+        </p:txBody>
+      </p:sp>""")
+            }
+
+            // 3. Vector Decomposition: Card Text Frames with Structured Paragraphs & Bullets
+            cards.forEachIndexed { cardIdx, card ->
+                val cX = emuX(card.bounds.left)
+                val cY = emuY(card.bounds.top)
+                val cW = emuW(card.bounds.width())
+                val cH = emuH(card.bounds.height())
+                val sId = shapeIdCounter++
+
+                val pSb = StringBuilder()
+                for (item in card.items.sortedBy { it.boundingBox.top }) {
+                    val rawText = item.text.trim()
+                    if (rawText.isBlank()) continue
+
+                    val isBullet = rawText.startsWith("• ") || rawText.startsWith("- ") ||
+                                   rawText.startsWith("* ") || rawText.matches(Regex("""^\d+\.\s+.*"""))
+                    val cleanText = if (isBullet) {
+                        rawText.replace(Regex("""^([•\-*]|\d+\.)\s*"""), "")
+                    } else {
+                        rawText
+                    }
+
+                    val lineHPoints = (item.boundingBox.height().toDouble() / bmpHeight * fitH) / 12700.0 * 0.78
+                    val fontSizeHundredths = (lineHPoints * 100).toInt().coerceIn(600, 7200)
+                    val isBold = item.typography.estimatedFontWeight == com.docu.editor.core.ocr.model.FontWeightEstimate.BOLD ||
+                                 item.typography.estimatedFontWeight == com.docu.editor.core.ocr.model.FontWeightEstimate.EXTRA_BOLD
+                    val hexColor = String.format("%06X", item.inkColorRgb and 0xFFFFFF)
+                    val escapedText = escapeXml(cleanText)
+
+                    if (isBullet) {
+                        pSb.append("""
+          <a:p>
+            <a:pPr marL="288000" indent="-288000">
+              <a:buChar char="•"/>
+            </a:pPr>
+            <a:r>
+              <a:rPr lang="en-US" sz="$fontSizeHundredths" b="${if (isBold) "1" else "0"}">
+                <a:solidFill><a:srgbClr val="$hexColor"/></a:solidFill>
+              </a:rPr>
+              <a:t>$escapedText</a:t>
+            </a:r>
+          </a:p>""")
+                    } else {
+                        pSb.append("""
+          <a:p>
+            <a:r>
+              <a:rPr lang="en-US" sz="$fontSizeHundredths" b="${if (isBold) "1" else "0"}">
+                <a:solidFill><a:srgbClr val="$hexColor"/></a:solidFill>
+              </a:rPr>
+              <a:t>$escapedText</a:t>
+            </a:r>
+          </a:p>""")
+                    }
+                }
+
+                if (pSb.isNotEmpty()) {
+                    shapesXml.append("""
+      <p:sp>
+        <p:nvSpPr>
+          <p:cNvPr id="$sId" name="Card Text ${cardIdx + 1}"/>
+          <p:cNvSpPr txBox="1"/>
+          <p:nvPr/>
+        </p:nvSpPr>
+        <p:spPr>
+          <a:xfrm>
+            <a:off x="$cX" y="$cY"/>
+            <a:ext cx="$cW" cy="$cH"/>
+          </a:xfrm>
+          <a:prstGeom prst="rect">
+            <a:avLst/>
+          </a:prstGeom>
+        </p:spPr>
+        <p:txBody>
+          <a:bodyPr wrap="square" rtlCol="0">
+            <a:spAutoFit/>
+          </a:bodyPr>
+          <a:lstStyle/>$pSb
+        </p:txBody>
+      </p:sp>""")
+                }
+            }
+
+            // 4. Standalone / Title Textboxes
+            freeItems.forEachIndexed { itemIdx, item ->
+                if (item.text.isNotBlank()) {
+                    val spX = emuX(item.boundingBox.left)
+                    val spY = emuY(item.boundingBox.top)
+                    val spW = emuW(item.boundingBox.width())
+                    val spH = emuH(item.boundingBox.height())
+                    val sId = shapeIdCounter++
+
+                    val lineHPoints = (item.boundingBox.height().toDouble() / bmpHeight * fitH) / 12700.0 * 0.78
+                    val fontSizeHundredths = (lineHPoints * 100).toInt().coerceIn(600, 7200)
+                    val isBold = item.typography.estimatedFontWeight == com.docu.editor.core.ocr.model.FontWeightEstimate.BOLD ||
+                                 item.typography.estimatedFontWeight == com.docu.editor.core.ocr.model.FontWeightEstimate.EXTRA_BOLD
+                    val hexColor = String.format("%06X", item.inkColorRgb and 0xFFFFFF)
+                    val escapedText = escapeXml(item.text)
+
+                    shapesXml.append("""
+      <p:sp>
+        <p:nvSpPr>
+          <p:cNvPr id="$sId" name="Text_${itemIdx + 1}"/>
           <p:cNvSpPr txBox="1"/>
           <p:nvPr/>
         </p:nvSpPr>
@@ -215,6 +468,7 @@ object PptxExportEngine {
           </a:p>
         </p:txBody>
       </p:sp>""")
+                }
             }
         }
 
@@ -258,7 +512,7 @@ object PptxExportEngine {
             <a:avLst/>
           </a:prstGeom>
         </p:spPr>
-      </p:pic>$textShapesXml
+      </p:pic>$shapesXml
     </p:spTree>
   </p:cSld>
 </p:sld>"""

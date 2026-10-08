@@ -81,9 +81,11 @@ fun PdfToolboxDialog(
         userPassword: String,
         ownerPassword: String,
         canPrint: Boolean,
+        canPrintDegraded: Boolean,
         canExtractContent: Boolean,
         canModify: Boolean,
         canFillInForm: Boolean,
+        canAssembleDocument: Boolean,
         keyLength: Int
     ) -> Unit,
     onUnlockPdfSelected: (password: String) -> Unit = {},
@@ -110,9 +112,11 @@ fun PdfToolboxDialog(
     var isPasswordVisible by remember { mutableStateOf(false) }
     var ownerPassword by remember { mutableStateOf("") }
     var canPrint by remember { mutableStateOf(true) }
+    var canPrintDegraded by remember { mutableStateOf(false) }
     var canExtractContent by remember { mutableStateOf(false) }
     var canModify by remember { mutableStateOf(false) }
     var canFillInForm by remember { mutableStateOf(true) }
+    var canAssembleDocument by remember { mutableStateOf(false) }
     var keyLength by remember { mutableIntStateOf(128) }
     var unlockPassword by remember { mutableStateOf("") }
 
@@ -384,12 +388,49 @@ fun PdfToolboxDialog(
                         when (securitySubMode) {
                             0 -> {
                                 Text(
-                                    text = "128-bit / 256-bit AES Document Encryption",
+                                    text = "AES Document Encryption Standard",
                                     color = Color(0xFF0F172A),
                                     fontSize = 13.5.sp,
                                     fontWeight = FontWeight.Bold
                                 )
-                                Spacer(modifier = Modifier.height(8.dp))
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (keyLength == 128) Color(0xFFFFF1F2) else Color(0xFFF8FAFC),
+                                        border = BorderStroke(1.dp, if (keyLength == 128) Color(0xFFE11D48) else Color(0xFFE2E8F0)),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable { keyLength = 128 }
+                                    ) {
+                                        Column(modifier = Modifier.padding(10.dp)) {
+                                            Text("128-bit AES", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (keyLength == 128) Color(0xFFE11D48) else Color(0xFF1E293B))
+                                            Text("Universal Reader Support", fontSize = 10.sp, color = Color(0xFF64748B))
+                                        }
+                                    }
+
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = if (keyLength == 256) Color(0xFFFFF1F2) else Color(0xFFF8FAFC),
+                                        border = BorderStroke(1.dp, if (keyLength == 256) Color(0xFFE11D48) else Color(0xFFE2E8F0)),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable { keyLength = 256 }
+                                    ) {
+                                        Column(modifier = Modifier.padding(10.dp)) {
+                                            Text("256-bit AES", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (keyLength == 256) Color(0xFFE11D48) else Color(0xFF1E293B))
+                                            Text("Government Military-Grade", fontSize = 10.sp, color = Color(0xFF64748B))
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
 
                                 OutlinedTextField(
                                     value = userPassword,
@@ -434,7 +475,9 @@ fun PdfToolboxDialog(
                                 Spacer(modifier = Modifier.height(10.dp))
 
                                 // Permission checkboxes
-                                Text("Permissions & Restrictions", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
+                                Text("Permissions & Access Restrictions", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF334155))
+                                Spacer(modifier = Modifier.height(4.dp))
+
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(
                                         checked = canPrint,
@@ -445,11 +488,28 @@ fun PdfToolboxDialog(
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(
+                                        checked = !canPrintDegraded,
+                                        onCheckedChange = { canPrintDegraded = !it },
+                                        enabled = canPrint,
+                                        colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE11D48))
+                                    )
+                                    Text("Allow High-Quality Printing", fontSize = 11.5.sp, color = if (canPrint) Color(0xFF1E293B) else Color(0xFF94A3B8))
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
                                         checked = canExtractContent,
                                         onCheckedChange = { canExtractContent = it },
                                         colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE11D48))
                                     )
-                                    Text("Allow Copying Text & Images", fontSize = 11.5.sp, color = Color(0xFF1E293B))
+                                    Text("Allow Copying Text & Visuals", fontSize = 11.5.sp, color = Color(0xFF1E293B))
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = canModify,
+                                        onCheckedChange = { canModify = it },
+                                        colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE11D48))
+                                    )
+                                    Text("Allow Editing & Modifying Document", fontSize = 11.5.sp, color = Color(0xFF1E293B))
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(
@@ -458,6 +518,14 @@ fun PdfToolboxDialog(
                                         colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE11D48))
                                     )
                                     Text("Allow Form Filling & Comments", fontSize = 11.5.sp, color = Color(0xFF1E293B))
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = canAssembleDocument,
+                                        onCheckedChange = { canAssembleDocument = it },
+                                        colors = CheckboxDefaults.colors(checkedColor = Color(0xFFE11D48))
+                                    )
+                                    Text("Allow Document Assembly & Page Changes", fontSize = 11.5.sp, color = Color(0xFF1E293B))
                                 }
 
                                 Spacer(modifier = Modifier.height(10.dp))
@@ -469,9 +537,11 @@ fun PdfToolboxDialog(
                                                 userPassword.trim(),
                                                 ownerPassword.trim().ifBlank { userPassword.trim() + "_owner" },
                                                 canPrint,
+                                                canPrintDegraded,
                                                 canExtractContent,
                                                 canModify,
                                                 canFillInForm,
+                                                canAssembleDocument,
                                                 keyLength
                                             )
                                         }
@@ -486,7 +556,7 @@ fun PdfToolboxDialog(
                                 ) {
                                     Icon(Icons.Default.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Encrypt & Protect PDF", fontWeight = FontWeight.Bold, color = Color.White)
+                                    Text("Encrypt & Protect (AES-$keyLength)", fontWeight = FontWeight.Bold, color = Color.White)
                                 }
                             }
                             1 -> {

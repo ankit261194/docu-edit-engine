@@ -123,11 +123,24 @@ class ScannerOverlayView @JvmOverloads constructor(
         color = Color.rgb(0, 230, 118) // Vibrant Green
     }
 
-    private val path = Path()
+    private val magneticLockRingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 3.5f
+        color = Color.rgb(0, 255, 136)
+    }
 
-    fun updateCorners(detected: DocumentCorners?, stable: Boolean, srcW: Int, srcH: Int, progress: Float = 0f) {
+    private val magneticLockGlowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.argb(80, 0, 230, 118)
+    }
+
+    private val path = Path()
+    private var isMagneticLocked: Boolean = false
+
+    fun updateCorners(detected: DocumentCorners?, stable: Boolean, srcW: Int, srcH: Int, progress: Float = 0f, locked: Boolean = false) {
         rawCorners = detected
         isStable = stable
+        isMagneticLocked = locked
         autoSnapProgress = progress
         frameWidth = if (srcW > 0) srcW else 1
         frameHeight = if (srcH > 0) srcH else 1
@@ -298,6 +311,10 @@ class ScannerOverlayView @JvmOverloads constructor(
             color = strokeColor
         }
         for (corner in listOf(p1, p2, p3, p4)) {
+            if (isMagneticLocked || isStable) {
+                canvas.drawCircle(corner.x, corner.y, 20f, magneticLockGlowPaint)
+                canvas.drawCircle(corner.x, corner.y, 18f, magneticLockRingPaint)
+            }
             canvas.drawCircle(corner.x, corner.y, 10f, innerCornerPaint)
             canvas.drawCircle(corner.x, corner.y, 10f, outerCornerPaint)
         }

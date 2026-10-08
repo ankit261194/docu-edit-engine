@@ -102,7 +102,7 @@ fun DocumentFiltersSheet(
                 val fType = when (mode) {
                     DocumentFilterMode.ORIGINAL -> DocumentFilters.FilterType.ORIGINAL
                     DocumentFilterMode.MAGIC_COLOR -> DocumentFilters.FilterType.MAGIC_COLOR
-                    DocumentFilterMode.PHOTO_RESTORE -> DocumentFilters.FilterType.VIVID_DOC
+                    DocumentFilterMode.PHOTO_RESTORE -> DocumentFilters.FilterType.PHOTO_RESTORE
                     DocumentFilterMode.SHADOW_REMOVER -> DocumentFilters.FilterType.REMOVE_SHADOWS
                     DocumentFilterMode.WATERMARK_REMOVER -> DocumentFilters.FilterType.REMOVE_WATERMARK
                     DocumentFilterMode.FINGER_REMOVER -> DocumentFilters.FilterType.REMOVE_FINGERS

@@ -11,6 +11,11 @@ import com.tom_roush.pdfbox.multipdf.Splitter
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
 import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
+import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageDestination
+import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.destination.PDPageFitWidthDestination
+import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDDocumentOutline
+import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineItem
+import com.tom_roush.pdfbox.pdmodel.interactive.documentnavigation.outline.PDOutlineNode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -26,6 +31,16 @@ class PdfToolbox(private val context: Context) {
     /**
      * Merges multiple files (both PDFs and image formats like JPG/PNG) into a single unified PDF.
      */
+    private data class SourceMergeInfo(
+        val file: File,
+        val displayName: String,
+        val pageCount: Int
+    )
+
+    /**
+     * Merges multiple files (both PDFs and image formats like JPG/PNG) into a single unified PDF,
+     * preserving all original chapters, bookmarks, and creating a unified Table of Contents.
+     */
     suspend fun mergeFiles(
         uris: List<Uri>,
         outputFile: File
@@ -33,6 +48,7 @@ class PdfToolbox(private val context: Context) {
         val merger = PDFMergerUtility()
         merger.destinationFileName = outputFile.absolutePath
         val tempFiles = mutableListOf<File>()
+        val sourceInfoList = mutableListOf<SourceMergeInfo>()
 
         try {
             for (uri in uris) {
@@ -40,6 +56,19 @@ class PdfToolbox(private val context: Context) {
                 val isImage = mimeType.startsWith("image/") || uri.path?.lowercase()?.let {
                     it.endsWith(".jpg") || it.endsWith(".jpeg") || it.endsWith(".png") || it.endsWith(".webp")
                 } == true
+
+                val displayName = try {
+                    var name: String? = null
+                    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                            if (nameIndex != -1) name = cursor.getString(nameIndex)
+                        }
+                    }
+                    name ?: uri.lastPathSegment ?: "Document"
+                } catch (_: Exception) {
+                    uri.lastPathSegment ?: "Document"
+                }
 
                 if (isImage) {
                     val bmp = ExifBitmapUtil.decodeUriWithExif(context, uri, 2880)
@@ -52,6 +81,7 @@ class PdfToolbox(private val context: Context) {
                         )
                         merger.addSource(tempPdf)
                         tempFiles.add(tempPdf)
+                        sourceInfoList.add(SourceMergeInfo(tempPdf, displayName, 1))
                         bmp.recycle()
                     }
                 } else {
@@ -61,12 +91,21 @@ class PdfToolbox(private val context: Context) {
                             input.copyTo(output)
                         }
                     }
+                    val pageCount = try {
+                        PDDocument.load(tempPdf).use { it.numberOfPages }
+                    } catch (_: Exception) { 1 }
+
                     merger.addSource(tempPdf)
                     tempFiles.add(tempPdf)
+                    sourceInfoList.add(SourceMergeInfo(tempPdf, displayName, pageCount))
                 }
             }
 
             merger.mergeDocuments(null)
+
+            // Preserve bookmarks and structure Table of Contents across merged documents
+            preserveMergedOutlines(outputFile, sourceInfoList)
+
             outputFile
         } finally {
             tempFiles.forEach { it.delete() }
@@ -90,9 +129,11 @@ class PdfToolbox(private val context: Context) {
         userPassword: String,
         ownerPassword: String = userPassword + "_owner",
         canPrint: Boolean = true,
+        canPrintDegraded: Boolean = false,
         canExtractContent: Boolean = false,
         canModify: Boolean = false,
         canFillInForm: Boolean = true,
+        canAssembleDocument: Boolean = false,
         keyLength: Int = 128,
         outputFile: File
     ): File = withContext(Dispatchers.IO) {
@@ -107,9 +148,13 @@ class PdfToolbox(private val context: Context) {
         try {
             val ap = AccessPermission().apply {
                 setCanPrint(canPrint)
+                setCanPrintDegraded(canPrintDegraded)
                 setCanExtractContent(canExtractContent)
+                setCanExtractForAccessibility(true)
                 setCanModify(canModify)
+                setCanModifyAnnotations(canModify)
                 setCanFillInForm(canFillInForm)
+                setCanAssembleDocument(canAssembleDocument)
             }
 
             val spp = StandardProtectionPolicy(ownerPassword, userPassword, ap).apply {
@@ -224,7 +269,8 @@ class PdfToolbox(private val context: Context) {
     }
 
     /**
-     * Extracts only selected page ranges (e.g. "1-3, 5") into a consolidated output PDF.
+     * Extracts only selected page ranges (e.g. "1-3, 5") into a consolidated output PDF,
+     * faithfully preserving bookmarks and table of contents for the selected pages.
      */
     suspend fun splitByRange(
         sourceUri: Uri,
@@ -250,6 +296,10 @@ class PdfToolbox(private val context: Context) {
                 for (idx in selectedIndices) {
                     newDoc.importPage(sourceDoc.getPage(idx))
                 }
+
+                // Preserve outline bookmarks remapped to new page indices
+                preserveOutlinesForExtractedPages(sourceDoc, newDoc, selectedIndices)
+
                 newDoc.save(outputFile)
             } finally {
                 sourceDoc.close()
@@ -262,7 +312,8 @@ class PdfToolbox(private val context: Context) {
     }
 
     /**
-     * Splits a multi-page PDF into fixed chunks of N pages (e.g. 2 pages, 5 pages per doc).
+     * Splits a multi-page PDF into fixed chunks of N pages (e.g. 2 pages, 5 pages per doc),
+     * preserving relevant section bookmarks in each generated chunk document.
      */
     suspend fun splitIntoFixedChunks(
         sourceUri: Uri,
@@ -288,6 +339,8 @@ class PdfToolbox(private val context: Context) {
                     pageIndices.forEach { idx ->
                         chunkDoc.importPage(sourceDoc.getPage(idx))
                     }
+                    preserveOutlinesForExtractedPages(sourceDoc, chunkDoc, pageIndices)
+
                     val chunkFile = File(
                         outputDir,
                         "DocuEdit_Part_${chunkIndex + 1}_Pages_${pageIndices.first() + 1}-${pageIndices.last() + 1}_$baseTime.pdf"
@@ -306,7 +359,8 @@ class PdfToolbox(private val context: Context) {
     }
 
     /**
-     * Extracts only selected page indices (0-indexed) into a new consolidated PDF document.
+     * Extracts only selected page indices (0-indexed) into a new consolidated PDF document,
+     * maintaining all matching chapter and section outlines.
      */
     suspend fun extractPages(
         sourceUri: Uri,
@@ -325,11 +379,11 @@ class PdfToolbox(private val context: Context) {
             val newDoc = PDDocument()
             try {
                 val total = sourceDoc.numberOfPages
-                for (idx in pageIndices.sorted()) {
-                    if (idx in 0 until total) {
-                        newDoc.importPage(sourceDoc.getPage(idx))
-                    }
+                val validIndices = pageIndices.sorted().filter { it in 0 until total }
+                for (idx in validIndices) {
+                    newDoc.importPage(sourceDoc.getPage(idx))
                 }
+                preserveOutlinesForExtractedPages(sourceDoc, newDoc, validIndices)
                 newDoc.save(outputFile)
             } finally {
                 sourceDoc.close()
@@ -342,7 +396,8 @@ class PdfToolbox(private val context: Context) {
     }
 
     /**
-     * Reorders and rotates pages of a PDF document directly without rasterizing or losing fidelity.
+     * Reorders and rotates pages of a PDF document directly without rasterizing or losing fidelity,
+     * remapping all outline destination pointers to their new page positions.
      */
     suspend fun reorderAndRotatePdf(
         sourceUri: Uri,
@@ -362,6 +417,7 @@ class PdfToolbox(private val context: Context) {
             val newDoc = PDDocument()
             try {
                 val totalPages = sourceDoc.numberOfPages
+                val validIndices = mutableListOf<Int>()
                 for (idx in newOrderIndices) {
                     if (idx in 0 until totalPages) {
                         val page = sourceDoc.getPage(idx)
@@ -370,8 +426,10 @@ class PdfToolbox(private val context: Context) {
                             page.rotation = (page.rotation + extraRotation) % 360
                         }
                         newDoc.importPage(page)
+                        validIndices.add(idx)
                     }
                 }
+                preserveOutlinesForExtractedPages(sourceDoc, newDoc, validIndices)
                 newDoc.save(outputFile)
             } finally {
                 sourceDoc.close()
@@ -381,6 +439,193 @@ class PdfToolbox(private val context: Context) {
         } finally {
             tempFile.delete()
         }
+    }
+
+    // =========================================================================
+    // Enterprise PDF Outline & Bookmark Preservation Helpers
+    // =========================================================================
+
+    private fun preserveMergedOutlines(
+        mergedFile: File,
+        sourceInfoList: List<SourceMergeInfo>
+    ) {
+        try {
+            val mergedDoc = PDDocument.load(mergedFile)
+            try {
+                val existingOutline = mergedDoc.documentCatalog.documentOutline
+                if (existingOutline != null && existingOutline.firstChild != null) {
+                    return
+                }
+
+                val unifiedOutline = PDDocumentOutline()
+                var currentOffset = 0
+                var hasAnyItems = false
+
+                for (sourceInfo in sourceInfoList) {
+                    val sourceDoc = try {
+                        PDDocument.load(sourceInfo.file)
+                    } catch (_: Exception) { null }
+
+                    if (sourceDoc == null) {
+                        currentOffset += sourceInfo.pageCount
+                        continue
+                    }
+
+                    try {
+                        val srcOutline = sourceDoc.documentCatalog.documentOutline
+                        val rootItem = PDOutlineItem().apply {
+                            title = sourceInfo.displayName.substringBeforeLast(".")
+                            if (currentOffset in 0 until mergedDoc.numberOfPages) {
+                                val dest = PDPageFitWidthDestination()
+                                dest.page = mergedDoc.getPage(currentOffset)
+                                destination = dest
+                            }
+                        }
+
+                        var addedChild = false
+                        if (srcOutline != null) {
+                            var child = srcOutline.firstChild
+                            while (child != null) {
+                                val copiedChild = copyOutlineNode(child, mergedDoc, sourceDoc, currentOffset)
+                                if (copiedChild != null) {
+                                    rootItem.addLast(copiedChild)
+                                    addedChild = true
+                                }
+                                child = child.nextSibling
+                            }
+                        }
+
+                        if (sourceInfoList.size > 1 || addedChild) {
+                            unifiedOutline.addLast(rootItem)
+                            hasAnyItems = true
+                        }
+                    } finally {
+                        sourceDoc.close()
+                        currentOffset += sourceInfo.pageCount
+                    }
+                }
+
+                if (hasAnyItems) {
+                    mergedDoc.documentCatalog.documentOutline = unifiedOutline
+                    mergedDoc.save(mergedFile)
+                }
+            } finally {
+                mergedDoc.close()
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun preserveOutlinesForExtractedPages(
+        sourceDoc: PDDocument,
+        destDoc: PDDocument,
+        selectedIndices: List<Int>
+    ) {
+        try {
+            val srcOutline = sourceDoc.documentCatalog.documentOutline ?: return
+            val pageMap = selectedIndices.mapIndexed { newIndex, oldIndex -> oldIndex to newIndex }.toMap()
+
+            val destOutline = PDDocumentOutline()
+            var currentChild = srcOutline.firstChild
+            var hasAnyItems = false
+
+            while (currentChild != null) {
+                val copied = filterOutlineNode(currentChild, destDoc, sourceDoc, pageMap)
+                if (copied != null) {
+                    destOutline.addLast(copied)
+                    hasAnyItems = true
+                }
+                currentChild = currentChild.nextSibling
+            }
+
+            if (hasAnyItems) {
+                destDoc.documentCatalog.documentOutline = destOutline
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun copyOutlineNode(
+        sourceNode: PDOutlineItem,
+        destDoc: PDDocument,
+        sourceDoc: PDDocument,
+        pageOffset: Int
+    ): PDOutlineItem? {
+        val targetPageIndex = findDestinationPageIndex(sourceDoc, sourceNode)
+        val newItem = PDOutlineItem().apply {
+            title = sourceNode.title ?: "Section"
+        }
+        if (targetPageIndex >= 0) {
+            val destPageIndex = targetPageIndex + pageOffset
+            if (destPageIndex in 0 until destDoc.numberOfPages) {
+                val dest = PDPageFitWidthDestination()
+                dest.page = destDoc.getPage(destPageIndex)
+                newItem.destination = dest
+            }
+        }
+
+        var child = sourceNode.firstChild
+        while (child != null) {
+            val newChild = copyOutlineNode(child, destDoc, sourceDoc, pageOffset)
+            if (newChild != null) {
+                newItem.addLast(newChild)
+            }
+            child = child.nextSibling
+        }
+        return newItem
+    }
+
+    private fun filterOutlineNode(
+        sourceNode: PDOutlineItem,
+        destDoc: PDDocument,
+        sourceDoc: PDDocument,
+        pageIndexMap: Map<Int, Int>
+    ): PDOutlineItem? {
+        val originalPageIndex = findDestinationPageIndex(sourceDoc, sourceNode)
+        val mappedIndex = if (originalPageIndex >= 0) pageIndexMap[originalPageIndex] else null
+
+        val newItem = PDOutlineItem().apply {
+            title = sourceNode.title ?: "Section"
+        }
+        if (mappedIndex != null && mappedIndex in 0 until destDoc.numberOfPages) {
+            val dest = PDPageFitWidthDestination()
+            dest.page = destDoc.getPage(mappedIndex)
+            newItem.destination = dest
+        }
+
+        var child = sourceNode.firstChild
+        var hasValidChild = false
+        while (child != null) {
+            val filteredChild = filterOutlineNode(child, destDoc, sourceDoc, pageIndexMap)
+            if (filteredChild != null) {
+                newItem.addLast(filteredChild)
+                hasValidChild = true
+            }
+            child = child.nextSibling
+        }
+
+        return if (mappedIndex != null || hasValidChild) newItem else null
+    }
+
+    private fun findDestinationPageIndex(doc: PDDocument, item: PDOutlineItem): Int {
+        try {
+            val targetPage = item.findDestinationPage(doc)
+            if (targetPage != null) {
+                val idx = doc.pages.indexOf(targetPage)
+                if (idx >= 0) return idx
+            }
+        } catch (_: Exception) {}
+        try {
+            val dest = item.destination
+            if (dest is PDPageDestination) {
+                val page = dest.page
+                if (page != null) {
+                    val idx = doc.pages.indexOf(page)
+                    if (idx >= 0) return idx
+                }
+                val num = dest.pageNumber
+                if (num in 0 until doc.numberOfPages) return num
+            }
+        } catch (_: Exception) {}
+        return -1
     }
 
     /**

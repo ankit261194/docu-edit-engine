@@ -34,6 +34,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Label
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Badge
@@ -52,16 +53,17 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PictureAsPdf
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -174,7 +176,12 @@ fun HomeScreenDashboard(
     onSlidesScan: () -> Unit = {},
     onWhiteboardScan: () -> Unit = {},
     onTimestampScan: () -> Unit = {},
-    onScanCode: () -> Unit = {}
+    onScanCode: () -> Unit = {},
+    onPcDropClicked: () -> Unit = {},
+    onOpenExpiryWatchdog: (SavedDocumentItem) -> Unit = {},
+    onExpenseAuditorClicked: () -> Unit = {},
+    onPrivateVaultClicked: () -> Unit = {},
+    onAutoMergeKbClicked: () -> Unit = {}
 ) {
     var activeNavTab by remember { mutableStateOf(HomeNavTab.HOME) }
     var searchQuery by remember { mutableStateOf("") }
@@ -185,7 +192,7 @@ fun HomeScreenDashboard(
     var isSelectionMode by remember { mutableStateOf(false) }
     var selectedDocIds by remember { mutableStateOf<Set<String>>(emptySet()) }
 
-    val categories = listOf("All", "ID Cards", "Invoices", "Office", "Personal")
+    val categories = listOf("All", "Identity", "Bills & Finance", "Health", "Academics", "Legal", "General")
 
     val filteredDocs = remember(recentDocuments, searchQuery, selectedCategory) {
         recentDocuments.filter { doc ->
@@ -542,10 +549,10 @@ fun HomeScreenDashboard(
                                 categoryIcon = Icons.Default.Security,
                                 accentColor = Color(0xFFDC2626),
                                 items = listOf(
+                                    Triple("Private Vault", Icons.Default.Lock, onPrivateVaultClicked),
                                     Triple("Add Signature", Icons.Default.Draw, onSignatureClicked),
                                     Triple("Official Rubber Stamp", Icons.Default.Draw, onSign),
-                                    Triple("PKI Digital Sign", Icons.Default.Check, onPdfToolsClicked),
-                                    Triple("Add Watermark", Icons.Default.AutoAwesome, onAddWatermark)
+                                    Triple("PKI Digital Sign", Icons.Default.Check, onPdfToolsClicked)
                                 )
                             )
                         }
@@ -585,7 +592,7 @@ fun HomeScreenDashboard(
                                 StudioActionCard(
                                     title = "Book Scan",
                                     subtitle = "Split Left & Right",
-                                    icon = Icons.Default.MenuBook,
+                                    icon = Icons.AutoMirrored.Filled.MenuBook,
                                     gradient = listOf(Color(0xFF4F46E5), Color(0xFF6366F1)),
                                     onClick = onBookScanClicked
                                 )
@@ -623,6 +630,13 @@ fun HomeScreenDashboard(
                                     icon = Icons.Default.PictureAsPdf,
                                     gradient = listOf(Color(0xFFD97706), Color(0xFFF59E0B)),
                                     onClick = onPdfToolsClicked
+                                )
+                                StudioActionCard(
+                                    title = "Expense Auditor",
+                                    subtitle = "GST & Receipts",
+                                    icon = Icons.Default.TableChart,
+                                    gradient = listOf(Color(0xFF059669), Color(0xFF10B981)),
+                                    onClick = onExpenseAuditorClicked
                                 )
                             }
                         }
@@ -793,7 +807,8 @@ fun HomeScreenDashboard(
                                         docToRename = doc
                                     },
                                     onSaveToGoogleDrive = { onSaveToGoogleDrive(doc) },
-                                    onBackupToCloud = { onBackupToCloud(doc) }
+                                    onBackupToCloud = { onBackupToCloud(doc) },
+                                    onOpenExpiryWatchdog = { onOpenExpiryWatchdog(doc) }
                                 )
                             }
                         }
@@ -915,7 +930,11 @@ fun HomeScreenDashboard(
                         onWhiteboardScan = onWhiteboardScan,
                         onTimestampScan = onTimestampScan,
                         onScanCode = onScanCode,
-                        onBatchResize = onBatchResizeClicked
+                        onBatchResize = onBatchResizeClicked,
+                        onPcDrop = onPcDropClicked,
+                        onExpenseAuditor = onExpenseAuditorClicked,
+                        onPrivateVault = onPrivateVaultClicked,
+                        onAutoMergeKb = onAutoMergeKbClicked
                     )
                 }
             }
@@ -1238,7 +1257,7 @@ private fun HeroMasterBanner(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Icon(
-                            imageVector = Icons.Default.ArrowForward,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                             contentDescription = null,
                             tint = Color(0xFF1E3A8A),
                             modifier = Modifier.size(15.dp)
@@ -1427,11 +1446,12 @@ private fun CamScannerDocCard(
     onUpdateCategory: (String) -> Unit = {},
     onRename: () -> Unit = {},
     onSaveToGoogleDrive: () -> Unit = {},
-    onBackupToCloud: () -> Unit = {}
+    onBackupToCloud: () -> Unit = {},
+    onOpenExpiryWatchdog: (SavedDocumentItem) -> Unit = {}
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var thumbBmp by remember { mutableStateOf<Bitmap?>(null) }
-    val categoryList = listOf("ID Cards", "Invoices", "Office", "Personal")
+    val categoryList = listOf("Identity", "Bills & Finance", "Health", "Academics", "Legal", "General")
 
     LaunchedEffect(document.thumbnailPath) {
         thumbBmp = ThumbnailCache.loadThumbnail(document.thumbnailPath, targetSize = 280)
@@ -1566,6 +1586,55 @@ private fun CamScannerDocCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
+                if (document.expiryDateString.isNotBlank() || document.expiryEpochMs > 0L) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val daysLeft = document.daysUntilExpiry
+                    val badgeColor = when {
+                        daysLeft == null -> Color(0xFFD97706)
+                        daysLeft < 0 -> Color(0xFFEF4444)
+                        daysLeft in 0..7 -> Color(0xFFF97316)
+                        daysLeft in 8..30 -> Color(0xFFD97706)
+                        else -> Color(0xFF16A34A)
+                    }
+                    val badgeText = when {
+                        daysLeft == null -> "Exp: ${document.expiryDateString}"
+                        daysLeft < 0 -> "Expired (${kotlin.math.abs(daysLeft)}d ago)"
+                        daysLeft == 0 -> "Due Today!"
+                        daysLeft in 1..7 -> "Expires in ${daysLeft}d"
+                        daysLeft in 8..30 -> "${daysLeft}d left"
+                        else -> "Valid (${document.expiryDateString})"
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = badgeColor.copy(alpha = 0.12f),
+                        border = BorderStroke(0.8.dp, badgeColor),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpenExpiryWatchdog(document) }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Alarm,
+                                contentDescription = null,
+                                tint = badgeColor,
+                                modifier = Modifier.size(11.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = badgeText,
+                                color = badgeColor,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(6.dp))
 
                 Row(
@@ -1573,15 +1642,23 @@ private fun CamScannerDocCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
+                    val catText = if (document.documentSubtype.isNotBlank()) {
+                        "${document.category} • ${document.documentSubtype}"
+                    } else {
+                        document.category
+                    }
                     Surface(
                         shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFFF1F5F9)
+                        color = Color(0xFFF1F5F9),
+                        modifier = Modifier.weight(1f, fill = false)
                     ) {
                         Text(
-                            text = document.category,
+                            text = catText,
                             color = Color(0xFF475569),
-                            fontSize = 10.sp,
+                            fontSize = 9.5.sp,
                             fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
@@ -1603,6 +1680,14 @@ private fun CamScannerDocCard(
                             expanded = showMenu,
                             onDismissRequest = { showMenu = false }
                         ) {
+                            DropdownMenuItem(
+                                text = { Text("Smart Vault & Expiry Watchdog", fontSize = 12.5.sp, fontWeight = FontWeight.Bold, color = Color(0xFFD97706)) },
+                                leadingIcon = { Icon(Icons.Default.Alarm, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(16.dp)) },
+                                onClick = {
+                                    showMenu = false
+                                    onOpenExpiryWatchdog(document)
+                                }
+                            )
                             DropdownMenuItem(
                                 text = { Text("Rename", fontSize = 13.sp) },
                                 leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp)) },

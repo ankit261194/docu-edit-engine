@@ -36,12 +36,17 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -194,29 +199,44 @@ fun PageThumbnailStrip(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Horizontal Reel
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
+            val listState = rememberLazyListState()
+
+            LaunchedEffect(currentPageIndex) {
+                if (currentPageIndex in 0 until pageCount) {
+                    listState.animateScrollToItem(currentPageIndex)
+                }
+            }
+
+            // Pro Virtualized Horizontal Lazy Reel
+            LazyRow(
+                state = listState,
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                for (i in 0 until pageCount) {
+                items(pageCount) { i ->
                     val isCurrent = (i == currentPageIndex)
                     val isChecked = selectedPages.contains(i)
                     val bmp = pageThumbnails[i]
 
+                    // Prominent Active Page Purple Halo Card
                     Box(
                         modifier = Modifier
-                            .width(52.dp)
-                            .height(72.dp)
-                            .clip(RoundedCornerShape(8.dp))
+                            .scale(if (isCurrent) 1.05f else 1.0f)
+                            .shadow(
+                                elevation = if (isCurrent) 8.dp else 2.dp,
+                                shape = RoundedCornerShape(10.dp),
+                                ambientColor = if (isCurrent) Color(0xFFA855F7) else Color.Transparent,
+                                spotColor = if (isCurrent) Color(0xFF8B5CF6) else Color.Transparent
+                            )
+                            .width(54.dp)
+                            .height(74.dp)
+                            .clip(RoundedCornerShape(10.dp))
                             .background(Color(0xFF1E293B))
                             .border(
                                 width = if (isCurrent) 2.5.dp else if (isChecked) 2.dp else 1.dp,
-                                color = if (isCurrent) Color(0xFF38BDF8) else if (isChecked) Color(0xFF2563EB) else Color(0xFF334155),
-                                shape = RoundedCornerShape(8.dp)
+                                color = if (isCurrent) Color(0xFFA855F7) else if (isChecked) Color(0xFF2563EB) else Color(0xFF334155),
+                                shape = RoundedCornerShape(10.dp)
                             )
                             .clickable {
                                 if (isSelectMode) {
@@ -242,21 +262,51 @@ fun PageThumbnailStrip(
                             }
                         }
 
-                        // Bottom Page Number Label
+                        // Bottom Page Number Label with Purple Accent for Active Page
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(20.dp)
+                                .height(22.dp)
                                 .align(Alignment.BottomCenter)
-                                .background(if (isCurrent) Color(0xFF0284C7) else Color(0xFF0F172A)),
+                                .background(if (isCurrent) Color(0xFF7C3AED) else Color(0xFF0F172A)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = "${i + 1}",
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (isCurrent) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(5.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.White)
+                                    )
+                                    Spacer(modifier = Modifier.width(3.dp))
+                                }
+                                Text(
+                                    text = "${i + 1}",
+                                    color = Color.White,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        // Top Purple Halo "ACTIVE" mini pill badge
+                        if (isCurrent && !isSelectMode) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(2.dp)
+                                    .align(Alignment.TopCenter)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFFA855F7))
+                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                            ) {
+                                Text(
+                                    text = "ACTIVE",
+                                    color = Color.White,
+                                    fontSize = 7.5.sp,
+                                    fontWeight = FontWeight.Black
+                                )
+                            }
                         }
 
                         // Selection Checkbox Indicator
@@ -279,20 +329,22 @@ fun PageThumbnailStrip(
                     }
                 }
 
-                // Add Page Button (+)
-                Box(
-                    modifier = Modifier
-                        .width(48.dp)
-                        .height(72.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF1E293B).copy(alpha = 0.5f))
-                        .border(1.dp, Color(0xFF475569), RoundedCornerShape(8.dp))
-                        .clickable { onAddPageClicked() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Page", tint = Color(0xFF38BDF8), modifier = Modifier.size(20.dp))
-                        Text("Add", color = Color(0xFF94A3B8), fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                // Add Page Button (+) at the end of LazyRow
+                item {
+                    Box(
+                        modifier = Modifier
+                            .width(50.dp)
+                            .height(74.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF1E293B).copy(alpha = 0.5f))
+                            .border(1.dp, Color(0xFF475569), RoundedCornerShape(10.dp))
+                            .clickable { onAddPageClicked() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Default.Add, contentDescription = "Add Page", tint = Color(0xFFA855F7), modifier = Modifier.size(20.dp))
+                            Text("Add", color = Color(0xFF94A3B8), fontSize = 10.sp, fontWeight = FontWeight.Medium)
+                        }
                     }
                 }
             }

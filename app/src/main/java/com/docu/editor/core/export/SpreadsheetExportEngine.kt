@@ -126,7 +126,10 @@ object SpreadsheetExportEngine {
             }.filter { row -> row.any { it.isNotBlank() } }
 
             if (extracted.isNotEmpty()) {
-                return TableExtractionResult(normalizeTableColumns(extracted))
+                return TableExtractionResult(
+                    rows = normalizeTableColumns(extracted),
+                    mergedCellRefs = gridTable.mergedCellRefs
+                )
             }
         }
 
@@ -394,6 +397,103 @@ object SpreadsheetExportEngine {
                     )
                     zip.write(sheetXml.toByteArray(StandardCharsets.UTF_8))
                     zip.closeEntry()
+                }
+            }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Exports arbitrary structured table rows (e.g. Batch Barcode Inventory) to Microsoft Excel OpenXML (.xlsx).
+     */
+    fun exportRowsToXlsx(
+        rows: List<List<String>>,
+        outputFile: File,
+        sheetName: String = "Inventory"
+    ): Boolean {
+        return try {
+            outputFile.parentFile?.mkdirs()
+            ZipOutputStream(FileOutputStream(outputFile)).use { zip ->
+                // 1. [Content_Types].xml
+                zip.putNextEntry(ZipEntry("[Content_Types].xml"))
+                val ctSb = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+</Types>"""
+                zip.write(ctSb.toByteArray(StandardCharsets.UTF_8))
+                zip.closeEntry()
+
+                // 2. _rels/.rels
+                zip.putNextEntry(ZipEntry("_rels/.rels"))
+                val rootRels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>"""
+                zip.write(rootRels.toByteArray(StandardCharsets.UTF_8))
+                zip.closeEntry()
+
+                // 3. xl/styles.xml
+                zip.putNextEntry(ZipEntry("xl/styles.xml"))
+                zip.write(generateStylesXml().toByteArray(StandardCharsets.UTF_8))
+                zip.closeEntry()
+
+                // 4. xl/workbook.xml
+                zip.putNextEntry(ZipEntry("xl/workbook.xml"))
+                val safeSheetName = sheetName.replace("[:\\\\/?*\\[\\]]".toRegex(), " ")
+                val wbXml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <bookViews><workbookView xWindow="0" yWindow="0" windowWidth="25600" windowHeight="14400"/></bookViews>
+  <sheets>
+    <sheet name="$safeSheetName" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>"""
+                zip.write(wbXml.toByteArray(StandardCharsets.UTF_8))
+                zip.closeEntry()
+
+                // 5. xl/_rels/workbook.xml.rels
+                zip.putNextEntry(ZipEntry("xl/_rels/workbook.xml.rels"))
+                val wbRels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+</Relationships>"""
+                zip.write(wbRels.toByteArray(StandardCharsets.UTF_8))
+                zip.closeEntry()
+
+                // 6. xl/worksheets/sheet1.xml
+                zip.putNextEntry(ZipEntry("xl/worksheets/sheet1.xml"))
+                val sheetXml = generateWorksheetXml(rows, isFirstSheet = true)
+                zip.write(sheetXml.toByteArray(StandardCharsets.UTF_8))
+                zip.closeEntry()
+            }
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Exports arbitrary structured table rows to RFC 4180 CSV with UTF-8 BOM.
+     */
+    fun exportRowsToCsv(
+        rows: List<List<String>>,
+        outputFile: File
+    ): Boolean {
+        return try {
+            outputFile.parentFile?.mkdirs()
+            FileOutputStream(outputFile).use { fos ->
+                OutputStreamWriter(fos, StandardCharsets.UTF_8).use { writer ->
+                    writer.write("\uFEFF")
+                    for (row in rows) {
+                        writer.write(row.joinToString(",") { escapeCsvCell(it) })
+                        writer.write("\r\n")
+                    }
                 }
             }
             true

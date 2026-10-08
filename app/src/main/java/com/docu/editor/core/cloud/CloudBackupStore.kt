@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import com.docu.editor.ui.dialogs.CloudSyncResult
+import java.io.File
+import java.io.FileInputStream
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -196,5 +198,57 @@ object CloudBackupStore {
             array.put(obj)
         }
         getPrefs(context).edit().putString(KEY_BACKUPS, array.toString()).apply()
+    }
+
+    // =========================================================================
+    // TWO-WAY BACKGROUND DELTA SYNC ENGINE
+    // =========================================================================
+
+    private const val KEY_DELTA_HASHES = "docu_delta_synced_hashes"
+
+    /**
+     * Calculates fast 64-bit checksum / SHA-256 for a document file.
+     */
+    fun calculateFileChecksum(file: File): String {
+        if (!file.exists() || file.length() == 0L) return ""
+        return try {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(16384)
+                var bytesRead: Int
+                while (input.read(buffer).also { bytesRead = it } != -1) {
+                    digest.update(buffer, 0, bytesRead)
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        } catch (_: Exception) {
+            "${file.length()}_${file.lastModified()}"
+        }
+    }
+
+    /**
+     * Checks whether a file has un-synced delta changes since the last backup.
+     */
+    fun hasDeltaChanged(context: Context, file: File): Boolean {
+        if (!file.exists()) return false
+        val currentHash = calculateFileChecksum(file)
+        val savedHash = getPrefs(context).getString("${KEY_DELTA_HASHES}_${file.name}", null)
+        return currentHash != savedHash
+    }
+
+    /**
+     * Filters list of document files down to only those that modified or are new.
+     */
+    fun getPendingDeltaFiles(context: Context, files: List<File>): List<File> {
+        return files.filter { hasDeltaChanged(context, it) }
+    }
+
+    /**
+     * Marks a file as synced with its current checksum.
+     */
+    fun markFileDeltaSynced(context: Context, file: File) {
+        if (!file.exists()) return
+        val hash = calculateFileChecksum(file)
+        getPrefs(context).edit().putString("${KEY_DELTA_HASHES}_${file.name}", hash).apply()
     }
 }

@@ -33,7 +33,6 @@ import kotlin.math.min
  * - Sub-pixel corner gradient refinement (cornerSubPix)
  */
 object DocumentEdgeDetector {
-
     /**
      * Detects 4 document corners on a Bitmap, falling back to centered ISO frame if no paper is detected.
      */
@@ -320,6 +319,10 @@ object DocumentEdgeDetector {
                 }
             }
 
+            if (bestQuad == null) {
+                bestQuad = detectQuadFromHoughLines(edgeMap, procW, procH, smallGray)
+            }
+
             return bestQuad
         } finally {
             hierarchy.release()
@@ -450,6 +453,227 @@ object DocumentEdgeDetector {
             topRight = PointF(tr.x.toFloat(), tr.y.toFloat()),
             bottomRight = PointF(br.x.toFloat(), br.y.toFloat()),
             bottomLeft = PointF(bl.x.toFloat(), bl.y.toFloat())
+        )
+    }
+
+    /**
+     * Contrast-Weighted Hough Lines + Quad Corner Regression.
+     * Detects straight line segments from Canny edge map, clusters lines into
+     * horizontal/vertical boundary candidates, and computes intersections to regress
+     * a clean quadrilateral, robust against bedsheet wrinkles, textured desk surfaces, and floor lines.
+     */
+    fun detectQuadFromHoughLines(
+        edgeMap: Mat,
+        procW: Int,
+        procH: Int,
+        smallGray: Mat
+    ): Array<Point>? {
+        val lines = Mat()
+        try {
+            Imgproc.HoughLinesP(
+                edgeMap,
+                lines,
+                1.0,
+                Math.PI / 180.0,
+                38,
+                procW * 0.16,
+                16.0
+            )
+
+            val numLines = lines.rows()
+            if (numLines < 4) return null
+
+            data class Segment(
+                val x1: Double,
+                val y1: Double,
+                val x2: Double,
+                val y2: Double,
+                val angleDeg: Double,
+                val length: Double,
+                val contrastWeight: Double
+            )
+
+            val segments = mutableListOf<Segment>()
+            val lineData = IntArray(4)
+
+            for (i in 0 until minOf(numLines, 60)) {
+                lines.get(i, 0, lineData)
+                val x1 = lineData[0].toDouble()
+                val y1 = lineData[1].toDouble()
+                val x2 = lineData[2].toDouble()
+                val y2 = lineData[3].toDouble()
+
+                val len = hypot(x2 - x1, y2 - y1)
+                if (len < procW * 0.14) continue
+
+                var angle = Math.toDegrees(kotlin.math.atan2(y2 - y1, x2 - x1))
+                if (angle < 0.0) angle += 180.0
+
+                val midX = ((x1 + x2) / 2.0).toInt().coerceIn(2, procW - 3)
+                val midY = ((y1 + y2) / 2.0).toInt().coerceIn(2, procH - 3)
+                val vY1 = smallGray.get(midY + 2, midX)?.get(0) ?: 0.0
+                val vY2 = smallGray.get(midY - 2, midX)?.get(0) ?: 0.0
+                val vX1 = smallGray.get(midY, midX + 2)?.get(0) ?: 0.0
+                val vX2 = smallGray.get(midY, midX - 2)?.get(0) ?: 0.0
+                val contrast = kotlin.math.abs(vY1 - vY2) + kotlin.math.abs(vX1 - vX2)
+
+                segments.add(Segment(x1, y1, x2, y2, angle, len, contrast))
+            }
+
+            if (segments.size < 4) return null
+
+            // Classify into horizontals (angle in [0..38] or [142..180]) and verticals (angle in [52..128])
+            val horizontals = segments.filter { it.angleDeg <= 38.0 || it.angleDeg >= 142.0 }
+                .sortedByDescending { it.length * (it.contrastWeight + 10.0) }
+            val verticals = segments.filter { it.angleDeg in 52.0..128.0 }
+                .sortedByDescending { it.length * (it.contrastWeight + 10.0) }
+
+            if (horizontals.size < 2 || verticals.size < 2) return null
+
+            val topLines = horizontals.filter { (it.y1 + it.y2) / 2.0 < procH * 0.55 }
+            val bottomLines = horizontals.filter { (it.y1 + it.y2) / 2.0 >= procH * 0.45 }
+            val leftLines = verticals.filter { (it.x1 + it.x2) / 2.0 < procW * 0.55 }
+            val rightLines = verticals.filter { (it.x1 + it.x2) / 2.0 >= procW * 0.45 }
+
+            val top = topLines.firstOrNull() ?: return null
+            val bottom = bottomLines.firstOrNull() ?: return null
+            val left = leftLines.firstOrNull() ?: return null
+            val right = rightLines.firstOrNull() ?: return null
+
+            fun intersect(s1: Segment, s2: Segment): Point? {
+                val denom = (s1.x1 - s1.x2) * (s2.y1 - s2.y2) - (s1.y1 - s1.y2) * (s2.x1 - s2.x2)
+                if (kotlin.math.abs(denom) < 1e-4) return null
+                val t = ((s1.x1 - s2.x1) * (s2.y1 - s2.y2) - (s1.y1 - s2.y1) * (s2.x1 - s2.x2)) / denom
+                val px = s1.x1 + t * (s1.x2 - s1.x1)
+                val py = s1.y1 + t * (s1.y2 - s1.y1)
+                if (px < -procW * 0.1 || px > procW * 1.1 || py < -procH * 0.1 || py > procH * 1.1) return null
+                return Point(px.coerceIn(0.0, procW.toDouble()), py.coerceIn(0.0, procH.toDouble()))
+            }
+
+            val tl = intersect(top, left) ?: return null
+            val tr = intersect(top, right) ?: return null
+            val br = intersect(bottom, right) ?: return null
+            val bl = intersect(bottom, left) ?: return null
+
+            val quad = arrayOf(tl, tr, br, bl)
+            if (isValidDocumentQuad(quad, procW, procH)) {
+                return quad
+            }
+            return null
+        } catch (_: Exception) {
+            return null
+        } finally {
+            lines.release()
+        }
+    }
+
+    /**
+     * Enterprise 5-Frame Temporal Moving Average & Kalman-Style Smoothing Filter.
+     * Guarantees zero frame-to-frame green box jitter and triggers magnetic snap lock
+     * when quad corners remain stable within 5.0px variance across 5 frames.
+     */
+    class TemporalQuadFilter(private val maxHistory: Int = 5) {
+        private val history = java.util.ArrayDeque<DocumentCorners>(maxHistory)
+        private var smoothedCorners: DocumentCorners? = null
+        var isStable: Boolean = false
+            private set
+        var isLocked: Boolean = false
+            private set
+        private var lockTriggered: Boolean = false
+
+        fun reset() {
+            history.clear()
+            smoothedCorners = null
+            isStable = false
+            isLocked = false
+            lockTriggered = false
+        }
+
+        fun process(detected: DocumentCorners?): FilterResult {
+            if (detected == null) {
+                reset()
+                return FilterResult(null, isStable = false, isLocked = false, isJustLocked = false)
+            }
+
+            val prev = smoothedCorners
+            val smoothed = if (prev == null) {
+                detected
+            } else {
+                val maxCornerDist = maxOf(
+                    hypot((detected.topLeft.x - prev.topLeft.x).toDouble(), (detected.topLeft.y - prev.topLeft.y).toDouble()),
+                    hypot((detected.topRight.x - prev.topRight.x).toDouble(), (detected.topRight.y - prev.topRight.y).toDouble()),
+                    hypot((detected.bottomRight.x - prev.bottomRight.x).toDouble(), (detected.bottomRight.y - prev.bottomRight.y).toDouble()),
+                    hypot((detected.bottomLeft.x - prev.bottomLeft.x).toDouble(), (detected.bottomLeft.y - prev.bottomLeft.y).toDouble())
+                )
+
+                if (maxCornerDist > 140.0) {
+                    history.clear()
+                    isStable = false
+                    isLocked = false
+                    lockTriggered = false
+                    detected
+                } else {
+                    val alpha = if (maxCornerDist < 25.0) 0.28f else 0.45f
+                    DocumentCorners(
+                        topLeft = PointF(prev.topLeft.x * (1f - alpha) + detected.topLeft.x * alpha, prev.topLeft.y * (1f - alpha) + detected.topLeft.y * alpha),
+                        topRight = PointF(prev.topRight.x * (1f - alpha) + detected.topRight.x * alpha, prev.topRight.y * (1f - alpha) + detected.topRight.y * alpha),
+                        bottomRight = PointF(prev.bottomRight.x * (1f - alpha) + detected.bottomRight.x * alpha, prev.bottomRight.y * (1f - alpha) + detected.bottomRight.y * alpha),
+                        bottomLeft = PointF(prev.bottomLeft.x * (1f - alpha) + detected.bottomLeft.x * alpha, prev.bottomLeft.y * (1f - alpha) + detected.bottomLeft.y * alpha)
+                    )
+                }
+            }
+
+            smoothedCorners = smoothed
+            if (history.size >= maxHistory) {
+                history.removeFirst()
+            }
+            history.addLast(smoothed)
+
+            if (history.size >= 4) {
+                val variance = computeMaxCornerVariance(history.toList())
+                isStable = variance < 8.5
+                isLocked = isStable && history.size >= 5 && variance < 5.0
+            } else {
+                isStable = false
+                isLocked = false
+            }
+
+            val isJustLocked = isLocked && !lockTriggered
+            if (isJustLocked) {
+                lockTriggered = true
+            } else if (!isLocked) {
+                lockTriggered = false
+            }
+
+            return FilterResult(smoothedCorners, isStable, isLocked, isJustLocked)
+        }
+
+        private fun computeMaxCornerVariance(list: List<DocumentCorners>): Double {
+            if (list.size < 2) return 0.0
+            val avgTLX = list.map { it.topLeft.x }.average()
+            val avgTLY = list.map { it.topLeft.y }.average()
+            val avgTRX = list.map { it.topRight.x }.average()
+            val avgTRY = list.map { it.topRight.y }.average()
+            val avgBRX = list.map { it.bottomRight.x }.average()
+            val avgBRY = list.map { it.bottomRight.y }.average()
+            val avgBLX = list.map { it.bottomLeft.x }.average()
+            val avgBLY = list.map { it.bottomLeft.y }.average()
+
+            return list.maxOf { c ->
+                maxOf(
+                    hypot((c.topLeft.x - avgTLX), (c.topLeft.y - avgTLY)),
+                    hypot((c.topRight.x - avgTRX), (c.topRight.y - avgTRY)),
+                    hypot((c.bottomRight.x - avgBRX), (c.bottomRight.y - avgBRY)),
+                    hypot((c.bottomLeft.x - avgBLX), (c.bottomLeft.y - avgBLY))
+                )
+            }
+        }
+
+        data class FilterResult(
+            val corners: DocumentCorners?,
+            val isStable: Boolean,
+            val isLocked: Boolean,
+            val isJustLocked: Boolean
         )
     }
 }

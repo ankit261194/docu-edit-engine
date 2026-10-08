@@ -96,6 +96,7 @@ fun PkiDigitalSignDialog(
     var location by remember { mutableStateOf("India") }
     var addVisualSeal by remember { mutableStateOf(true) }
     var sealPageNumber by remember { mutableStateOf(pageCount.coerceAtLeast(1)) }
+    var enableLtvTimestamp by remember { mutableStateOf(true) }
 
     var isProcessing by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
@@ -270,6 +271,21 @@ fun PkiDigitalSignDialog(
                                 Text("🏢 Organization: ${res.organization}", fontSize = 12.sp)
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text("🕒 Timestamp: ${res.signDate}", fontSize = 12.sp)
+                                if (res.isLtvTimestamped) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = Color(0xFFDCFCE7)
+                                    ) {
+                                        Text(
+                                            text = "✔ RFC 3161 LTV Timestamp Token Embedded",
+                                            color = Color(0xFF15803D),
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text("🔑 Serial: ${res.serialNumber.take(18)}...", fontSize = 11.sp, color = Color(0xFF64748B))
                             }
@@ -547,6 +563,53 @@ fun PkiDigitalSignDialog(
                             }
                         }
 
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Adobe LTV RFC 3161 Timestamp Switch
+                        Card(
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("Adobe LTV RFC 3161 Timestamp", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color(0xFFDCFCE7)
+                                            ) {
+                                                Text(
+                                                    text = "GREEN TICK",
+                                                    color = Color(0xFF15803D),
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                                )
+                                            }
+                                        }
+                                        Text(
+                                            "Embeds cryptographic timestamp token in PKCS#7 for permanent Adobe Acrobat Green Checkmark validity",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Switch(
+                                        checked = enableLtvTimestamp,
+                                        onCheckedChange = { enableLtvTimestamp = it },
+                                        colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF059669), checkedTrackColor = Color(0xFFDCFCE7))
+                                    )
+                                }
+                            }
+                        }
+
                         if (!statusMessage.isNullOrBlank()) {
                             Spacer(modifier = Modifier.height(10.dp))
                             Text(
@@ -584,7 +647,8 @@ fun PkiDigitalSignDialog(
                                     location = location,
                                     contactInfo = signerName,
                                     addVisualBadge = addVisualSeal,
-                                    badgePageNumber = sealPageNumber
+                                    badgePageNumber = sealPageNumber,
+                                    enableLtvTimestamp = enableLtvTimestamp
                                 )
 
                                 val signRes = PdfDigitalSigner.signPdf(signReq)

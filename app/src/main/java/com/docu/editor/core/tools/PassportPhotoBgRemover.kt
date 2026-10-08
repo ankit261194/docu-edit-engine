@@ -98,54 +98,60 @@ object PassportPhotoBgRemover {
             val outPixels = IntArray(width * height)
             val bgIsTransparent = (targetBackground == StudioBackground.TRANSPARENT)
 
-            val (centerColor, edgeColor) = when (targetBackground) {
-                StudioBackground.WHITE -> Pair(Color.WHITE, Color.parseColor("#EEF2F6"))
-                StudioBackground.LIGHT_BLUE -> Pair(Color.parseColor("#BAE6FD"), Color.parseColor("#60A5FA"))
-                StudioBackground.DEEP_BLUE -> Pair(Color.parseColor("#2563EB"), Color.parseColor("#1E3A8A"))
-                StudioBackground.STUDIO_RED -> Pair(Color.parseColor("#EF4444"), Color.parseColor("#991B1B"))
-                StudioBackground.VISA_GRAY -> Pair(Color.parseColor("#F8FAFC"), Color.parseColor("#E2E8F0"))
-                StudioBackground.TRANSPARENT, StudioBackground.ORIGINAL -> Pair(Color.TRANSPARENT, Color.TRANSPARENT)
+            val solidBgColor = when (targetBackground) {
+                StudioBackground.WHITE -> Color.WHITE // 100% Solid Flat White #FFFFFF (Govt exam standard)
+                StudioBackground.LIGHT_BLUE -> Color.parseColor("#BAE6FD") // 100% Solid Flat Light Blue
+                StudioBackground.DEEP_BLUE -> Color.parseColor("#1D4ED8") // 100% Solid Flat Royal Blue
+                StudioBackground.STUDIO_RED -> Color.parseColor("#DC2626") // 100% Solid Flat Studio Red
+                StudioBackground.VISA_GRAY -> Color.parseColor("#F3F4F6") // 100% Solid Flat Visa Gray
+                StudioBackground.TRANSPARENT, StudioBackground.ORIGINAL -> Color.TRANSPARENT
             }
 
-            val cR = Color.red(centerColor)
-            val cG = Color.green(centerColor)
-            val cB = Color.blue(centerColor)
-
-            val eR = Color.red(edgeColor)
-            val eG = Color.green(edgeColor)
-            val eB = Color.blue(edgeColor)
-
-            val cx = width * 0.5f
-            val cy = height * 0.38f
+            val bgR = Color.red(solidBgColor)
+            val bgG = Color.green(solidBgColor)
+            val bgB = Color.blue(solidBgColor)
 
             for (y in 0 until height) {
                 val rowOffset = y * width
-                val dy = (y - cy) / height.toFloat()
 
                 for (x in 0 until width) {
                     val idx = rowOffset + x
                     val p = srcPixels[idx]
-                    val fgR = (p shr 16) and 0xFF
-                    val fgG = (p shr 8) and 0xFF
-                    val fgB = p and 0xFF
+                    var fgR = (p shr 16) and 0xFF
+                    var fgG = (p shr 8) and 0xFF
+                    var fgB = p and 0xFF
 
-                    // Smooth Hermite cubic curve for natural hair, ears, and collar blending
+                    // Strict Mask Thresholding:
+                    // raw < 0.25f -> 100% background (eliminates all ambient room wall bleed)
+                    // raw > 0.78f -> 100% foreground
+                    // [0.25, 0.78] -> Cubic Hermite curve for smooth hair anti-aliasing
                     val raw = smoothedMask[idx].coerceIn(0f, 1f)
-                    val t = ((raw - 0.10f) / 0.80f).coerceIn(0f, 1f)
-                    val alpha = t * t * (3f - 2f * t)
+                    val alpha = when {
+                        raw < 0.25f -> 0f
+                        raw > 0.78f -> 1f
+                        else -> {
+                            val t = (raw - 0.25f) / (0.78f - 0.25f)
+                            t * t * (3f - 2f * t)
+                        }
+                    }
+
+                    // Edge Color Decontamination (De-Spill):
+                    // In the transition boundary, neutralizes yellow/green/brown room wall color spill on hair
+                    if (alpha in 0.01f..0.92f) {
+                        val luma = (0.299f * fgR + 0.587f * fgG + 0.114f * fgB)
+                        if (luma < 140f) { // Dark hair or head contour
+                            val despillWeight = (1f - alpha).coerceIn(0f, 0.85f)
+                            fgR = (fgR * (1f - despillWeight) + luma * despillWeight).toInt().coerceIn(0, 255)
+                            fgG = (fgG * (1f - despillWeight) + luma * despillWeight).toInt().coerceIn(0, 255)
+                            fgB = (fgB * (1f - despillWeight) + luma * despillWeight).toInt().coerceIn(0, 255)
+                        }
+                    }
 
                     if (bgIsTransparent) {
                         val aInt = (alpha * 255f).toInt().coerceIn(0, 255)
                         outPixels[idx] = (aInt shl 24) or (fgR shl 16) or (fgG shl 8) or fgB
                     } else {
-                        val dx = (x - cx) / width.toFloat()
-                        val dist = kotlin.math.sqrt(dx * dx + dy * dy) * 1.35f
-                        val gradT = dist.coerceIn(0f, 1f)
-
-                        val bgR = (cR * (1f - gradT) + eR * gradT).toInt().coerceIn(0, 255)
-                        val bgG = (cG * (1f - gradT) + eG * gradT).toInt().coerceIn(0, 255)
-                        val bgB = (cB * (1f - gradT) + eB * gradT).toInt().coerceIn(0, 255)
-
+                        // 100% Solid Flat Studio Backdrop Blending
                         val r = (fgR * alpha + bgR * (1f - alpha)).toInt().coerceIn(0, 255)
                         val g = (fgG * alpha + bgG * (1f - alpha)).toInt().coerceIn(0, 255)
                         val b = (fgB * alpha + bgB * (1f - alpha)).toInt().coerceIn(0, 255)

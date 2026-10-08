@@ -66,3 +66,24 @@ enum class CanvaStyleMatchPreset(val displayName: String, val description: Strin
     NORDIC_COOL("Nordic Cool", "Crisp minimalist desaturated cool tones"),
     VIVID_POP("Vivid Pop Art", "High-saturation vibrant modern tones")
 }
+
+data class BrandProfile(
+    val id: String,
+    val clientName: String,
+    val companyTagline: String,
+    val primaryColorRgb: Int,
+    val secondaryColorRgb: Int,
+    val accentColorRgb: Int,
+    val fontFamily: String = "Sans-Serif",
+    val stampTitle: String = "AUTHORIZED",
+    val isCustom: Boolean = false
+)
+
+enum class SelectiveColorTarget(val displayName: String, val icon: String) {
+    ALL_MASTER("All Colors", "🌈"),
+    BLUE_INK("Blue Ink", "🖊️"),
+    RED_STAMPS("Red Stamps", "🔴"),
+    GREEN_SEALS("Green Seals", "🟢"),
+    PAPER_TINT("Paper Tint", "📄")
+}
+

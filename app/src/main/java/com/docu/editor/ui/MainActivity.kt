@@ -38,6 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudUpload
@@ -98,6 +99,7 @@ import com.docu.editor.core.update.UpdateInfo
 import com.docu.editor.domain.model.EditorToolMode
 import com.docu.editor.ui.canvas.DocumentBottomBar
 import com.docu.editor.ui.canvas.DocumentInteractiveCanvas
+import com.docu.editor.ui.canvas.DocumentSearchHud
 import com.docu.editor.ui.canvas.ContextualLayerBottomBar
 import com.docu.editor.ui.canvas.PageThumbnailStrip
 import com.docu.editor.ui.canvas.TextEditBottomSheet
@@ -118,10 +120,20 @@ import com.docu.editor.ui.dialogs.PageSizeDialog
 import com.docu.editor.ui.dialogs.DirectCloudUploadDialog
 import com.docu.editor.ui.home.HomeScreenDashboard
 import com.docu.editor.ui.dialogs.BatchResizeStudioDialog
+import com.docu.editor.ui.dialogs.AutoMergeKbCompressorDialog
+import com.docu.editor.ui.dialogs.SampleDocumentSandboxDialog
+import com.docu.editor.ui.dialogs.PrintSpoolerDialog
+import com.docu.editor.ui.dialogs.PcDropDialog
+import com.docu.editor.ui.dialogs.DocumentChatStudioDialog
+import com.docu.editor.ui.dialogs.ExpiryWatchdogDialog
+import com.docu.editor.ui.dialogs.ExpenseAuditorDialog
+import com.docu.editor.core.history.SavedDocumentItem
+import com.docu.editor.core.ai.DocumentChatEngine
 import com.docu.editor.ui.dialogs.CountCamDialog
 import com.docu.editor.ui.dialogs.IdPhotoMakerDialog
 import com.docu.editor.ui.dialogs.ScanCodeDialog
 import com.docu.editor.ui.dialogs.SolverAiDialog
+import com.docu.editor.ui.dialogs.TimestampDialog
 import com.docu.editor.core.tools.CamScannerToolsEngine
 import com.docu.editor.core.cloud.GeminiCloudAiClient
 import com.docu.editor.core.pdf.PdfToolbox
@@ -137,7 +149,7 @@ import com.docu.editor.ui.viewmodel.DocumentEditorViewModel
 import org.opencv.android.OpenCVLoader
 import java.io.File
 
-class MainActivity : ComponentActivity() {
+class MainActivity : androidx.fragment.app.FragmentActivity() {
 
     private val viewModel: DocumentEditorViewModel by viewModels()
     private val updateManager by lazy {
@@ -224,6 +236,25 @@ class MainActivity : ComponentActivity() {
                 var showBatchResizeStudioDialog by remember { mutableStateOf(false) }
                 var showSolverAiDialog by remember { mutableStateOf(false) }
                 var solverAiQuestion by remember { mutableStateOf("") }
+                var showTimestampDialog by remember { mutableStateOf(false) }
+                var showOldPhotoRestorerDialog by remember { mutableStateOf(false) }
+                var photoToRestoreBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+                var showSampleSandboxDialog by remember { mutableStateOf(false) }
+                var showPrintSpoolerDialog by remember { mutableStateOf(false) }
+                var showPcDropDialog by remember { mutableStateOf(false) }
+                var showDocumentChatDialog by remember { mutableStateOf(false) }
+                var watchdogTargetDoc by remember { mutableStateOf<SavedDocumentItem?>(null) }
+                var showExpenseAuditorDialog by remember { mutableStateOf(false) }
+                var showPrivateVaultUnlock by remember { mutableStateOf(false) }
+                var activeVaultMode by remember { mutableStateOf<com.docu.editor.core.vault.VaultSecurityManager.VaultMode?>(null) }
+                var showAutoMergeCompressorDialog by remember { mutableStateOf(false) }
+                val pageTextsCache = remember { mutableMapOf<Int, String>() }
+                LaunchedEffect(uiState.currentPdfPageIndex, uiState.detectedItems) {
+                    val text = uiState.detectedItems.joinToString("\n") { it.text }
+                    if (text.isNotBlank()) {
+                        pageTextsCache[uiState.currentPdfPageIndex] = text
+                    }
+                }
 
                 LaunchedEffect(updateCheckTrigger.intValue) {
                     val info = updateManager.checkForUpdates()
@@ -297,6 +328,18 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                val photoRestorePickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    uri?.let {
+                        val bmp = loadBitmapDirect(it)
+                        if (bmp != null) {
+                            photoToRestoreBitmap = bmp
+                            showOldPhotoRestorerDialog = true
+                        }
+                    }
+                }
+
                 val mergeFilesPickerLauncher = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenMultipleDocuments()
                 ) { uris ->
@@ -366,11 +409,7 @@ class MainActivity : ComponentActivity() {
                                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                                     CamScannerToolsEngine.stitchPdfToLongImage(applicationContext, it, outFile)
                                 }
-                                val bmp = BitmapFactory.decodeFile(outFile.absolutePath)
-                                if (bmp != null) {
-                                    DocuStorageUtil.saveBitmapToGallery(this@MainActivity, bmp, "Long_Image_${System.currentTimeMillis()}")
-                                    bmp.recycle()
-                                }
+                                DocuStorageUtil.saveImageFileToGallery(this@MainActivity, outFile, fileName, "image/jpeg")
                                 DocuStorageUtil.saveFileToPublicDownloads(this@MainActivity, outFile, fileName, "image/jpeg")
                                 Toast.makeText(this@MainActivity, "Saved to Gallery & Downloads: $fileName", Toast.LENGTH_LONG).show()
                                 viewModel.loadScannedDocument(outFile.absolutePath)
@@ -848,6 +887,13 @@ class MainActivity : ComponentActivity() {
                                             tint = Color(0xFF0284C7)
                                         )
                                     }
+                                    IconButton(onClick = { showDocumentChatDialog = true }) {
+                                        Icon(
+                                            Icons.Default.AutoAwesome,
+                                            contentDescription = "Ask Document AI",
+                                            tint = Color(0xFF6366F1)
+                                        )
+                                    }
                                     IconButton(
                                         onClick = { viewModel.showExportDialog(true) }
                                     ) {
@@ -944,6 +990,9 @@ class MainActivity : ComponentActivity() {
                                     onTargetSizeClicked = {
                                         viewModel.showTargetSizeAdjusterDialog(true)
                                     },
+                                    onSearchClicked = {
+                                        viewModel.toggleSearch(true)
+                                    },
                                     onExportClicked = {
                                         viewModel.showExportDialog(true)
                                     },
@@ -951,6 +1000,8 @@ class MainActivity : ComponentActivity() {
                                         viewModel.syncDocumentToCloud()
                                     },
                                     selectedLassoCount = uiState.selectedItems.size,
+                                    onDuplicateLasso = { viewModel.duplicateLassoSelection() },
+                                    onMoveLasso = { viewModel.moveLassoSelection() },
                                     onMergeEditLasso = { viewModel.mergeAndEditLassoSelection() },
                                     onWhiteoutLasso = { viewModel.whiteoutLassoSelection() },
                                     onClearLasso = { viewModel.clearLassoSelection() },
@@ -978,6 +1029,12 @@ class MainActivity : ComponentActivity() {
                                     onShapeStrokeColorChanged = { viewModel.setShapeStrokeColor(it) },
                                     shapeFillColor = uiState.shapeFillColor,
                                     onShapeFillColorChanged = { viewModel.setShapeFillColor(it) },
+                                    shapeCornerRadius = uiState.shapeCornerRadius,
+                                    onShapeCornerRadiusChanged = { viewModel.setShapeCornerRadius(it) },
+                                    shapeArrowHeadSize = uiState.shapeArrowHeadSize,
+                                    onShapeArrowHeadSizeChanged = { viewModel.setShapeArrowHeadSize(it) },
+                                    shapeEmbeddedText = uiState.shapeEmbeddedText,
+                                    onShapeEmbeddedTextChanged = { viewModel.setShapeEmbeddedText(it) },
                                     onAddShapeLayerClicked = { viewModel.addShapeLayer(it) },
                                     onBackgroundRemovalClicked = { viewModel.showBackgroundRemovalDialog(true) },
                                     onInsertImageClicked = { insertImageLauncher.launch(arrayOf("image/*")) },
@@ -1024,110 +1081,43 @@ class MainActivity : ComponentActivity() {
                             .fillMaxSize()
                             .padding(innerPadding)
                     ) {
-                        // Floating Search & Replace All Bar
+                        // Auto-clear copied word toast notification
+                        LaunchedEffect(uiState.searchCopiedWordToast) {
+                            if (uiState.searchCopiedWordToast != null) {
+                                kotlinx.coroutines.delay(2200L)
+                                viewModel.clearCopiedWordToast()
+                            }
+                        }
+
+                        // Floating Enterprise Search HUD (Pro Feature 8 Offline Secure OCR Engine 2.0)
                         androidx.compose.animation.AnimatedVisibility(
                             visible = uiState.isSearchActive,
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surface,
-                                shadowElevation = 10.dp,
-                                shape = RoundedCornerShape(16.dp),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                var replaceText by remember { mutableStateOf("") }
-                                var replaceAllPagesScope by remember { mutableStateOf(false) }
-                                Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        OutlinedTextField(
-                                            value = uiState.searchQuery,
-                                            onValueChange = { viewModel.setSearchQuery(it) },
-                                            placeholder = { Text("Find text...", fontSize = 13.sp) },
-                                            singleLine = true,
-                                            shape = RoundedCornerShape(10.dp),
-                                            modifier = Modifier.weight(1f),
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedBorderColor = Color(0xFF2563EB)
-                                            )
-                                        )
-                                        OutlinedTextField(
-                                            value = replaceText,
-                                            onValueChange = { replaceText = it },
-                                            placeholder = { Text("Replace with...", fontSize = 13.sp) },
-                                            singleLine = true,
-                                            shape = RoundedCornerShape(10.dp),
-                                            modifier = Modifier.weight(1f),
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedBorderColor = Color(0xFF16A34A)
-                                            )
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text(
-                                                text = if (uiState.searchQuery.isNotEmpty()) "${uiState.searchMatchingIndices.size} match(es)" else "Type word to find",
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = if (uiState.searchMatchingIndices.isNotEmpty()) Color(0xFF2563EB) else MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            if (uiState.pdfPageCount > 1) {
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    modifier = Modifier.clickable { replaceAllPagesScope = !replaceAllPagesScope }
-                                                ) {
-                                                    Checkbox(
-                                                        checked = replaceAllPagesScope,
-                                                        onCheckedChange = { replaceAllPagesScope = it },
-                                                        colors = CheckboxDefaults.colors(checkedColor = Color(0xFF2563EB)),
-                                                        modifier = Modifier.size(24.dp)
-                                                    )
-                                                    Spacer(modifier = Modifier.width(4.dp))
-                                                    Text(
-                                                        text = "All ${uiState.pdfPageCount} pgs",
-                                                        fontSize = 11.sp,
-                                                        fontWeight = if (replaceAllPagesScope) FontWeight.Bold else FontWeight.Normal,
-                                                        color = if (replaceAllPagesScope) Color(0xFF2563EB) else MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            TextButton(onClick = { viewModel.toggleSearch(false) }) {
-                                                Text("Close", fontSize = 12.sp)
-                                            }
-                                            Button(
-                                                onClick = {
-                                                    viewModel.replaceAllOccurrences(uiState.searchQuery, replaceText, allPages = replaceAllPagesScope)
-                                                    replaceText = ""
-                                                },
-                                                enabled = uiState.searchQuery.isNotBlank() && uiState.searchMatchingIndices.isNotEmpty(),
-                                                colors = ButtonDefaults.buttonColors(containerColor = if (replaceAllPagesScope) Color(0xFF1D4ED8) else Color(0xFF2563EB)),
-                                                shape = RoundedCornerShape(8.dp),
-                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                                                modifier = Modifier.height(34.dp)
-                                            ) {
-                                                Text(
-                                                    text = if (replaceAllPagesScope && uiState.pdfPageCount > 1) "Replace All Pages" else "Replace Page",
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            DocumentSearchHud(
+                                searchQuery = uiState.searchQuery,
+                                onSearchQueryChanged = { viewModel.setSearchQuery(it) },
+                                currentMatchIndex = uiState.currentSearchMatchIndex,
+                                totalMatches = uiState.searchMatchOccurrences.size,
+                                isCaseSensitive = uiState.isSearchCaseSensitive,
+                                onToggleCaseSensitive = { viewModel.setSearchCaseSensitive(it) },
+                                isWholeWord = uiState.isSearchWholeWord,
+                                onToggleWholeWord = { viewModel.setSearchWholeWord(it) },
+                                isHindiTolerant = uiState.isSearchHindiTolerant,
+                                onToggleHindiTolerant = { viewModel.setSearchHindiTolerant(it) },
+                                multiPageMatchCounts = uiState.multiPageSearchMatchCounts,
+                                currentPageIndex = uiState.currentPdfPageIndex,
+                                pdfPageCount = uiState.pdfPageCount,
+                                onSelectPage = { pageIdx -> viewModel.goToPage(pageIdx) },
+                                onNavigateNext = { viewModel.navigateToNextSearchMatch() },
+                                onNavigatePrevious = { viewModel.navigateToPreviousSearchMatch() },
+                                onReplace = { query, replaceText, allPages ->
+                                    viewModel.replaceAllOccurrences(query, replaceText, allPages = allPages)
+                                },
+                                copiedToastText = uiState.searchCopiedWordToast,
+                                onClose = { viewModel.toggleSearch(false) }
+                            )
                         }
 
                         val bitmap = uiState.currentBitmap
@@ -1167,6 +1157,10 @@ class MainActivity : ComponentActivity() {
                                 onCommitOverlay = { viewModel.commitOverlayToDocument() },
                                 onCancelOverlay = { viewModel.cancelOverlay() },
                                 searchMatchingIndices = uiState.searchMatchingIndices,
+                                searchMatchOccurrences = uiState.searchMatchOccurrences,
+                                currentSearchMatchIndex = uiState.currentSearchMatchIndex,
+                                isSearchActive = uiState.isSearchActive,
+                                onSearchMatchTapped = { occ -> viewModel.copySearchMatchToClipboard(occ) },
                                 pdfPageCount = uiState.pdfPageCount,
                                 currentPageIndex = uiState.currentPdfPageIndex,
                                 onPreviousPage = { viewModel.previousPdfPage() },
@@ -1176,16 +1170,26 @@ class MainActivity : ComponentActivity() {
                                 markupStrokeWidth = uiState.markupStrokeWidth,
                                 penColorRgb = uiState.penColorRgb,
                                 penStrokeWidth = uiState.penStrokeWidth,
-                                onCommitMarkupStroke = { pts, isHl ->
+                                onCommitMarkupTaperedStroke = { pts, isHl, widths ->
                                     val col = if (isHl) uiState.markupColorRgb else uiState.penColorRgb
                                     val w = if (isHl) uiState.markupStrokeWidth else uiState.penStrokeWidth
-                                    viewModel.commitMarkupStroke(pts, col, w, isHl)
+                                    viewModel.commitMarkupStroke(pts, col, w, isHl, widths)
                                 },
                                 selectedShapeType = uiState.selectedShapeType,
                                 shapeStrokeWidth = uiState.shapeStrokeWidth,
                                 shapeStrokeColorRgb = uiState.shapeStrokeColorRgb,
                                 onCommitShape = { type, start, end, col, w ->
-                                    viewModel.commitShape(type, start, end, col, w)
+                                    viewModel.commitShape(
+                                        type = type,
+                                        start = start,
+                                        end = end,
+                                        colorRgb = col,
+                                        strokeWidth = w,
+                                        cornerRadius = uiState.shapeCornerRadius,
+                                        arrowHeadSize = uiState.shapeArrowHeadSize,
+                                        stemWidth = uiState.shapeStemWidth,
+                                        embeddedText = uiState.shapeEmbeddedText
+                                    )
                                 },
                                 onCommitBlackoutRect = { rectF ->
                                     viewModel.applyBlackoutRect(
@@ -1200,6 +1204,19 @@ class MainActivity : ComponentActivity() {
                                 magicEraserBrushRadius = uiState.magicEraserBrushRadius,
                                 onCommitMagicEraserStroke = { pts, radius ->
                                     viewModel.applyMagicObjectEraser(pts, radius)
+                                },
+                                magicEraserTargetMode = uiState.magicEraserTargetMode,
+                                isMagicEraserBatchMode = uiState.isMagicEraserBatchMode,
+                                isCloudAiEraserEnabled = uiState.isCloudAiEraserEnabled,
+                                onMagicEraserBrushRadiusChanged = { viewModel.setMagicEraserBrushRadius(it) },
+                                onMagicEraserTargetModeChanged = { viewModel.setMagicEraserTargetMode(it) },
+                                onMagicEraserBatchModeChanged = { viewModel.setMagicEraserBatchMode(it) },
+                                onToggleCloudAiEraser = { viewModel.toggleCloudAiEraser() },
+                                onCommitMagicEraserBatch = { strokes, radius, mode ->
+                                    viewModel.applyMagicObjectEraserBatch(strokes, radius, mode)
+                                },
+                                onCloseMagicEraserStudio = {
+                                    viewModel.setActiveToolMode(com.docu.editor.domain.model.EditorToolMode.TEXT_EDIT)
                                 }
                             )
 
@@ -1264,6 +1281,37 @@ class MainActivity : ComponentActivity() {
                                         .padding(bottom = 6.dp)
                                 )
                             }
+
+                            // NotebookLM-Style Floating "Ask AI" Studio Pill
+                            Surface(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .padding(end = 16.dp, bottom = if (uiState.pdfPageCount > 1) 78.dp else 16.dp)
+                                    .clickable { showDocumentChatDialog = true },
+                                shape = RoundedCornerShape(24.dp),
+                                color = Color(0xFF0F172A),
+                                border = BorderStroke(1.5.dp, Color(0xFF6366F1)),
+                                shadowElevation = 8.dp
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = Color(0xFF818CF8),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "Ask AI",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         } else {
                             // Premium CamScanner Home Dashboard
                             val cloudBackupsList = remember(uiState.canvasRevision) { viewModel.getCloudBackups() }
@@ -1311,8 +1359,20 @@ class MainActivity : ComponentActivity() {
                                 onBatchResizeClicked = {
                                     showBatchResizeStudioDialog = true
                                 },
+                                onAutoMergeKbClicked = {
+                                    showAutoMergeCompressorDialog = true
+                                },
                                 onTryDemoClicked = {
-                                    viewModel.loadSampleDocument()
+                                    showSampleSandboxDialog = true
+                                },
+                                onPcDropClicked = {
+                                    showPcDropDialog = true
+                                },
+                                onOpenExpiryWatchdog = { doc ->
+                                    watchdogTargetDoc = doc
+                                },
+                                onExpenseAuditorClicked = {
+                                    showExpenseAuditorDialog = true
                                 },
                                 onCloudAiSettingsClicked = {
                                     viewModel.showCloudAiSettingsDialog(true)
@@ -1361,8 +1421,12 @@ class MainActivity : ComponentActivity() {
                                     pdfToLongImagePickerLauncher.launch(arrayOf("application/pdf"))
                                 },
                                 onCamScannerAi = {
-                                    solverAiQuestion = "Summarize document and extract key action items"
-                                    showSolverAiDialog = true
+                                    if (uiState.currentBitmap != null) {
+                                        showDocumentChatDialog = true
+                                    } else {
+                                        solverAiQuestion = "Summarize document and extract key action items"
+                                        showSolverAiDialog = true
+                                    }
                                 },
                                 onImportImages = {
                                     bulkBatchOcrPickerLauncher.launch(arrayOf("image/*"))
@@ -1437,13 +1501,10 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onRestorePhoto = {
                                     if (uiState.currentBitmap != null) {
-                                        val restored = CamScannerToolsEngine.restorePhoto(uiState.currentBitmap!!)
-                                        viewModel.setEditedBitmap(restored)
-                                        Toast.makeText(this@MainActivity, "Photo restored & enhanced!", Toast.LENGTH_SHORT).show()
+                                        photoToRestoreBitmap = uiState.currentBitmap
+                                        showOldPhotoRestorerDialog = true
                                     } else {
-                                        pendingInitialToolMode = com.docu.editor.domain.model.EditorToolMode.FILTERS
-                                        pendingInitialFilter = DocumentFilterMode.PHOTO_RESTORE
-                                        filePickerLauncher.launch(arrayOf("image/*"))
+                                        photoRestorePickerLauncher.launch(arrayOf("image/*"))
                                     }
                                 },
                                 onScanIdCards = {
@@ -1485,13 +1546,17 @@ class MainActivity : ComponentActivity() {
                                     }
                                 },
                                 onSlidesScan = {
-                                    launchScannerWithMode(LiveCameraScannerActivity.ScannerMode.SINGLE)
+                                    launchScannerWithMode(LiveCameraScannerActivity.ScannerMode.SLIDES)
                                 },
                                 onWhiteboardScan = {
                                     launchScannerWithMode(LiveCameraScannerActivity.ScannerMode.WHITEBOARD)
                                 },
                                 onTimestampScan = {
-                                    launchScannerWithMode(LiveCameraScannerActivity.ScannerMode.SINGLE)
+                                    if (uiState.currentBitmap != null) {
+                                        showTimestampDialog = true
+                                    } else {
+                                        launchScannerWithMode(LiveCameraScannerActivity.ScannerMode.TIMESTAMP)
+                                    }
                                 },
                                 onScanCode = {
                                     if (uiState.currentBitmap != null) {
@@ -1500,6 +1565,9 @@ class MainActivity : ComponentActivity() {
                                     } else {
                                         scanCodePickerLauncher.launch(arrayOf("image/*"))
                                     }
+                                },
+                                onPrivateVaultClicked = {
+                                    showPrivateVaultUnlock = true
                                 }
                             )
                         }
@@ -1622,6 +1690,9 @@ class MainActivity : ComponentActivity() {
                                 onRotatePage = { index ->
                                     viewModel.rotatePageAt(index, 90f)
                                 },
+                                onRotateMultiplePages = { indices ->
+                                    viewModel.rotateMultiplePages(indices, 90f)
+                                },
                                 onAddPageFromCamera = {
                                     if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
                                         val intent = Intent(this@MainActivity, LiveCameraScannerActivity::class.java)
@@ -1651,8 +1722,15 @@ class MainActivity : ComponentActivity() {
                                 onPickBackClicked = {
                                     idCardBackPicker.launch(arrayOf("image/*"))
                                 },
-                                onStitchClicked = { layoutMode, purposeText ->
-                                    viewModel.stitchIdCardToA4(layoutMode, purposeText)
+                                onStitchClicked = { layoutMode, scaleMode, paperSize, applyAntiGlare, drawCuttingGuide, purposeText ->
+                                    viewModel.stitchIdCardToA4(
+                                        layoutMode = layoutMode,
+                                        scaleMode = scaleMode,
+                                        paperSize = paperSize,
+                                        applyAntiGlare = applyAntiGlare,
+                                        drawCuttingGuide = drawCuttingGuide,
+                                        purposeAnnotation = purposeText
+                                    )
                                 },
                                 onDismiss = { viewModel.showIdCardDialog(false) }
                             )
@@ -1673,6 +1751,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onExtractStampTargetClicked = { target ->
                                     currentSignSourceBitmap?.let { viewModel.extractStampFromBitmap(it, target) }
+                                },
+                                onExtractStampTargetDeOccludedClicked = { target, deOcclude ->
+                                    currentSignSourceBitmap?.let { viewModel.extractStampFromBitmap(it, target, deOcclude) }
                                 },
                                 onApplyToDocument = { bmp ->
                                     viewModel.startPlacingOverlay(bmp)
@@ -1696,10 +1777,13 @@ class MainActivity : ComponentActivity() {
                                     viewModel.syncDocumentToCloud(customFileName)
                                 },
                                 onPrintClicked = {
-                                    val bmp = uiState.currentBitmap
-                                    if (bmp != null) {
-                                        PrintDocumentHelper.printBitmap(this@MainActivity, bmp)
+                                    if (uiState.currentBitmap != null) {
+                                        showPrintSpoolerDialog = true
                                     }
+                                },
+                                onPcDropClicked = {
+                                    viewModel.showExportDialog(false)
+                                    showPcDropDialog = true
                                 },
                                 onDismiss = { viewModel.showExportDialog(false) }
                             )
@@ -1732,8 +1816,8 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onDirectPrint = {
                                     viewModel.showDirectCloudUploadDialog(false)
-                                    uiState.currentBitmap?.let { bmp ->
-                                        PrintDocumentHelper.printBitmap(this@MainActivity, bmp, uiState.documentTitle)
+                                    if (uiState.currentBitmap != null) {
+                                        showPrintSpoolerDialog = true
                                     }
                                 },
                                 onDismiss = { viewModel.showDirectCloudUploadDialog(false) }
@@ -1747,9 +1831,9 @@ class MainActivity : ComponentActivity() {
                                     viewModel.showPdfToolboxDialog(false)
                                     viewModel.compressCurrentDocument(dpi, quality)
                                 },
-                                onPasswordProtectSelected = { userPass, ownerPass, canPrint, canExtract, canModify, canFillIn, keyLength ->
+                                onPasswordProtectSelected = { userPass, ownerPass, canPrint, canPrintDegraded, canExtract, canModify, canFillIn, canAssemble, keyLength ->
                                     viewModel.showPdfToolboxDialog(false)
-                                    viewModel.passwordProtectAndExport(userPass, ownerPass, canPrint, canExtract, canModify, canFillIn, keyLength)
+                                    viewModel.passwordProtectAndExport(userPass, ownerPass, canPrint, canPrintDegraded, canExtract, canModify, canFillIn, canAssemble, keyLength)
                                 },
                                 onUnlockPdfSelected = { pass ->
                                     viewModel.showPdfToolboxDialog(false)
@@ -1791,8 +1875,8 @@ class MainActivity : ComponentActivity() {
                         if (uiState.showTargetSizeAdjusterDialog) {
                             TargetSizeAdjusterDialog(
                                 initialFormat = if (uiState.activePdfUri != null || uiState.pdfPageCount > 1) "PDF" else "JPG",
-                                onConfirmAdjust = { mode, targetKb, format ->
-                                    viewModel.adjustDocumentToTargetSize(mode, targetKb, format)
+                                onConfirmAdjust = { mode, targetKb, format, targetDpi ->
+                                    viewModel.adjustDocumentToTargetSize(mode, targetKb, format, targetDpi)
                                 },
                                 onDismiss = { viewModel.showTargetSizeAdjusterDialog(false) }
                             )
@@ -1934,6 +2018,8 @@ class MainActivity : ComponentActivity() {
                         if (uiState.showOcrTextExtractDialog) {
                             OcrTextExtractDialog(
                                 detectedItems = uiState.detectedItems,
+                                currentBitmap = uiState.currentBitmap,
+                                geminiApiKey = viewModel.getGeminiApiKey(),
                                 onCopyAll = { text ->
                                     val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                                     val clip = android.content.ClipData.newPlainText("DocuEdit OCR", text)
@@ -2212,8 +2298,8 @@ class MainActivity : ComponentActivity() {
                         // Canva Pro Text Studio & Magic Write Dialog
                         if (uiState.showCanvaTextStudioDialog) {
                             com.docu.editor.ui.dialogs.CanvaTextStudioDialog(
-                                onAddTextLayer = { text, colorRgb, fontSize, isBold, isItalic, fontFamily, effect ->
-                                    viewModel.addStyledTextLayer(text, colorRgb, fontSize, isBold, isItalic, fontFamily, effect)
+                                onAddTextLayer = { text, colorRgb, fontSize, isBold, isItalic, fontFamily, effect, track, lead ->
+                                    viewModel.addStyledTextLayer(text, colorRgb, fontSize, isBold, isItalic, fontFamily, effect, track, lead)
                                 },
                                 onDismiss = {
                                     viewModel.showCanvaTextStudioDialog(false)
@@ -2227,6 +2313,9 @@ class MainActivity : ComponentActivity() {
                                 currentPaletteId = uiState.activeBrandPaletteId,
                                 onApplyPalette = { palette ->
                                     viewModel.applyBrandPalette(palette)
+                                },
+                                onApplyProfile = { profile ->
+                                    viewModel.applyBrandProfile(profile)
                                 },
                                 onDismiss = {
                                     viewModel.showCanvaBrandKitDialog(false)
@@ -2259,8 +2348,8 @@ class MainActivity : ComponentActivity() {
                         if (uiState.showCanvaAdjustDialog) {
                             com.docu.editor.ui.dialogs.CanvaAdjustDialog(
                                 initialPreset = uiState.activeStyleMatchPreset,
-                                onApplyAdjustments = { b, c, s, w, t, cl, v, bl, preset ->
-                                    viewModel.applyCanvaAdjustments(b, c, s, w, t, cl, v, bl, preset)
+                                onApplyAdjustments = { b, c, s, w, t, cl, v, bl, preset, sh, mid, hi, target, tSat, tLum ->
+                                    viewModel.applyCanvaAdjustments(b, c, s, w, t, cl, v, bl, preset, sh, mid, hi, target, tSat, tLum)
                                 },
                                 onDismiss = {
                                     viewModel.showCanvaAdjustDialog(false)
@@ -2297,6 +2386,7 @@ class MainActivity : ComponentActivity() {
                                 onUpdateOpacity = { id, alpha -> viewModel.updateLayerOpacity(id, alpha) },
                                 onDuplicateLayer = { id -> viewModel.duplicateLayer(id) },
                                 onDeleteLayer = { id -> viewModel.deleteLayer(id) },
+                                onGroupAllLayers = { viewModel.groupAllLayers() },
                                 onDismiss = { viewModel.showCanvaLayersDialog(false) }
                             )
                         }
@@ -2404,6 +2494,34 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
+                        // Timestamp & GPS Geotag Studio Dialog
+                        if (showTimestampDialog) {
+                            TimestampDialog(
+                                onApplyTimestamp = { config ->
+                                    viewModel.applyTimestampBadge(config)
+                                },
+                                onDismiss = {
+                                    showTimestampDialog = false
+                                }
+                            )
+                        }
+
+                        // Old Photo Restorer Studio Dialog
+                        if (showOldPhotoRestorerDialog && (photoToRestoreBitmap ?: uiState.currentBitmap) != null) {
+                            val srcBmp = photoToRestoreBitmap ?: uiState.currentBitmap!!
+                            com.docu.editor.ui.dialogs.OldPhotoRestorerDialog(
+                                sourceBitmap = srcBmp,
+                                onRestored = { restoredBmp ->
+                                    viewModel.setEditedBitmap(restoredBmp)
+                                    showOldPhotoRestorerDialog = false
+                                    Toast.makeText(this@MainActivity, "Photo restored & enhanced!", Toast.LENGTH_SHORT).show()
+                                },
+                                onDismiss = {
+                                    showOldPhotoRestorerDialog = false
+                                }
+                            )
+                        }
+
                         // CamScanner Scan Code (QR / Barcode) Dialog
                         if (showScanCodeDialog) {
                             com.docu.editor.ui.dialogs.ScanCodeDialog(
@@ -2439,6 +2557,138 @@ class MainActivity : ComponentActivity() {
                             BatchResizeStudioDialog(
                                 onDismiss = {
                                     showBatchResizeStudioDialog = false
+                                }
+                            )
+                        }
+
+                        // Auto-Merge & Smart Batch Compressor Studio Dialog (Govt Portal Special)
+                        if (showAutoMergeCompressorDialog) {
+                            AutoMergeKbCompressorDialog(
+                                onOpenInEditor = { file ->
+                                    viewModel.loadDocumentUri(Uri.fromFile(file))
+                                    showAutoMergeCompressorDialog = false
+                                },
+                                onDismiss = {
+                                    showAutoMergeCompressorDialog = false
+                                }
+                            )
+                        }
+
+                        // Pro Sample Document Sandbox Dialog (10 Multi-Category Templates)
+                        if (showSampleSandboxDialog) {
+                            SampleDocumentSandboxDialog(
+                                onTemplateSelected = { sampleBmp ->
+                                    viewModel.loadSampleBitmap(sampleBmp)
+                                    showSampleSandboxDialog = false
+                                    Toast.makeText(this@MainActivity, "Sample template loaded into canvas!", Toast.LENGTH_SHORT).show()
+                                },
+                                onDismiss = {
+                                    showSampleSandboxDialog = false
+                                }
+                            )
+                        }
+
+                        // Wi-Fi & Cloud Print Spooler Pro Dialog (Duplex, Page Ranges, 300 DPI)
+                        if (showPrintSpoolerDialog && uiState.currentBitmap != null) {
+                            PrintSpoolerDialog(
+                                pages = listOfNotNull(uiState.currentBitmap),
+                                documentTitle = uiState.documentTitle,
+                                onDismiss = {
+                                    showPrintSpoolerDialog = false
+                                }
+                            )
+                        }
+
+                        // PC Drop (High-Speed Wi-Fi Web Server to Laptop) Pro Dialog
+                        if (showPcDropDialog) {
+                            PcDropDialog(
+                                onDocumentReceived = { receivedFile ->
+                                    viewModel.refreshRecentDocuments()
+                                    Toast.makeText(this@MainActivity, "Received from PC: ${receivedFile.name}!", Toast.LENGTH_LONG).show()
+                                },
+                                onDismiss = {
+                                    showPcDropDialog = false
+                                }
+                            )
+                        }
+
+                        // NotebookLM-Style Multi-Page Chat with Document AI Studio Dialog
+                        if (showDocumentChatDialog && uiState.currentBitmap != null) {
+                            val pagesList = remember(pageTextsCache.toMap(), uiState.detectedItems, uiState.currentPdfPageIndex) {
+                                val currentText = uiState.detectedItems.joinToString("\n") { it.text }
+                                val fullMap = pageTextsCache.toMutableMap()
+                                if (currentText.isNotBlank()) {
+                                    fullMap[uiState.currentPdfPageIndex] = currentText
+                                }
+                                if (fullMap.isEmpty()) {
+                                    listOf(0 to (currentText.ifBlank { "No text detected on document." }))
+                                } else {
+                                    fullMap.entries.sortedBy { it.key }.map { it.key to it.value }
+                                }
+                            }
+                            val docContext = remember(pagesList, uiState.documentTitle) {
+                                DocumentChatEngine.buildDocumentContext(
+                                    pagesText = pagesList,
+                                    documentTitle = uiState.documentTitle
+                                )
+                            }
+                            DocumentChatStudioDialog(
+                                documentTitle = uiState.documentTitle.ifBlank { "Scanned Document" },
+                                totalPages = uiState.pdfPageCount.coerceAtLeast(1),
+                                currentPageIndex = uiState.currentPdfPageIndex,
+                                documentContext = docContext,
+                                apiKey = viewModel.getGeminiApiKey(),
+                                onNavigateToPage = { pageIdx ->
+                                    viewModel.jumpToPage(pageIdx)
+                                    Toast.makeText(this@MainActivity, "Navigated to Page ${pageIdx + 1}", Toast.LENGTH_SHORT).show()
+                                },
+                                onDismiss = {
+                                    showDocumentChatDialog = false
+                                }
+                            )
+                        }
+
+                        // Pro Smart Vault & Expiry Watchdog Dialog
+                        watchdogTargetDoc?.let { doc ->
+                            ExpiryWatchdogDialog(
+                                document = doc,
+                                onSave = { newCategory, newSubtype, expiryDate, expiryEpoch, hasReminder ->
+                                    viewModel.updateDocumentCategory(doc.id, newCategory, newSubtype)
+                                    viewModel.updateDocumentExpiry(doc.id, expiryDate, expiryEpoch, hasReminder)
+                                    watchdogTargetDoc = null
+                                    Toast.makeText(this@MainActivity, "Watchdog updated for ${doc.title}!", Toast.LENGTH_SHORT).show()
+                                },
+                                onDismiss = {
+                                    watchdogTargetDoc = null
+                                }
+                            )
+                        }
+
+                        // Pro Smart Expense & GST Receipt Auditor Dialog
+                        if (showExpenseAuditorDialog) {
+                            ExpenseAuditorDialog(
+                                onDismiss = {
+                                    showExpenseAuditorDialog = false
+                                }
+                            )
+                        }
+
+                        // Pro Feature 6: Hardware-Backed Biometric & Decoy Private Vault
+                        if (showPrivateVaultUnlock) {
+                            com.docu.editor.ui.vault.PrivateVaultUnlockDialog(
+                                onDismissRequest = { showPrivateVaultUnlock = false },
+                                onUnlocked = { mode ->
+                                    showPrivateVaultUnlock = false
+                                    activeVaultMode = mode
+                                }
+                            )
+                        }
+
+                        activeVaultMode?.let { mode ->
+                            com.docu.editor.ui.vault.PrivateVaultScreen(
+                                vaultMode = mode,
+                                onLockAndClose = {
+                                    activeVaultMode = null
                                 }
                             )
                         }

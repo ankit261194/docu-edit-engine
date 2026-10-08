@@ -8,6 +8,12 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RadialGradient
 import android.graphics.Shader
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.FaceDetection
+import com.google.mlkit.vision.face.FaceDetectorOptions
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 
 /**
  * Enterprise Formal Attire & Suit Replacement Engine for Passport & ID Photos.
@@ -16,11 +22,80 @@ import android.graphics.Shader
  * with sharp, tailored formal suits, executive blazers, or official white collared shirts.
  * 
  * Features:
+ * - ISO/ICAO Passport Auto-Framing (Face height 70-75% standard).
+ * - ML Kit Face Landmark Anchoring (Snaps collar to Chin Bottom & scales to Face Width).
  * - Men's and Women's tailored business attire presets.
- * - Dynamic collar elevation and shoulder width adjustment.
+ * - Dynamic collar elevation, shoulder width, and horizontal shift adjustment.
  * - Realistic fabric shading, collar shadows, buttons, and silk tie highlights.
  */
 object PassportAttireEngine {
+
+    data class FaceAnchor(
+        val centerX: Float,
+        val chinY: Float,
+        val faceWidth: Float,
+        val faceHeight: Float
+    )
+
+    private val faceDetector by lazy {
+        val options = FaceDetectorOptions.Builder()
+            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
+            .build()
+        FaceDetection.getClient(options)
+    }
+
+    /**
+     * Detects face bounding box and chin anchor using Google ML Kit On-Device Face Detection.
+     */
+    suspend fun detectFaceAnchor(bitmap: Bitmap): FaceAnchor? = withContext(Dispatchers.Default) {
+        try {
+            val input = InputImage.fromBitmap(bitmap, 0)
+            val faces = faceDetector.process(input).await()
+            if (faces.isNotEmpty()) {
+                val face = faces.maxByOrNull { it.boundingBox.width() * it.boundingBox.height() } ?: faces[0]
+                val box = face.boundingBox
+                FaceAnchor(
+                    centerX = box.centerX().toFloat(),
+                    chinY = box.bottom.toFloat(),
+                    faceWidth = box.width().toFloat(),
+                    faceHeight = box.height().toFloat()
+                )
+            } else null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * ISO/ICAO Standard Passport Auto-Framing:
+     * Centers head and crops portrait so facial height occupies 70% to 75% of total passport height.
+     */
+    suspend fun autoFrameIcaoPassport(
+        source: Bitmap,
+        targetAspect: Float = 35f / 45f // Standard 35x45mm passport ratio
+    ): Bitmap = withContext(Dispatchers.Default) {
+        val anchor = detectFaceAnchor(source) ?: return@withContext source.copy(Bitmap.Config.ARGB_8888, true)
+
+        // ICAO Doc 9303: Face height ~ 72% of photo height
+        val desiredHeight = (anchor.faceHeight / 0.72f).toInt()
+        val desiredWidth = (desiredHeight * targetAspect).toInt()
+
+        val desiredTop = (anchor.chinY - anchor.faceHeight * 1.18f).toInt().coerceAtLeast(0)
+        val desiredLeft = (anchor.centerX - desiredWidth / 2f).toInt().coerceAtLeast(0)
+
+        val safeW = (desiredWidth).coerceAtMost(source.width - desiredLeft)
+        val safeH = (desiredHeight).coerceAtMost(source.height - desiredTop)
+
+        if (safeW <= 10 || safeH <= 10) return@withContext source.copy(Bitmap.Config.ARGB_8888, true)
+
+        val cropped = Bitmap.createBitmap(source, desiredLeft, desiredTop, safeW, safeH)
+        val targetW = 600
+        val targetH = (600 / targetAspect).toInt()
+        val scaled = Bitmap.createScaledBitmap(cropped, targetW, targetH, true)
+        if (cropped != source) cropped.recycle()
+        scaled
+    }
 
     enum class AttireGender {
         ALL, MEN, WOMEN
@@ -44,17 +119,15 @@ object PassportAttireEngine {
 
     /**
      * Overlays the selected formal attire on top of the portrait.
-     * 
-     * @param sourceBitmap The portrait bitmap (preferably after background replacement)
-     * @param attire The selected attire preset
-     * @param verticalShiftRatio Up/down adjustment to fit neck height (-0.15f to +0.15f)
-     * @param shoulderScale Shoulder width scale factor (0.85f to 1.25f)
+     * Snaps collar to chin bottom and scales to face width if anchor is provided.
      */
     fun applyAttire(
         sourceBitmap: Bitmap,
         attire: AttireType,
         verticalShiftRatio: Float = 0f,
-        shoulderScale: Float = 1.0f
+        shoulderScale: Float = 1.0f,
+        horizontalShiftRatio: Float = 0f,
+        anchor: FaceAnchor? = null
     ): Bitmap {
         if (attire == AttireType.NONE) {
             return sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
@@ -68,51 +141,56 @@ object PassportAttireEngine {
         val wF = width.toFloat()
         val hF = height.toFloat()
 
-        // Base anchor: Neck/chest opening usually begins around 62-65% down from top
-        val baseNeckY = hF * 0.63f + (hF * verticalShiftRatio)
-        val centerX = wF * 0.5f
+        // Face Landmark Chin Anchoring
+        val baseCenterX = anchor?.centerX ?: (wF * 0.5f)
+        val baseChinY = anchor?.chinY?.let { it * 0.98f } ?: (hF * 0.63f)
+        val baseWidthScale = anchor?.let { (it.faceWidth / (wF * 0.38f)).coerceIn(0.75f, 1.45f) } ?: 1.0f
+
+        val centerX = baseCenterX + (wF * horizontalShiftRatio)
+        val neckY = baseChinY + (hF * verticalShiftRatio)
+        val finalScale = baseWidthScale * shoulderScale
 
         when (attire) {
             AttireType.MEN_BLACK_SUIT -> renderMenSuit(
-                canvas, wF, hF, centerX, baseNeckY, shoulderScale,
+                canvas, wF, hF, centerX, neckY, finalScale,
                 suitColor = Color.parseColor("#18181B"), // Jet black
                 lapelColor = Color.parseColor("#09090B"),
                 tieColor = Color.parseColor("#1D4ED8"), // Royal Blue Silk Tie
                 tieHighlight = Color.parseColor("#3B82F6")
             )
             AttireType.MEN_NAVY_BLAZER -> renderMenSuit(
-                canvas, wF, hF, centerX, baseNeckY, shoulderScale,
+                canvas, wF, hF, centerX, neckY, finalScale,
                 suitColor = Color.parseColor("#1E3A8A"), // Navy Blue
                 lapelColor = Color.parseColor("#172554"),
                 tieColor = Color.parseColor("#991B1B"), // Deep Red Tie
                 tieHighlight = Color.parseColor("#DC2626")
             )
             AttireType.MEN_CHARCOAL_SUIT -> renderMenSuit(
-                canvas, wF, hF, centerX, baseNeckY, shoulderScale,
+                canvas, wF, hF, centerX, neckY, finalScale,
                 suitColor = Color.parseColor("#334155"), // Slate Charcoal
                 lapelColor = Color.parseColor("#1E293B"),
                 tieColor = Color.parseColor("#0F172A"), // Dark Grey Tie
                 tieHighlight = Color.parseColor("#475569")
             )
             AttireType.MEN_WHITE_SHIRT -> renderCollaredShirt(
-                canvas, wF, hF, centerX, baseNeckY, shoulderScale,
+                canvas, wF, hF, centerX, neckY, finalScale,
                 shirtColor = Color.parseColor("#F8FAFC"),
                 collarColor = Color.parseColor("#FFFFFF"),
                 shadowColor = Color.parseColor("#CBD5E1"),
                 buttonColor = Color.parseColor("#E2E8F0")
             )
             AttireType.WOMEN_BLACK_BLAZER -> renderWomenBlazer(
-                canvas, wF, hF, centerX, baseNeckY, shoulderScale,
+                canvas, wF, hF, centerX, neckY, finalScale,
                 blazerColor = Color.parseColor("#18181B"),
                 innerTopColor = Color.parseColor("#FFFFFF")
             )
             AttireType.WOMEN_NAVY_BLAZER -> renderWomenBlazer(
-                canvas, wF, hF, centerX, baseNeckY, shoulderScale,
+                canvas, wF, hF, centerX, neckY, finalScale,
                 blazerColor = Color.parseColor("#1E3A8A"),
                 innerTopColor = Color.parseColor("#F1F5F9")
             )
             AttireType.WOMEN_WHITE_SHIRT -> renderCollaredShirt(
-                canvas, wF, hF, centerX, baseNeckY, shoulderScale,
+                canvas, wF, hF, centerX, neckY, finalScale,
                 shirtColor = Color.parseColor("#FAFAFA"),
                 collarColor = Color.parseColor("#FFFFFF"),
                 shadowColor = Color.parseColor("#D4D4D8"),

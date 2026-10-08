@@ -82,6 +82,7 @@ fun SignatureDialog(
     onExtractSignatureClicked: (inkColor: Int) -> Unit,
     onExtractStampClicked: (isRed: Boolean) -> Unit,
     onExtractStampTargetClicked: ((com.docu.editor.core.signature.StampExtractor.StampColorTarget) -> Unit)? = null,
+    onExtractStampTargetDeOccludedClicked: ((com.docu.editor.core.signature.StampExtractor.StampColorTarget, Boolean) -> Unit)? = null,
     onApplyToDocument: (Bitmap) -> Unit = {},
     onDismiss: () -> Unit
 ) {
@@ -90,6 +91,7 @@ fun SignatureDialog(
     var selectedTab by remember { mutableIntStateOf(0) } // 0: Signature, 1: Stamp, 2: Seal, 3: Vault
     var selectedColorIndex by remember { mutableIntStateOf(0) } // 0: Blue, 1: Black, 2: Red, 3: Green
     var selectedStampColorTarget by remember { mutableStateOf(com.docu.editor.core.signature.StampExtractor.StampColorTarget.RED_STAMP) }
+    var deOccludeText by remember { mutableStateOf(true) }
     var recentVaultItems by remember { mutableStateOf<List<Pair<SavedSignatureItem, Bitmap>>>(emptyList()) }
 
     LaunchedEffect(selectedTab) {
@@ -327,6 +329,38 @@ fun SignatureDialog(
                         }
                     )
                 } else if (selectedTab == 1 || selectedTab == 2) {
+                    if (selectedTab == 1) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFF0FDF4),
+                            border = BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("✒️", fontSize = 13.sp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Column {
+                                    Text(
+                                        text = "Vector Pen Stroke Smoothing Active",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF15803D)
+                                    )
+                                    Text(
+                                        text = "Euclidean distance transform & authentic ink chemistry",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFF166534)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     // Source Image Picker
                     Box(
                         modifier = Modifier
@@ -410,6 +444,42 @@ fun SignatureDialog(
                                 }
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Text-Under-Stamp De-Occlusion Switch
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFF8FAFC),
+                            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Text-Under-Stamp De-Occlusion",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF1E293B)
+                                    )
+                                    Text(
+                                        text = "Inpaints overlapping printed black text for a clean seal",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFF64748B)
+                                    )
+                                }
+                                androidx.compose.material3.Switch(
+                                    checked = deOccludeText,
+                                    onCheckedChange = { deOccludeText = it }
+                                )
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(18.dp))
@@ -419,7 +489,9 @@ fun SignatureDialog(
                             if (selectedTab == 1) {
                                 onExtractSignatureClicked(inkColors[selectedColorIndex].second)
                             } else {
-                                if (onExtractStampTargetClicked != null) {
+                                if (onExtractStampTargetDeOccludedClicked != null) {
+                                    onExtractStampTargetDeOccludedClicked(selectedStampColorTarget, deOccludeText)
+                                } else if (onExtractStampTargetClicked != null) {
                                     onExtractStampTargetClicked(selectedStampColorTarget)
                                 } else {
                                     onExtractStampClicked(selectedStampColorTarget == com.docu.editor.core.signature.StampExtractor.StampColorTarget.RED_STAMP)
@@ -431,7 +503,7 @@ fun SignatureDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = if (selectedTab == 1) "Extract 100% Alpha Signature" else "Isolate Official Stamp",
+                            text = if (selectedTab == 1) "Extract Vector-Smooth Signature" else "Isolate Clean Official Seal",
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp

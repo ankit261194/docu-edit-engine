@@ -54,7 +54,9 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -98,12 +100,15 @@ fun IdPhotoMakerDialog(
     // Formal Attire & Suit Replacement
     var selectedAttire by remember { mutableStateOf(PassportAttireEngine.AttireType.NONE) }
     var attireOffsetY by remember { mutableFloatStateOf(0f) }
+    var attireOffsetX by remember { mutableFloatStateOf(0f) }
     var attireScale by remember { mutableFloatStateOf(1.0f) }
+    var attireAnchor by remember { mutableStateOf<PassportAttireEngine.FaceAnchor?>(null) }
     var attireBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var isFramingIcao by remember { mutableStateOf(false) }
 
     // Border and Cutting guides
     var borderThickness by remember { mutableFloatStateOf(2f) }
-    var selectedBorderColor by remember { mutableIntStateOf(android.graphics.Color.parseColor("#CBD5E1")) }
+    var selectedBorderColor by remember { mutableIntStateOf(android.graphics.Color.BLACK) }
     var drawCutGuides by remember { mutableStateOf(true) }
 
     // Print sheet format
@@ -115,11 +120,13 @@ fun IdPhotoMakerDialog(
     var candidateName by remember { mutableStateOf("") }
     val todayFormatted = remember { SimpleDateFormat("dd-MM-yyyy", Locale.getDefault()).format(Date()) }
     var dateOfPhoto by remember { mutableStateOf(todayFormatted) }
+    var dopTextScale by remember { mutableFloatStateOf(1.0f) }
 
     // Export Quality Preset: 0 = 300 DPI Lab Print, 1 = <=50 KB Govt Exam, 2 = <=20 KB Portal
     var selectedExportPreset by remember { mutableIntStateOf(0) }
 
     var processedPhoto by remember { mutableStateOf<Bitmap?>(null) }
+    val coroutineScope = rememberCoroutineScope()
 
     val bgColors = listOf(
         Pair("Studio White", android.graphics.Color.WHITE),
@@ -139,7 +146,8 @@ fun IdPhotoMakerDialog(
             borderWidthPx = borderThickness,
             borderColor = selectedBorderColor,
             candidateName = if (addGovtStrip) candidateName else null,
-            dateOfPhoto = if (addGovtStrip) dateOfPhoto else null
+            dateOfPhoto = if (addGovtStrip) dateOfPhoto else null,
+            dopTextScale = dopTextScale
         )
         processedPhoto = when (selectedSheetType) {
             CamScannerToolsEngine.PrintSheetType.SINGLE -> single
@@ -184,10 +192,22 @@ fun IdPhotoMakerDialog(
         enhancedBitmap = enhanced
     }
 
-    // Pipeline Step 3: Formal Attire / Suit Overlay
-    LaunchedEffect(enhancedBitmap, selectedAttire, attireOffsetY, attireScale) {
+    // Pipeline Step 3: Formal Attire / Suit Overlay with Face Landmark Anchor
+    LaunchedEffect(enhancedBitmap) {
         val src = enhancedBitmap ?: return@LaunchedEffect
-        val suited = PassportAttireEngine.applyAttire(src, selectedAttire, attireOffsetY, attireScale)
+        attireAnchor = PassportAttireEngine.detectFaceAnchor(src)
+    }
+
+    LaunchedEffect(enhancedBitmap, selectedAttire, attireOffsetY, attireOffsetX, attireScale, attireAnchor) {
+        val src = enhancedBitmap ?: return@LaunchedEffect
+        val suited = PassportAttireEngine.applyAttire(
+            sourceBitmap = src,
+            attire = selectedAttire,
+            verticalShiftRatio = attireOffsetY,
+            shoulderScale = attireScale,
+            horizontalShiftRatio = attireOffsetX,
+            anchor = attireAnchor
+        )
         attireBitmap = suited
         renderIdPhoto(suited)
     }
@@ -201,6 +221,7 @@ fun IdPhotoMakerDialog(
         addGovtStrip,
         candidateName,
         dateOfPhoto,
+        dopTextScale,
         borderThickness,
         selectedBorderColor
     ) {
@@ -329,6 +350,45 @@ fun IdPhotoMakerDialog(
                             Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = Color(0xFF7C3AED), modifier = Modifier.size(36.dp))
                             Spacer(modifier = Modifier.height(8.dp))
                             Text("Select selfie or portrait photo", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                // 1-Tap ICAO Passport Auto-Framing
+                if (activeBitmap != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFEDE9FE),
+                        border = BorderStroke(1.dp, Color(0xFFC4B5FD)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable(enabled = !isFramingIcao) {
+                                coroutineScope.launch {
+                                    val src = activeBitmap ?: return@launch
+                                    isFramingIcao = true
+                                    val targetAspect = selectedSize.widthMm.toFloat() / selectedSize.heightMm.toFloat()
+                                    val framed = PassportAttireEngine.autoFrameIcaoPassport(src, targetAspect)
+                                    activeBitmap = framed
+                                    isFramingIcao = false
+                                }
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            if (isFramingIcao) {
+                                CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color(0xFF7C3AED), strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Analyzing Face Biometrics & Auto-Framing...", fontSize = 11.5.sp, color = Color(0xFF7C3AED), fontWeight = FontWeight.Bold)
+                            } else {
+                                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color(0xFF7C3AED), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("📐 1-Tap ICAO Auto-Framing (72% Face Standard)", fontSize = 11.5.sp, color = Color(0xFF7C3AED), fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
                 }
@@ -504,7 +564,7 @@ fun IdPhotoMakerDialog(
                     }
                 }
 
-                // If attire selected, show Collar Height & Shoulder Scale sliders
+                // If attire selected, show Collar Height, Shoulder Scale & Horizontal Shift sliders
                 if (selectedAttire != PassportAttireEngine.AttireType.NONE) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Card(
@@ -514,6 +574,35 @@ fun IdPhotoMakerDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("🎯 Collar Alignment & Fit", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                    if (attireAnchor != null) {
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Surface(shape = RoundedCornerShape(4.dp), color = Color(0xFFDCFCE7)) {
+                                            Text("CHIN LOCKED", fontSize = 8.5.sp, color = Color(0xFF16A34A), fontWeight = FontWeight.Black, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                        }
+                                    }
+                                }
+                                Text(
+                                    "Reset Fit",
+                                    fontSize = 10.5.sp,
+                                    color = Color(0xFF7C3AED),
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.clickable {
+                                        attireOffsetY = 0f
+                                        attireOffsetX = 0f
+                                        attireScale = 1.0f
+                                    }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -541,6 +630,21 @@ fun IdPhotoMakerDialog(
                                 value = attireScale,
                                 onValueChange = { attireScale = it },
                                 valueRange = 0.85f..1.25f,
+                                colors = SliderDefaults.colors(thumbColor = Color(0xFF7C3AED), activeTrackColor = Color(0xFF7C3AED))
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Horizontal Shift (Center balance)", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                Text("${(attireOffsetX * 100).toInt()}%", fontSize = 10.sp, color = Color(0xFF7C3AED), fontWeight = FontWeight.Bold)
+                            }
+                            Slider(
+                                value = attireOffsetX,
+                                onValueChange = { attireOffsetX = it },
+                                valueRange = -0.10f..0.10f,
                                 colors = SliderDefaults.colors(thumbColor = Color(0xFF7C3AED), activeTrackColor = Color(0xFF7C3AED))
                             )
                         }
@@ -586,15 +690,20 @@ fun IdPhotoMakerDialog(
 
                 if (borderThickness > 0f) {
                     Spacer(modifier = Modifier.height(6.dp))
+                    Text("Border Color:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(4.dp))
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Border Color:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         val borderColors = listOf(
+                            Pair("Studio Black", android.graphics.Color.BLACK),
+                            Pair("Dark Slate", android.graphics.Color.parseColor("#1E293B")),
+                            Pair("Classic Navy", android.graphics.Color.parseColor("#1E3A8A")),
                             Pair("Slate Gray", android.graphics.Color.parseColor("#CBD5E1")),
-                            Pair("Pure Black", android.graphics.Color.BLACK),
                             Pair("Crisp White", android.graphics.Color.WHITE)
                         )
                         for ((name, cVal) in borderColors) {
@@ -699,6 +808,38 @@ fun IdPhotoMakerDialog(
                     }
                 }
 
+                if (selectedSheetType == CamScannerToolsEngine.PrintSheetType.CUSTOM) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Select Copy Count:", fontSize = 11.5.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        val copiesOptions = listOf(2, 4, 6, 8, 12, 16, 24, 32)
+                        for (count in copiesOptions) {
+                            val isSel = customCopies == count
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isSel) Color(0xFF7C3AED) else MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { customCopies = count }
+                            ) {
+                                Text(
+                                    text = "$count copies",
+                                    fontSize = 10.5.sp,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 if (selectedSheetType != CamScannerToolsEngine.PrintSheetType.SINGLE) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
@@ -778,6 +919,22 @@ fun IdPhotoMakerDialog(
                                     Text("Today", color = Color(0xFF7C3AED), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("DOP Strip Font Scale", fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                Text("${(dopTextScale * 100).toInt()}%", fontSize = 10.sp, color = Color(0xFF7C3AED), fontWeight = FontWeight.Bold)
+                            }
+                            Slider(
+                                value = dopTextScale,
+                                onValueChange = { dopTextScale = it },
+                                valueRange = 0.75f..1.25f,
+                                colors = SliderDefaults.colors(thumbColor = Color(0xFF7C3AED), activeTrackColor = Color(0xFF7C3AED))
+                            )
                         }
                     }
                 }

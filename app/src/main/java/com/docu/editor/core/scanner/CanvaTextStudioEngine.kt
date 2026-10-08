@@ -32,7 +32,9 @@ object CanvaTextStudioEngine {
         isBold: Boolean = true,
         isItalic: Boolean = false,
         fontFamily: String = "Sans-Serif",
-        effect: TextEffectType = TextEffectType.NONE
+        effect: TextEffectType = TextEffectType.NONE,
+        letterSpacingEm: Float = 0.05f,
+        lineHeightMultiplier: Float = 1.2f
     ): Bitmap {
         val safeText = if (text.isBlank()) "Type Here" else text
 
@@ -52,18 +54,31 @@ object CanvaTextStudioEngine {
                 else -> Typeface.SANS_SERIF
             }
             typeface = Typeface.create(baseTypeface, style)
-            letterSpacing = 0.05f
+            letterSpacing = letterSpacingEm
         }
 
+        val lines = safeText.split("\n")
         val fontMetrics = basePaint.fontMetrics
-        val textWidth = basePaint.measureText(safeText)
-        val textHeight = fontMetrics.descent - fontMetrics.ascent
+        val singleLineHeight = fontMetrics.descent - fontMetrics.ascent
+        val lineStep = singleLineHeight * lineHeightMultiplier.coerceIn(0.7f, 2.5f)
+
+        var maxLineWidth = 0f
+        for (line in lines) {
+            val w = basePaint.measureText(line)
+            if (w > maxLineWidth) maxLineWidth = w
+        }
+
+        val totalContentHeight = if (lines.size <= 1) {
+            singleLineHeight
+        } else {
+            (lines.size - 1) * lineStep + singleLineHeight
+        }
 
         val padX = if (backgroundColor != null || effect == TextEffectType.NEON) 48f else 18f
         val padY = if (backgroundColor != null || effect == TextEffectType.NEON) 32f else 14f
 
-        val totalWidth = (textWidth + padX * 2).toInt().coerceAtLeast(60)
-        val totalHeight = (textHeight + padY * 2).toInt().coerceAtLeast(40)
+        val totalWidth = (maxLineWidth + padX * 2).toInt().coerceAtLeast(60)
+        val totalHeight = (totalContentHeight + padY * 2).toInt().coerceAtLeast(40)
 
         val bmp = Bitmap.createBitmap(totalWidth, totalHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
@@ -79,90 +94,92 @@ object CanvaTextStudioEngine {
             canvas.drawRoundRect(rect, cornerRadius, cornerRadius, bgPaint)
         }
 
-        val baseline = padY - fontMetrics.ascent
+        // 2. Render Text lines based on Effect
+        for ((idx, line) in lines.withIndex()) {
+            val baseline = padY - fontMetrics.ascent + idx * lineStep
 
-        // 2. Render Text based on Effect
-        when (effect) {
-            TextEffectType.NONE -> {
-                canvas.drawText(safeText, padX, baseline, basePaint)
-            }
-            TextEffectType.NEON -> {
-                // Intense Multi-Layered Neon Glow
-                val glowPaint = Paint(basePaint).apply {
-                    style = Paint.Style.STROKE
-                    strokeWidth = 14f
-                    maskFilter = BlurMaskFilter(16f, BlurMaskFilter.Blur.NORMAL)
-                    color = textColor
-                    alpha = 180
+            when (effect) {
+                TextEffectType.NONE -> {
+                    canvas.drawText(line, padX, baseline, basePaint)
                 }
-                canvas.drawText(safeText, padX, baseline, glowPaint)
+                TextEffectType.NEON -> {
+                    // Intense Multi-Layered Neon Glow
+                    val glowPaint = Paint(basePaint).apply {
+                        style = Paint.Style.STROKE
+                        strokeWidth = 14f
+                        maskFilter = BlurMaskFilter(16f, BlurMaskFilter.Blur.NORMAL)
+                        color = textColor
+                        alpha = 180
+                    }
+                    canvas.drawText(line, padX, baseline, glowPaint)
 
-                glowPaint.strokeWidth = 6f
-                glowPaint.maskFilter = BlurMaskFilter(6f, BlurMaskFilter.Blur.NORMAL)
-                glowPaint.alpha = 230
-                canvas.drawText(safeText, padX, baseline, glowPaint)
+                    glowPaint.strokeWidth = 6f
+                    glowPaint.maskFilter = BlurMaskFilter(6f, BlurMaskFilter.Blur.NORMAL)
+                    glowPaint.alpha = 230
+                    canvas.drawText(line, padX, baseline, glowPaint)
 
-                // White-hot core
-                val corePaint = Paint(basePaint).apply {
-                    color = Color.WHITE
+                    // White-hot core
+                    val corePaint = Paint(basePaint).apply {
+                        color = Color.WHITE
+                    }
+                    canvas.drawText(line, padX, baseline, corePaint)
                 }
-                canvas.drawText(safeText, padX, baseline, corePaint)
-            }
-            TextEffectType.GLITCH -> {
-                // Retro VHS Chromatic Aberration
-                val cyanPaint = Paint(basePaint).apply {
-                    color = Color.rgb(0, 240, 255)
-                    alpha = 200
-                }
-                canvas.drawText(safeText, padX - 5f, baseline, cyanPaint)
+                TextEffectType.GLITCH -> {
+                    // Retro VHS Chromatic Aberration
+                    val cyanPaint = Paint(basePaint).apply {
+                        color = Color.rgb(0, 240, 255)
+                        alpha = 200
+                    }
+                    canvas.drawText(line, padX - 5f, baseline, cyanPaint)
 
-                val magentaPaint = Paint(basePaint).apply {
-                    color = Color.rgb(255, 0, 110)
-                    alpha = 200
-                }
-                canvas.drawText(safeText, padX + 5f, baseline, magentaPaint)
+                    val magentaPaint = Paint(basePaint).apply {
+                        color = Color.rgb(255, 0, 110)
+                        alpha = 200
+                    }
+                    canvas.drawText(line, padX + 5f, baseline, magentaPaint)
 
-                canvas.drawText(safeText, padX, baseline, basePaint)
-            }
-            TextEffectType.SHADOW_3D -> {
-                // Deep Isometric Extrusion Shadow
-                val shadowSteps = 6
-                val shadowPaint = Paint(basePaint).apply {
-                    color = Color.argb(120, 20, 20, 25)
+                    canvas.drawText(line, padX, baseline, basePaint)
                 }
-                for (step in shadowSteps downTo 1) {
-                    canvas.drawText(safeText, padX + step * 2f, baseline + step * 2.5f, shadowPaint)
+                TextEffectType.SHADOW_3D -> {
+                    // Deep Isometric Extrusion Shadow
+                    val shadowSteps = 6
+                    val shadowPaint = Paint(basePaint).apply {
+                        color = Color.argb(120, 20, 20, 25)
+                    }
+                    for (step in shadowSteps downTo 1) {
+                        canvas.drawText(line, padX + step * 2f, baseline + step * 2.5f, shadowPaint)
+                    }
+                    canvas.drawText(line, padX, baseline, basePaint)
                 }
-                canvas.drawText(safeText, padX, baseline, basePaint)
-            }
-            TextEffectType.HOLLOW_OUTLINE -> {
-                val outlinePaint = Paint(basePaint).apply {
-                    style = Paint.Style.STROKE
-                    strokeWidth = 5f
-                    color = textColor
+                TextEffectType.HOLLOW_OUTLINE -> {
+                    val outlinePaint = Paint(basePaint).apply {
+                        style = Paint.Style.STROKE
+                        strokeWidth = 5f
+                        color = textColor
+                    }
+                    canvas.drawText(line, padX, baseline, outlinePaint)
                 }
-                canvas.drawText(safeText, padX, baseline, outlinePaint)
-            }
-            TextEffectType.DUAL_GRADIENT -> {
-                val gradPaint = Paint(basePaint).apply {
-                    shader = LinearGradient(
-                        padX, baseline - textHeight,
-                        padX + textWidth, baseline,
-                        intArrayOf(Color.rgb(139, 92, 246), Color.rgb(6, 182, 212), Color.rgb(244, 63, 94)),
-                        null,
-                        Shader.TileMode.CLAMP
-                    )
+                TextEffectType.DUAL_GRADIENT -> {
+                    val lineW = basePaint.measureText(line).coerceAtLeast(10f)
+                    val gradPaint = Paint(basePaint).apply {
+                        shader = LinearGradient(
+                            padX, baseline - singleLineHeight,
+                            padX + lineW, baseline,
+                            intArrayOf(Color.rgb(139, 92, 246), Color.rgb(6, 182, 212), Color.rgb(244, 63, 94)),
+                            null,
+                            Shader.TileMode.CLAMP
+                        )
+                    }
+                    canvas.drawText(line, padX, baseline, gradPaint)
                 }
-                canvas.drawText(safeText, padX, baseline, gradPaint)
-            }
-            TextEffectType.CURVED_ARC -> {
-                // Renders text along an arched curve
-                val arcPath = Path().apply {
-                    val r = totalWidth * 0.9f
-                    val arcRect = RectF(padX, baseline - textHeight * 0.4f, padX + textWidth, baseline + textHeight * 1.5f)
-                    arcTo(arcRect, 190f, 160f, true)
+                TextEffectType.CURVED_ARC -> {
+                    // Renders text along an arched curve
+                    val arcPath = Path().apply {
+                        val arcRect = RectF(padX, baseline - singleLineHeight * 0.4f, padX + maxLineWidth, baseline + singleLineHeight * 1.5f)
+                        arcTo(arcRect, 190f, 160f, true)
+                    }
+                    canvas.drawTextOnPath(line, arcPath, 0f, 0f, basePaint)
                 }
-                canvas.drawTextOnPath(safeText, arcPath, 0f, 0f, basePaint)
             }
         }
 

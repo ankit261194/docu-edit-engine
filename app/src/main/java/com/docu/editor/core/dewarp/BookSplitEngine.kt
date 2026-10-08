@@ -24,7 +24,8 @@ object BookSplitEngine {
 
     suspend fun splitBookSpread(
         source: Bitmap,
-        autoDewarpCurvature: Boolean = true
+        autoDewarpCurvature: Boolean = true,
+        removeSpineShadow: Boolean = true
     ): BookSplitResult = withContext(Dispatchers.Default) {
         val width = source.width
         val height = source.height
@@ -76,32 +77,47 @@ object BookSplitEngine {
         val splitX = bestSplitX.coerceIn((width * 0.38f).toInt(), (width * 0.62f).toInt())
 
         // 2. Crop Left and Right pages
-        var rawLeft = Bitmap.createBitmap(source, 0, 0, splitX, height)
-        var rawRight = Bitmap.createBitmap(source, splitX, 0, width - splitX, height)
+        val rawLeft = Bitmap.createBitmap(source, 0, 0, splitX, height)
+        val rawRight = Bitmap.createBitmap(source, splitX, 0, width - splitX, height)
 
-        // 3. Optional Spine Curvature Dewarping
-        val finalLeft: Bitmap
-        val finalRight: Bitmap
-
-        if (autoDewarpCurvature) {
-            // Left page binding curve is on its RIGHT edge
-            finalLeft = BookCurveDewarper.flattenBookCurvature(
+        // 3. Spine Curvature Dewarping
+        val dewarpedLeft = if (autoDewarpCurvature) {
+            BookCurveDewarper.flattenBookCurvature(
                 sourceBitmap = rawLeft,
                 spine = BookCurveDewarper.SpinePosition.RIGHT_SPINE,
                 curvatureIntensity = 0.35f
-            )
-            rawLeft.recycle()
+            ).also { rawLeft.recycle() }
+        } else {
+            rawLeft
+        }
 
-            // Right page binding curve is on its LEFT edge
-            finalRight = BookCurveDewarper.flattenBookCurvature(
+        val dewarpedRight = if (autoDewarpCurvature) {
+            BookCurveDewarper.flattenBookCurvature(
                 sourceBitmap = rawRight,
                 spine = BookCurveDewarper.SpinePosition.LEFT_SPINE,
                 curvatureIntensity = 0.35f
-            )
-            rawRight.recycle()
+            ).also { rawRight.recycle() }
         } else {
-            finalLeft = rawLeft
-            finalRight = rawRight
+            rawRight
+        }
+
+        // 4. Spine Crease Shadow Removal & Illumination
+        val finalLeft = if (removeSpineShadow) {
+            SpineShadowRemover.removeSpineShadow(
+                source = dewarpedLeft,
+                spineEdge = SpineShadowRemover.SpineEdge.RIGHT_EDGE
+            ).also { dewarpedLeft.recycle() }
+        } else {
+            dewarpedLeft
+        }
+
+        val finalRight = if (removeSpineShadow) {
+            SpineShadowRemover.removeSpineShadow(
+                source = dewarpedRight,
+                spineEdge = SpineShadowRemover.SpineEdge.LEFT_EDGE
+            ).also { dewarpedRight.recycle() }
+        } else {
+            dewarpedRight
         }
 
         BookSplitResult(

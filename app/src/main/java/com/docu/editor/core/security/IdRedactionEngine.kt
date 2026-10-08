@@ -9,11 +9,17 @@ import android.graphics.RectF
 import com.docu.editor.core.ocr.model.DetectedTextItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.opencv.android.Utils
+import org.opencv.core.Mat
+import org.opencv.imgproc.Imgproc
+import org.opencv.objdetect.QRCodeDetector
 
 /**
- * Enterprise ID & Sensitive Document Auto-Redaction Engine.
+ * Enterprise ID & Sensitive Document Auto-Redaction Engine with Aadhaar QR Sanitizer.
  * Features:
  * - Aadhaar Card 12-digit detection & legal masking (first 8 digits masked: XXXX XXXX 1234) complying with UIDAI guidelines.
+ * - Aadhaar QR Code Sanitizer using OpenCV QRCodeDetector to detect, decode, and mask embedded QR codes
+ *   preventing identity leakage via handheld barcode scanners.
  * - PAN Card 10-char alphanumeric detection & privacy box redaction.
  * - Credit/Debit Card 16-digit / 15-digit detection.
  * - Passport, Voter ID (EPIC), and Driving License detection.
@@ -33,6 +39,7 @@ object IdRedactionEngine {
     data class RedactionOptions(
         val mode: RedactionMode = RedactionMode.AADHAAR_MASK,
         val redactAadhaar: Boolean = true,
+        val sanitizeAadhaarQr: Boolean = true,
         val redactPan: Boolean = true,
         val redactCards: Boolean = true,
         val redactPassport: Boolean = true,
@@ -79,6 +86,7 @@ object IdRedactionEngine {
         val canvas = Canvas(output)
         var count = 0
         val details = mutableListOf<String>()
+        var aadhaarDetected = false
 
         for (item in detectedItems) {
             val text = item.text.trim()
@@ -90,6 +98,7 @@ object IdRedactionEngine {
             // 1. Aadhaar Card Pattern
             if (options.redactAadhaar && AADHAAR_REGEX.containsMatchIn(text)) {
                 matchedType = "Aadhaar Card"
+                aadhaarDetected = true
                 val match = AADHAAR_REGEX.find(text)?.value ?: text
                 val digitsOnly = match.filter { it.isDigit() }
                 val last4 = if (digitsOnly.length >= 4) digitsOnly.takeLast(4) else "XXXX"
@@ -166,11 +175,177 @@ object IdRedactionEngine {
             }
         }
 
+        // 10. Aadhaar QR Code Detection & Privacy Sanitization
+        if (options.sanitizeAadhaarQr) {
+            val (qrBox, qrData) = detectQrCodeBounds(sourceBitmap)
+            if (qrBox != null) {
+                val isAadhaarQr = aadhaarDetected ||
+                        options.redactAadhaar ||
+                        (qrData != null && (
+                            qrData.contains("uid", ignoreCase = true) ||
+                            qrData.contains("PrintLetterBarcodeData", ignoreCase = true) ||
+                            qrData.contains("Aadhaar", ignoreCase = true) ||
+                            qrData.contains("yob", ignoreCase = true) ||
+                            qrData.contains("gender", ignoreCase = true)
+                        ))
+
+                if (isAadhaarQr) {
+                    count++
+                    details.add("Aadhaar QR Code (Sanitized for Privacy)")
+                    applyQrSanitization(canvas, output, qrBox, options.mode)
+                }
+            }
+        }
+
         RedactionResult(
             redactedBitmap = output,
             redactedCount = count,
             details = details
         )
+    }
+
+    /**
+     * Uses OpenCV QRCodeDetector to identify embedded 2D QR codes on identity cards.
+     */
+    private fun detectQrCodeBounds(sourceBitmap: Bitmap): Pair<Rect?, String?> {
+        val mat = Mat()
+        val gray = Mat()
+        val points = Mat()
+        try {
+            Utils.bitmapToMat(sourceBitmap, mat)
+            Imgproc.cvtColor(mat, gray, Imgproc.COLOR_RGBA2GRAY)
+
+            val qrDetector = QRCodeDetector()
+            val decoded = qrDetector.detectAndDecode(gray, points)
+
+            val hasPoints = if (!points.empty() && points.total() >= 4) {
+                true
+            } else {
+                qrDetector.detect(gray, points) && !points.empty() && points.total() >= 4
+            }
+
+            if (hasPoints) {
+                val totalFloats = (points.total() * points.channels()).toInt()
+                val pts = FloatArray(totalFloats)
+                points.get(0, 0, pts)
+
+                if (pts.size >= 8) {
+                    var minX = Float.MAX_VALUE
+                    var minY = Float.MAX_VALUE
+                    var maxX = Float.MIN_VALUE
+                    var maxY = Float.MIN_VALUE
+
+                    for (i in 0 until 8 step 2) {
+                        val px = pts[i]
+                        val py = pts[i + 1]
+                        if (px < minX) minX = px
+                        if (px > maxX) maxX = px
+                        if (py < minY) minY = py
+                        if (py > maxY) maxY = py
+                    }
+
+                    if (minX < maxX && minY < maxY) {
+                        val pad = 12
+                        val rect = Rect(
+                            (minX - pad).toInt().coerceAtLeast(0),
+                            (minY - pad).toInt().coerceAtLeast(0),
+                            (maxX + pad).toInt().coerceAtMost(sourceBitmap.width),
+                            (maxY + pad).toInt().coerceAtMost(sourceBitmap.height)
+                        )
+                        return Pair(rect, if (!decoded.isNullOrBlank()) decoded else null)
+                    }
+                }
+            }
+            return Pair(null, null)
+        } catch (e: Exception) {
+            return Pair(null, null)
+        } finally {
+            mat.release()
+            gray.release()
+            points.release()
+        }
+    }
+
+    /**
+     * Overlays a legal UIDAI-compliant privacy shield badge or censorship box over scanned QR codes.
+     */
+    private fun applyQrSanitization(
+        canvas: Canvas,
+        bitmap: Bitmap,
+        box: Rect,
+        mode: RedactionMode
+    ) {
+        val safeBox = Rect(
+            box.left.coerceAtLeast(0),
+            box.top.coerceAtLeast(0),
+            box.right.coerceAtMost(bitmap.width),
+            box.bottom.coerceAtMost(bitmap.height)
+        )
+        if (safeBox.width() <= 0 || safeBox.height() <= 0) return
+
+        when (mode) {
+            RedactionMode.SOLID_BLACKOUT -> {
+                val pad = 4f
+                val r = RectF(safeBox.left - pad, safeBox.top - pad, safeBox.right + pad, safeBox.bottom + pad)
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.BLACK
+                    style = Paint.Style.FILL
+                }
+                canvas.drawRoundRect(r, 8f, 8f, paint)
+            }
+            RedactionMode.PIXELATE_BLUR -> {
+                val adaptiveBlock = (safeBox.height() / 6).coerceIn(12, 36)
+                pixelateRect(bitmap, safeBox, pixelSize = adaptiveBlock)
+            }
+            RedactionMode.WHITE_ERASURE -> {
+                val sampledBg = sampleBackgroundColor(bitmap, safeBox)
+                val r = RectF(safeBox)
+                val bgPaint = Paint().apply {
+                    color = sampledBg
+                    style = Paint.Style.FILL
+                }
+                canvas.drawRect(r, bgPaint)
+            }
+            RedactionMode.AADHAAR_MASK -> {
+                val r = RectF(safeBox)
+                val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.rgb(248, 250, 252) // Soft Slate container
+                    style = Paint.Style.FILL
+                }
+                val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.rgb(203, 213, 225)
+                    style = Paint.Style.STROKE
+                    strokeWidth = 3f
+                }
+                val cornerRadius = (safeBox.width() * 0.06f).coerceIn(8f, 24f)
+                canvas.drawRoundRect(r, cornerRadius, cornerRadius, bgPaint)
+                canvas.drawRoundRect(r, cornerRadius, cornerRadius, borderPaint)
+
+                val centerX = safeBox.centerX().toFloat()
+                val centerY = safeBox.centerY().toFloat()
+
+                val primaryTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.rgb(15, 23, 42)
+                    textSize = (safeBox.height() * 0.10f).coerceIn(12f, 32f)
+                    isFakeBoldText = true
+                    textAlign = Paint.Align.CENTER
+                }
+                val subTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.rgb(71, 85, 105)
+                    textSize = (primaryTextPaint.textSize * 0.75f).coerceIn(10f, 22f)
+                    textAlign = Paint.Align.CENTER
+                }
+                val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.rgb(5, 150, 105)
+                    textSize = (safeBox.height() * 0.24f).coerceIn(20f, 60f)
+                    textAlign = Paint.Align.CENTER
+                }
+
+                canvas.drawText("🔒", centerX, centerY - (primaryTextPaint.textSize * 0.4f), iconPaint)
+                canvas.drawText("QR SANITIZED", centerX, centerY + (primaryTextPaint.textSize * 0.9f), primaryTextPaint)
+                canvas.drawText("UIDAI PRIVACY MASKED", centerX, centerY + (primaryTextPaint.textSize * 1.9f), subTextPaint)
+            }
+        }
     }
 
     private fun applyRedaction(

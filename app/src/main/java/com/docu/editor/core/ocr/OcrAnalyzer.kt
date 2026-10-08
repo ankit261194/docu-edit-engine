@@ -267,12 +267,13 @@ class OcrAnalyzer {
         confidence: Float,
         level: TextHierarchyLevel
     ): DetectedTextItem {
+        val cleanedText = com.docu.editor.core.ocr.util.DevanagariPostProcessor.postProcess(rawText)
         val inkSample = TextInkColorSampler.sampleInk(bitmap, bounds)
-        val typography = TypographyEstimator.estimateMetrics(rawText, bounds, inkSample)
+        val typography = TypographyEstimator.estimateMetrics(cleanedText, bounds, inkSample)
 
         return DetectedTextItem(
             id = UUID.randomUUID().toString(),
-            text = rawText,
+            text = cleanedText,
             boundingBox = bounds,
             cornerPoints = cornerPoints,
             rotationAngle = angle,

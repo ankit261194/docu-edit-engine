@@ -71,6 +71,7 @@ fun CountCamDialog(
     var detectedCount by remember { mutableIntStateOf(0) }
     var minObjectSize by remember { mutableFloatStateOf(16f) }
     var maxObjectSize by remember { mutableFloatStateOf(350f) }
+    var useWatershed by remember { mutableStateOf(true) }
 
     LaunchedEffect(initialBitmap) {
         if (initialBitmap != null) {
@@ -78,7 +79,8 @@ fun CountCamDialog(
             val res = CamScannerToolsEngine.countObjects(
                 initialBitmap,
                 minSize = minObjectSize.toInt(),
-                maxSize = maxObjectSize.toInt()
+                maxSize = maxObjectSize.toInt(),
+                useWatershed = useWatershed
             )
             annotatedBitmap = res.annotatedBitmap
             detectedCount = res.count
@@ -90,7 +92,8 @@ fun CountCamDialog(
         val res = CamScannerToolsEngine.countObjects(
             bmp,
             minSize = minObjectSize.toInt(),
-            maxSize = maxObjectSize.toInt()
+            maxSize = maxObjectSize.toInt(),
+            useWatershed = useWatershed
         )
         annotatedBitmap = res.annotatedBitmap
         detectedCount = res.count
@@ -236,6 +239,51 @@ fun CountCamDialog(
                     valueRange = 8f..80f,
                     colors = SliderDefaults.colors(thumbColor = Color(0xFF10B981), activeTrackColor = Color(0xFF10B981))
                 )
+
+                // Watershed Segmentation Switch Card
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (useWatershed) Color(0xFFF0FDF4) else Color(0xFFF8FAFC),
+                    border = BorderStroke(1.dp, if (useWatershed) Color(0xFF86EFAC) else Color(0xFFCBD5E1)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("Watershed Segmentation", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color(0xFFDCFCE7)
+                                ) {
+                                    Text("OVERLAPPING SPLIT", color = Color(0xFF15803D), fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                }
+                            }
+                            Text(
+                                "Draws red separation ridge lines between touching pills, pipes, or objects",
+                                fontSize = 11.sp,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+                        androidx.compose.material3.Switch(
+                            checked = useWatershed,
+                            onCheckedChange = {
+                                useWatershed = it
+                                recalculate()
+                            },
+                            colors = androidx.compose.material3.SwitchDefaults.colors(
+                                checkedThumbColor = Color(0xFF059669),
+                                checkedTrackColor = Color(0xFFDCFCE7)
+                            )
+                        )
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(16.dp))
 

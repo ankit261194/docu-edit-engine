@@ -100,11 +100,11 @@ class FontMatcher(private val context: Context) {
                     val assetName = if (isBold) "fonts/timesbd.ttf" else "fonts/times.ttf"
                     Typeface.createFromAsset(context.assets, assetName)
                 }
-                FontClassification.MONOSPACE, FontClassification.TYPEWRITER -> {
+                FontClassification.MONOSPACE, FontClassification.TYPEWRITER, FontClassification.DOT_MATRIX -> {
                     val assetName = if (isBold) "fonts/courbd.ttf" else "fonts/cour.ttf"
                     Typeface.createFromAsset(context.assets, assetName)
                 }
-                FontClassification.DOT_MATRIX, FontClassification.OCR_B, FontClassification.CONSOLAS -> {
+                FontClassification.OCR_B, FontClassification.CONSOLAS -> {
                     Typeface.create(Typeface.MONOSPACE, if (isBold) Typeface.BOLD else Typeface.NORMAL)
                 }
                 FontClassification.GEORGIA -> {
@@ -213,6 +213,21 @@ class FontMatcher(private val context: Context) {
                 text.contains("SONOGRAPHY", ignoreCase = true) ||
                 text.contains("CERTIFICATE", ignoreCase = true) ||
                 text.contains("AGREEMENT", ignoreCase = true)
+
+            val isCourtOrAffidavit = text.contains("AFFIDAVIT", ignoreCase = true) ||
+                text.contains("NOTARY", ignoreCase = true) ||
+                text.contains("ADVOCATE", ignoreCase = true) ||
+                text.contains("COURT", ignoreCase = true) ||
+                text.contains("BEFORE THE", ignoreCase = true) ||
+                text.contains("PETITIONER", ignoreCase = true) ||
+                text.contains("RESPONDENT", ignoreCase = true) ||
+                text.contains("DEED", ignoreCase = true) ||
+                text.contains("STAMP PAPER", ignoreCase = true) ||
+                text.contains("VERIFICATION", ignoreCase = true)
+
+            if (isCourtOrAffidavit && !isBillOrReceipt) {
+                return FontClassification.TYPEWRITER
+            }
 
             if (isFormalOrMedicalDocument && !isBillOrReceipt) {
                 return FontClassification.SERIF

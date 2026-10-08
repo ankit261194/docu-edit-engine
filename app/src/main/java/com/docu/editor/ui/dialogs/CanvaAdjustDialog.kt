@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.docu.editor.domain.model.CanvaStyleMatchPreset
+import com.docu.editor.domain.model.SelectiveColorTarget
 
 @Composable
 fun CanvaAdjustDialog(
@@ -56,6 +57,12 @@ fun CanvaAdjustDialog(
     initialVignette: Float = 0f,
     initialBlur: Float = 0f,
     initialPreset: CanvaStyleMatchPreset = CanvaStyleMatchPreset.NONE,
+    initialShadows: Float = 0f,
+    initialMidtones: Float = 0f,
+    initialHighlights: Float = 0f,
+    initialColorTarget: SelectiveColorTarget = SelectiveColorTarget.ALL_MASTER,
+    initialTargetSaturation: Float = 1.0f,
+    initialTargetLuminance: Float = 1.0f,
     onApplyAdjustments: (
         brightness: Float,
         contrast: Float,
@@ -65,7 +72,13 @@ fun CanvaAdjustDialog(
         clarity: Float,
         vignette: Float,
         blur: Float,
-        preset: CanvaStyleMatchPreset
+        preset: CanvaStyleMatchPreset,
+        shadows: Float,
+        midtones: Float,
+        highlights: Float,
+        colorTarget: SelectiveColorTarget,
+        targetSaturation: Float,
+        targetLuminance: Float
     ) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -78,6 +91,12 @@ fun CanvaAdjustDialog(
     var vignette by remember { mutableFloatStateOf(initialVignette) }
     var blur by remember { mutableFloatStateOf(initialBlur) }
     var selectedPreset by remember { mutableStateOf(initialPreset) }
+    var shadows by remember { mutableFloatStateOf(initialShadows) }
+    var midtones by remember { mutableFloatStateOf(initialMidtones) }
+    var highlights by remember { mutableFloatStateOf(initialHighlights) }
+    var selectedColorTarget by remember { mutableStateOf(initialColorTarget) }
+    var targetSaturation by remember { mutableFloatStateOf(initialTargetSaturation) }
+    var targetLuminance by remember { mutableFloatStateOf(initialTargetLuminance) }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -183,6 +202,55 @@ fun CanvaAdjustDialog(
                 AdjustSliderItem("Vignette", vignette, 0f..100f) { vignette = it }
                 AdjustSliderItem("Gaussian Blur", blur, 0f..40f) { blur = it }
 
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Tone Curves Section
+                Text(
+                    text = "📈 Interactive Tone Curves",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                AdjustSliderItem("Curves: Shadows", shadows, -50f..50f) { shadows = it }
+                AdjustSliderItem("Curves: Midtones", midtones, -50f..50f) { midtones = it }
+                AdjustSliderItem("Curves: Highlights", highlights, -50f..50f) { highlights = it }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Selective Color Tuning Section
+                Text(
+                    text = "🎯 Selective Color Tuning",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SelectiveColorTarget.entries.forEach { target ->
+                        val isSelected = (target == selectedColorTarget)
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedColorTarget = target },
+                            label = { Text("${target.icon} ${target.displayName}", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Color(0xFF6366F1),
+                                selectedLabelColor = Color.White,
+                                containerColor = Color(0xFF1E2130),
+                                labelColor = Color(0xFF94A3B8)
+                            )
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                AdjustSliderItem("Selective Saturation", targetSaturation, 0f..2.5f) { targetSaturation = it }
+                AdjustSliderItem("Selective Brightness", targetLuminance, 0.5f..1.8f) { targetLuminance = it }
+
                 Spacer(modifier = Modifier.height(18.dp))
 
                 Button(
@@ -190,7 +258,9 @@ fun CanvaAdjustDialog(
                         onApplyAdjustments(
                             brightness, contrast, saturation,
                             warmth, tint, clarity, vignette, blur,
-                            selectedPreset
+                            selectedPreset,
+                            shadows, midtones, highlights,
+                            selectedColorTarget, targetSaturation, targetLuminance
                         )
                         onDismiss()
                     },

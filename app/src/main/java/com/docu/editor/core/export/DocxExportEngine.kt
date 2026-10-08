@@ -182,6 +182,31 @@ object DocxExportEngine {
         while (i < lines.size) {
             val rawLine = lines[i].trim()
 
+            // 0. Multi-Column Newspaper / Article Layout (:::columns ... :::column-left ... :::column-right ... :::end-columns)
+            if (rawLine == ":::columns") {
+                val leftLines = mutableListOf<String>()
+                val rightLines = mutableListOf<String>()
+                var currentSection = 0 // 1: left, 2: right
+                i++
+                while (i < lines.size && lines[i].trim() != ":::end-columns") {
+                    val lineStr = lines[i].trim()
+                    when (lineStr) {
+                        ":::column-left" -> currentSection = 1
+                        ":::column-right" -> currentSection = 2
+                        else -> {
+                            if (currentSection == 1) leftLines.add(lines[i])
+                            else if (currentSection == 2) rightLines.add(lines[i])
+                        }
+                    }
+                    i++
+                }
+                if (i < lines.size && lines[i].trim() == ":::end-columns") {
+                    i++
+                }
+                sb.append(renderTwoColumnTable(leftLines, rightLines))
+                continue
+            }
+
             // 1. Table Detection (markdown table rows starting with '|')
             if (rawLine.startsWith("|") && rawLine.endsWith("|") && rawLine.count { it == '|' } >= 2) {
                 val tableRows = mutableListOf<List<String>>()
@@ -342,6 +367,118 @@ object DocxExportEngine {
         return sb.toString()
     }
 
+    private fun renderTwoColumnTable(leftLines: List<String>, rightLines: List<String>): String {
+        val sb = StringBuilder()
+        sb.append("""    <w:tbl>
+      <w:tblPr>
+        <w:tblW w:w="5000" w:type="pct"/>
+        <w:tblBorders>
+          <w:top w:val="none"/><w:left w:val="none"/><w:bottom w:val="none"/><w:right w:val="none"/>
+          <w:insideH w:val="none"/><w:insideV w:val="none"/>
+        </w:tblBorders>
+      </w:tblPr>
+      <w:tr>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:w="2400" w:type="pct"/>
+            <w:tcMar>
+              <w:top w:w="80" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/>
+              <w:left w:w="0" w:type="dxa"/><w:right w:w="240" w:type="dxa"/>
+            </w:tcMar>
+          </w:tcPr>
+""")
+        renderParagraphBlock(sb, leftLines)
+        sb.append("""        </w:tc>
+        <w:tc>
+          <w:tcPr>
+            <w:tcW w:w="2400" w:type="pct"/>
+            <w:tcMar>
+              <w:top w:w="80" w:type="dxa"/><w:bottom w:w="80" w:type="dxa"/>
+              <w:left w:w="240" w:type="dxa"/><w:right w:w="0" w:type="dxa"/>
+            </w:tcMar>
+          </w:tcPr>
+""")
+        renderParagraphBlock(sb, rightLines)
+        sb.append("""        </w:tc>
+      </w:tr>
+    </w:tbl>
+""")
+        return sb.toString()
+    }
+
+    private fun renderParagraphBlock(sb: StringBuilder, lines: List<String>) {
+        if (lines.isEmpty()) {
+            sb.append("          <w:p/>\n")
+            return
+        }
+
+        for (line in lines) {
+            val rawLine = line.trim()
+            if (rawLine.isEmpty()) {
+                sb.append("          <w:p/>\n")
+                continue
+            }
+
+            if (rawLine.startsWith("# ")) {
+                val text = escapeXml(rawLine.removePrefix("# ").trim())
+                sb.append("""          <w:p>
+            <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
+            <w:r><w:t>$text</w:t></w:r>
+          </w:p>
+""")
+                continue
+            }
+
+            if (rawLine.startsWith("## ")) {
+                val text = escapeXml(rawLine.removePrefix("## ").trim())
+                sb.append("""          <w:p>
+            <w:pPr><w:pStyle w:val="Heading2"/></w:pPr>
+            <w:r><w:t>$text</w:t></w:r>
+          </w:p>
+""")
+                continue
+            }
+
+            if (rawLine.startsWith("### ")) {
+                val text = escapeXml(rawLine.removePrefix("### ").trim())
+                sb.append("""          <w:p>
+            <w:pPr><w:pStyle w:val="Heading3"/></w:pPr>
+            <w:r><w:t>$text</w:t></w:r>
+          </w:p>
+""")
+                continue
+            }
+
+            if (rawLine.startsWith("- ") || rawLine.startsWith("* ")) {
+                val itemText = rawLine.substring(2).trim()
+                sb.append("""          <w:p>
+            <w:pPr><w:pStyle w:val="ListBullet"/></w:pPr>
+            <w:r><w:t>• </w:t></w:r>
+""")
+                appendFormattedRuns(sb, itemText)
+                sb.append("          </w:p>\n")
+                continue
+            }
+
+            val numMatch = Regex("""^(\d+)\.\s+(.*)$""").find(rawLine)
+            if (numMatch != null) {
+                val prefix = numMatch.groupValues[1]
+                val itemText = numMatch.groupValues[2]
+                sb.append("""          <w:p>
+            <w:pPr><w:pStyle w:val="ListBullet"/></w:pPr>
+            <w:r><w:rPr><w:b/></w:rPr><w:t>$prefix. </w:t></w:r>
+""")
+                appendFormattedRuns(sb, itemText)
+                sb.append("          </w:p>\n")
+                continue
+            }
+
+            sb.append("          <w:p>\n")
+            appendFormattedRuns(sb, rawLine)
+            sb.append("          </w:p>\n")
+        }
+    }
+
     private fun appendFormattedRuns(sb: StringBuilder, line: String) {
         // Parse bold formatting **text**
         val parts = line.split("**")
@@ -362,13 +499,156 @@ object DocxExportEngine {
         }
     }
 
+    data class TwoColumnLayout(
+        val titleItems: List<com.docu.editor.core.ocr.model.DetectedTextItem>,
+        val leftItems: List<com.docu.editor.core.ocr.model.DetectedTextItem>,
+        val rightItems: List<com.docu.editor.core.ocr.model.DetectedTextItem>
+    )
+
+    private fun detectTwoColumnNewspaperLayout(
+        items: List<com.docu.editor.core.ocr.model.DetectedTextItem>
+    ): TwoColumnLayout? {
+        if (items.size < 6) return null
+
+        val docLeft = items.minOf { it.boundingBox.left }
+        val docRight = items.maxOf { it.boundingBox.right }
+        val docTop = items.minOf { it.boundingBox.top }
+        val docBottom = items.maxOf { it.boundingBox.bottom }
+        val docW = docRight - docLeft
+        val docH = docBottom - docTop
+
+        if (docW < 300 || docH < 300) return null
+
+        // 1. Separate full-width title/banner items at top
+        val titleCutoffY = docTop + (docH * 0.22)
+        val titleItems = items.filter { item ->
+            item.boundingBox.top <= titleCutoffY && item.boundingBox.width() >= (docW * 0.65)
+        }
+        val bodyItems = items.filter { it !in titleItems }
+        if (bodyItems.size < 6) return null
+
+        // 2. Discover central vertical whitespace gutter
+        val midX = docLeft + (docW / 2.0)
+        val gutterSearchMin = docLeft + (docW * 0.35)
+        val gutterSearchMax = docLeft + (docW * 0.65)
+
+        var bestGutterX = -1.0
+        var maxGutterWidth = 0.0
+
+        val sortedByLeft = bodyItems.sortedBy { it.boundingBox.left }
+        for (idx in 0 until sortedByLeft.size - 1) {
+            val a = sortedByLeft[idx].boundingBox
+            val b = sortedByLeft[idx + 1].boundingBox
+            val gapLeft = a.right.toDouble()
+            val gapRight = b.left.toDouble()
+            if (gapRight > gapLeft && gapLeft >= gutterSearchMin && gapRight <= gutterSearchMax) {
+                val gapW = gapRight - gapLeft
+                if (gapW > maxGutterWidth && gapW >= 20.0) {
+                    maxGutterWidth = gapW
+                    bestGutterX = (gapLeft + gapRight) / 2.0
+                }
+            }
+        }
+
+        val splitX = if (bestGutterX > 0.0) bestGutterX else midX
+
+        val leftItems = bodyItems.filter { it.boundingBox.centerX() < splitX }
+        val rightItems = bodyItems.filter { it.boundingBox.centerX() >= splitX }
+
+        if (leftItems.size < 3 || rightItems.size < 3) return null
+        if (leftItems.size < bodyItems.size * 0.25 || rightItems.size < bodyItems.size * 0.25) return null
+
+        val leftMaxRight = leftItems.map { it.boundingBox.right }.sorted().let { it[(it.size * 0.85).toInt()] }
+        val rightMinLeft = rightItems.map { it.boundingBox.left }.sorted().let { it[(it.size * 0.15).toInt()] }
+        if (leftMaxRight > rightMinLeft + 15) return null
+
+        return TwoColumnLayout(
+            titleItems = titleItems.sortedBy { it.boundingBox.top },
+            leftItems = leftItems.sortedBy { it.boundingBox.top },
+            rightItems = rightItems.sortedBy { it.boundingBox.top }
+        )
+    }
+
+    private fun groupItemsIntoFlowParagraphs(
+        items: List<com.docu.editor.core.ocr.model.DetectedTextItem>
+    ): List<String> {
+        if (items.isEmpty()) return emptyList()
+
+        val sorted = items.sortedBy { it.boundingBox.top }
+        val lines = mutableListOf<MutableList<com.docu.editor.core.ocr.model.DetectedTextItem>>()
+
+        for (item in sorted) {
+            val match = lines.find { line ->
+                val avgY = line.map { it.boundingBox.centerY() }.average()
+                val avgH = line.map { it.boundingBox.height() }.average().coerceAtLeast(10.0)
+                kotlin.math.abs(item.boundingBox.centerY() - avgY) <= (avgH * 0.6)
+            }
+            if (match != null) {
+                match.add(item)
+            } else {
+                lines.add(mutableListOf(item))
+            }
+        }
+
+        lines.forEach { it.sortBy { item -> item.boundingBox.left } }
+
+        val paragraphs = mutableListOf<String>()
+        val currentPara = StringBuilder()
+
+        for (line in lines) {
+            val lineStr = line.joinToString(" ") { it.text.trim() }
+            if (lineStr.isBlank()) continue
+
+            if (currentPara.isEmpty()) {
+                currentPara.append(lineStr)
+            } else {
+                if (lineStr.startsWith("- ") || lineStr.startsWith("* ") || lineStr.matches(Regex("""^\d+\.\s+.*""")) || lineStr.startsWith("#")) {
+                    paragraphs.add(currentPara.toString())
+                    currentPara.clear()
+                    currentPara.append(lineStr)
+                } else {
+                    currentPara.append(" ").append(lineStr)
+                }
+            }
+        }
+        if (currentPara.isNotEmpty()) {
+            paragraphs.add(currentPara.toString())
+        }
+        return paragraphs
+    }
+
     /**
-     * Reconstructs text items into clean paragraphs and authentic multi-column table grids.
+     * Reconstructs text items into clean paragraphs, multi-column layouts, and authentic table grids.
      */
     fun formatItemsToStructuredDocument(items: List<com.docu.editor.core.ocr.model.DetectedTextItem>): String {
         if (items.isEmpty()) return ""
 
-        // 1. Try high-fidelity spatial grid clustering from TableGridDetector
+        // 1. Multi-Column Flow Recognition (2-column newspaper / article / journal layout)
+        val twoCol = detectTwoColumnNewspaperLayout(items)
+        if (twoCol != null) {
+            val sb = StringBuilder()
+            if (twoCol.titleItems.isNotEmpty()) {
+                val titleText = twoCol.titleItems.joinToString(" ") { it.text.trim() }
+                sb.append("# ").append(titleText).append("\n\n")
+            }
+
+            val leftParas = groupItemsIntoFlowParagraphs(twoCol.leftItems)
+            val rightParas = groupItemsIntoFlowParagraphs(twoCol.rightItems)
+
+            sb.append(":::columns\n")
+            sb.append(":::column-left\n")
+            for (p in leftParas) {
+                sb.append(p).append("\n\n")
+            }
+            sb.append(":::column-right\n")
+            for (p in rightParas) {
+                sb.append(p).append("\n\n")
+            }
+            sb.append(":::end-columns\n")
+            return sb.toString()
+        }
+
+        // 2. Try high-fidelity spatial grid clustering from TableGridDetector
         val gridTable = com.docu.editor.core.layout.TableGridDetector.detectBorderlessTable(items)
         if (gridTable != null && gridTable.rowCount >= 2 && gridTable.colCount >= 2) {
             val sb = StringBuilder()

@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Laptop
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -72,6 +73,7 @@ fun ExportDialog(
     onSaveToGoogleDriveClicked: (format: String, fitToA4: Boolean, customFileName: String) -> Unit = { _, _, _ -> },
     onSaveToHostingCloudClicked: (customFileName: String) -> Unit = {},
     onPrintClicked: () -> Unit = {},
+    onPcDropClicked: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     var selectedFormat by remember { mutableStateOf("PDF") }
@@ -557,6 +559,35 @@ fun ExportDialog(
                     Text(
                         text = "🖨️ Direct Wi-Fi Print",
                         color = Color(0xFF475569),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 13.sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Direct PC Drop (High-Speed Wi-Fi to Laptop) Button
+                OutlinedButton(
+                    onClick = {
+                        onPcDropClicked()
+                        onDismiss()
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.5.dp, Color(0xFF6366F1)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Laptop,
+                        contentDescription = "PC Drop",
+                        tint = Color(0xFF4F46E5),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "💻 PC Drop (Send to Laptop via Wi-Fi)",
+                        color = Color(0xFF4F46E5),
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 13.sp
                     )

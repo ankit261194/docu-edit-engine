@@ -51,11 +51,27 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
 
         val solidInk = ensureSolidInkColor(params.inkColorRgb)
 
+        val numericWeight = params.typographyMetrics.numericFontWeight
+        val baseTypeface = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            try {
+                android.graphics.Typeface.create(matchedFont.typeface, numericWeight, false)
+            } catch (_: Exception) {
+                matchedFont.typeface
+            }
+        } else {
+            matchedFont.typeface
+        }
+
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
             color = solidInk
-            typeface = matchedFont.typeface
-            isFakeBoldText = matchedFont.isBold && !matchedFont.typeface.isBold
-            style = Paint.Style.FILL
+            typeface = baseTypeface
+            isFakeBoldText = matchedFont.isBold && !baseTypeface.isBold
+            if (numericWeight >= 650 && !isFakeBoldText) {
+                style = Paint.Style.FILL_AND_STROKE
+                strokeWidth = ((numericWeight - 500) / 1000f) * 0.8f
+            } else {
+                style = Paint.Style.FILL
+            }
         }
 
         val fitResult = AutoFitFontCondenser.condenseToFit(
@@ -130,10 +146,20 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             }
         }
 
+        // 1.5 Authentic Dot-Matrix 9-Pin / 24-Pin Cash Bill Synthesis
+        val finalRenderLayer = if (matchedFont.classification == FontClassification.DOT_MATRIX) {
+            val pinDiameter = (fitResult.fontSize * 0.11f).coerceIn(1.5f, 5.0f)
+            val dotLayer = applyDotMatrixEffect(textLayer, params.targetBounds, pinDiameter, solidInk)
+            textLayer.recycle()
+            dotLayer
+        } else {
+            textLayer
+        }
+
         // 2. Analyze paper background texture & apply authentic toner micro-grain & edge bleed
         val paperStats = PaperTextureBlender.analyzeLocalPaperBackground(cleanedBackground, params.targetBounds)
-        PaperTextureBlender.blendTextWithPaperTexture(masterCanvas, textLayer, params.targetBounds, paperStats)
-        textLayer.recycle()
+        PaperTextureBlender.blendTextWithPaperTexture(masterCanvas, finalRenderLayer, params.targetBounds, paperStats)
+        finalRenderLayer.recycle()
 
         val maxMeasuredWidth = lines.maxOfOrNull { paint.measureText(it) } ?: paint.measureText(params.newText)
         val renderedTotalHeight = (lines.size * lineHeight).coerceAtLeast(params.targetBounds.height().toFloat())
@@ -207,5 +233,50 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             canvas.drawText(charStr, currX, jitterY, paint)
             currX += paint.measureText(charStr)
         }
+    }
+
+    private fun applyDotMatrixEffect(
+        sourceLayer: Bitmap,
+        targetBounds: Rect,
+        pinDiameterPx: Float,
+        inkColor: Int
+    ): Bitmap {
+        val w = sourceLayer.width
+        val h = sourceLayer.height
+        val output = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val pinPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = inkColor
+            style = Paint.Style.FILL
+        }
+
+        val pitch = (pinDiameterPx * 1.35f).coerceAtLeast(2.0f)
+        val radius = pinDiameterPx * 0.5f
+
+        val pad = 12
+        val left = (targetBounds.left - pad).coerceIn(0, w - 1)
+        val top = (targetBounds.top - pad).coerceIn(0, h - 1)
+        val right = (targetBounds.right + pad).coerceIn(left + 1, w)
+        val bottom = (targetBounds.bottom + pad).coerceIn(top + 1, h)
+
+        var y = top.toFloat() + radius
+        while (y < bottom) {
+            var x = left.toFloat() + radius
+            while (x < right) {
+                val px = x.toInt()
+                val py = y.toInt()
+                if (px in 0 until w && py in 0 until h) {
+                    val pixel = sourceLayer.getPixel(px, py)
+                    val alpha = (pixel ushr 24)
+                    if (alpha > 60) {
+                        pinPaint.alpha = (alpha * 0.95f).toInt().coerceIn(100, 255)
+                        canvas.drawCircle(x, y, radius, pinPaint)
+                    }
+                }
+                x += pitch
+            }
+            y += pitch
+        }
+        return output
     }
 }

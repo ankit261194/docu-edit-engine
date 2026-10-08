@@ -11,6 +11,7 @@ import androidx.core.content.FileProvider
 import com.docu.editor.core.pdf.PdfExportEngine
 import com.docu.editor.core.pdf.PdfPageLoader
 import com.docu.editor.core.util.DocuStorageUtil
+import com.docu.editor.core.util.DocuNotificationHelper
 import com.docu.editor.core.util.ExifBitmapUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -159,6 +160,7 @@ object BatchTargetResizeConverterEngine {
         for (index in items.indices) {
             val item = items[index]
             val percent = (((index).toFloat() / totalCount.toFloat()) * 100f).roundToInt()
+            DocuNotificationHelper.showProgressNotification(context, index + 1, totalCount, item.originalName)
             onProgress(
                 BatchProgressState(
                     currentIndex = index + 1,
@@ -226,7 +228,16 @@ object BatchTargetResizeConverterEngine {
                     )
                 )
             }
+
+            // Periodic garbage collection every 8 items to keep heap footprint low for 48MP photos
+            if ((index + 1) % 8 == 0) {
+                System.gc()
+            }
         }
+
+        val successCount = results.count { it.isSuccess }
+        val failureCount = results.count { !it.isSuccess }
+        DocuNotificationHelper.showCompleteNotification(context, successCount, failureCount, targetKb)
 
         onProgress(
             BatchProgressState(
@@ -250,13 +261,22 @@ object BatchTargetResizeConverterEngine {
             totalOriginalBytes = totalOriginal,
             totalOutputBytes = totalOutput,
             spaceReductionPercent = reduction,
-            successCount = results.count { it.isSuccess },
-            failureCount = results.count { !it.isSuccess },
+            successCount = successCount,
+            failureCount = failureCount,
             outputDirectory = outDir
         )
     }
 
-    // --- Format Handlers ---
+    // --- Optimal Dimension Calculator for 48MP / High-Resolution Memory Safety ---
+    private fun getOptimalDecodeDimension(targetKb: Int): Int {
+        return when {
+            targetKb <= 25 -> 1024
+            targetKb <= 60 -> 1440
+            targetKb <= 120 -> 1920
+            targetKb <= 300 -> 2400
+            else -> 2880
+        }
+    }
 
     private suspend fun processImageToImage(
         context: Context,
@@ -268,7 +288,8 @@ object BatchTargetResizeConverterEngine {
         targetDpi: Int = 300
     ): BatchSingleResult = withContext(Dispatchers.IO) {
         val outFile = File(outDir, outFileName)
-        val bitmap = ExifBitmapUtil.decodeUriWithExif(context, item.uri, maxDim = 2880)
+        val optimalMaxDim = getOptimalDecodeDimension(targetKb)
+        val bitmap = ExifBitmapUtil.decodeUriWithExif(context, item.uri, maxDim = optimalMaxDim)
             ?: throw IllegalStateException("Could not decode image")
 
         try {
@@ -312,7 +333,8 @@ object BatchTargetResizeConverterEngine {
         outFileName: String
     ): BatchSingleResult = withContext(Dispatchers.IO) {
         val outFile = File(outDir, outFileName)
-        val bitmap = ExifBitmapUtil.decodeUriWithExif(context, item.uri, maxDim = 2880)
+        val optimalMaxDim = getOptimalDecodeDimension(targetKb)
+        val bitmap = ExifBitmapUtil.decodeUriWithExif(context, item.uri, maxDim = optimalMaxDim)
             ?: throw IllegalStateException("Could not decode image")
 
         val tempPdf = File.createTempFile("temp_img_pdf_", ".pdf", context.cacheDir)
@@ -430,7 +452,8 @@ object BatchTargetResizeConverterEngine {
         outFileName: String
     ): BatchSingleResult = withContext(Dispatchers.IO) {
         val outFile = File(outDir, outFileName)
-        val bitmap = ExifBitmapUtil.decodeUriWithExif(context, item.uri, maxDim = 2880)
+        val optimalMaxDim = getOptimalDecodeDimension(targetKb)
+        val bitmap = ExifBitmapUtil.decodeUriWithExif(context, item.uri, maxDim = optimalMaxDim)
             ?: throw IllegalStateException("Could not decode image")
 
         try {
@@ -486,7 +509,8 @@ object BatchTargetResizeConverterEngine {
         outFileName: String
     ): BatchSingleResult = withContext(Dispatchers.IO) {
         val outFile = File(outDir, outFileName)
-        val bitmap = ExifBitmapUtil.decodeUriWithExif(context, item.uri, maxDim = 2880)
+        val optimalMaxDim = getOptimalDecodeDimension(targetKb)
+        val bitmap = ExifBitmapUtil.decodeUriWithExif(context, item.uri, maxDim = optimalMaxDim)
             ?: throw IllegalStateException("Could not decode image")
 
         try {

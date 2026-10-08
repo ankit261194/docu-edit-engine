@@ -43,9 +43,13 @@ data class DocumentCanvasLayer(
     val shadowRadius: Float = 0f,
     val shadowColor: Int = android.graphics.Color.argb(100, 0, 0, 0),
     val cornerRadius: Float = 0f,
+    val arrowHeadSize: Float = 36f,
+    val arrowStemWidth: Float = 6f,
     val frameType: CanvaFrameType = CanvaFrameType.NONE,
     val textEffect: TextEffectType = TextEffectType.NONE,
-    val animationType: CanvaAnimationType = CanvaAnimationType.NONE
+    val animationType: CanvaAnimationType = CanvaAnimationType.NONE,
+    val letterSpacingEm: Float = 0.04f,
+    val lineHeightMultiplier: Float = 1.2f
 ) {
     fun hitTest(docX: Float, docY: Float): Boolean {
         val drawW = bitmap.width * scale
@@ -69,7 +73,8 @@ data class DocumentCanvasLayer(
 
     companion object {
         /**
-         * Renders crisp vector typography into an ARGB_8888 bitmap with optional rounded background pill.
+         * Renders crisp vector typography into an ARGB_8888 bitmap with optional rounded background pill,
+         * multi-line leading support, and custom letter spacing tracking.
          */
         fun createTypographyBitmap(
             text: String,
@@ -78,7 +83,9 @@ data class DocumentCanvasLayer(
             fontSize: Float = 36f,
             isBold: Boolean = true,
             isItalic: Boolean = false,
-            fontFamily: String = "Sans-Serif"
+            fontFamily: String = "Sans-Serif",
+            letterSpacingEm: Float = 0.04f,
+            lineHeightMultiplier: Float = 1.2f
         ): Bitmap {
             val safeText = if (text.isBlank()) "Type Here" else text
 
@@ -98,18 +105,31 @@ data class DocumentCanvasLayer(
                     else -> Typeface.SANS_SERIF
                 }
                 typeface = Typeface.create(base, style)
-                letterSpacing = 0.04f
+                letterSpacing = letterSpacingEm
             }
 
+            val lines = safeText.split("\n")
             val fontMetrics = paint.fontMetrics
-            val textWidth = paint.measureText(safeText)
-            val textHeight = fontMetrics.descent - fontMetrics.ascent
+            val singleLineHeight = fontMetrics.descent - fontMetrics.ascent
+            val lineStep = singleLineHeight * lineHeightMultiplier.coerceIn(0.7f, 2.5f)
+
+            var maxLineWidth = 0f
+            for (line in lines) {
+                val w = paint.measureText(line)
+                if (w > maxLineWidth) maxLineWidth = w
+            }
 
             val padX = if (backgroundColor != null) 36f else 12f
             val padY = if (backgroundColor != null) 20f else 8f
 
-            val totalWidth = (textWidth + padX * 2).toInt().coerceAtLeast(40)
-            val totalHeight = (textHeight + padY * 2).toInt().coerceAtLeast(30)
+            val totalContentHeight = if (lines.size <= 1) {
+                singleLineHeight
+            } else {
+                (lines.size - 1) * lineStep + singleLineHeight
+            }
+
+            val totalWidth = (maxLineWidth + padX * 2).toInt().coerceAtLeast(40)
+            val totalHeight = (totalContentHeight + padY * 2).toInt().coerceAtLeast(30)
 
             val bmp = Bitmap.createBitmap(totalWidth, totalHeight, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bmp)
@@ -124,8 +144,11 @@ data class DocumentCanvasLayer(
                 canvas.drawRoundRect(rect, cornerRadius, cornerRadius, bgPaint)
             }
 
-            val baseline = padY - fontMetrics.ascent
-            canvas.drawText(safeText, padX, baseline, paint)
+            var currentBaseline = padY - fontMetrics.ascent
+            for (line in lines) {
+                canvas.drawText(line, padX, currentBaseline, paint)
+                currentBaseline += lineStep
+            }
 
             return bmp
         }

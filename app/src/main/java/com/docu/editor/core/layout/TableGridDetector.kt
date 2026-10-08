@@ -25,7 +25,9 @@ data class DetectedTableCell(
     val colIndex: Int,
     val bounds: Rect,
     val text: String,
-    val items: List<DetectedTextItem>
+    val items: List<DetectedTextItem>,
+    val colSpan: Int = 1,
+    val rowSpan: Int = 1
 )
 
 data class DetectedTable(
@@ -33,7 +35,8 @@ data class DetectedTable(
     val rowCount: Int,
     val colCount: Int,
     val rows: List<List<DetectedTableCell>>,
-    val isRuledGrid: Boolean
+    val isRuledGrid: Boolean,
+    val mergedCellRefs: List<String> = emptyList()
 )
 
 data class DocumentLayout(
@@ -184,6 +187,27 @@ object TableGridDetector {
         return clusterItemsIntoGrid(items, tableBounds, isRuled = false)
     }
 
+    data class ColumnSlot(
+        val index: Int,
+        val left: Int,
+        val right: Int
+    )
+
+    private fun getColumnLetter(colIndex: Int): String {
+        var num = colIndex + 1
+        val sb = StringBuilder()
+        while (num > 0) {
+            val rem = (num - 1) % 26
+            sb.append(('A'.code + rem).toChar())
+            num = (num - 1) / 26
+        }
+        return sb.reverse().toString()
+    }
+
+    /**
+     * Reconstructs 2D table grid using spatial X-Histogram projection and detects merged header spans.
+     * Prevents data column shift in borderless tables and complex multi-column headers.
+     */
     private fun clusterItemsIntoGrid(
         items: List<DetectedTextItem>,
         tableBounds: Rect,
@@ -191,7 +215,7 @@ object TableGridDetector {
     ): DetectedTable? {
         if (items.isEmpty()) return null
 
-        // 1. Group items into distinct horizontal rows
+        // 1. Group items into horizontal rows based on baseline / center Y alignment
         val sortedByY = items.sortedBy { it.boundingBox.top }
         val rowClusters = mutableListOf<MutableList<DetectedTextItem>>()
 
@@ -211,70 +235,194 @@ object TableGridDetector {
 
         if (rowClusters.size < 2) return null
 
-        // Sort each row left to right
+        // Sort items left-to-right within each row
         rowClusters.forEach { it.sortBy { item -> item.boundingBox.left } }
 
-        // 2. Identify global column anchor coordinates across all multi-item rows
-        val multiItemRows = rowClusters.filter { it.size >= 2 }
-        if (multiItemRows.isEmpty()) return null
+        // 2. Spatial Column Alignment via OCR X-Histogram Projection
+        // Discretize the horizontal table span to discover vertical whitespace gutters (valleys)
+        val tableW = max(100, tableBounds.width())
+        val binSize = 8
+        val numBins = (tableW / binSize) + 1
+        val rowCoverage = IntArray(numBins)
 
-        val columnLefts = mutableListOf<Double>()
-        for (row in multiItemRows) {
+        for (row in rowClusters) {
+            val coveredInThisRow = BooleanArray(numBins)
             for (item in row) {
-                val left = item.boundingBox.left.toDouble()
-                val matchedCol = columnLefts.indices.find { idx ->
-                    abs(columnLefts[idx] - left) <= 35.0
+                val bLeft = ((item.boundingBox.left - tableBounds.left) / binSize).coerceIn(0, numBins - 1)
+                val bRight = ((item.boundingBox.right - tableBounds.left) / binSize).coerceIn(0, numBins - 1)
+                for (b in bLeft..bRight) {
+                    coveredInThisRow[b] = true
                 }
-                if (matchedCol != null) {
-                    columnLefts[matchedCol] = (columnLefts[matchedCol] + left) / 2.0
+            }
+            for (b in 0 until numBins) {
+                if (coveredInThisRow[b]) rowCoverage[b]++
+            }
+        }
+
+        // Identify multi-item rows to find natural column anchors
+        val multiItemRows = rowClusters.filter { it.size >= 2 }
+        val columnAnchors = mutableListOf<Double>()
+
+        if (multiItemRows.isNotEmpty()) {
+            for (row in multiItemRows) {
+                for (item in row) {
+                    val left = item.boundingBox.left.toDouble()
+                    val matchedIdx = columnAnchors.indexOfFirst { abs(it - left) <= 40.0 }
+                    if (matchedIdx >= 0) {
+                        columnAnchors[matchedIdx] = (columnAnchors[matchedIdx] + left) / 2.0
+                    } else {
+                        columnAnchors.add(left)
+                    }
+                }
+            }
+        } else {
+            // Fallback from raw item lefts
+            for (item in items) {
+                val left = item.boundingBox.left.toDouble()
+                val matchedIdx = columnAnchors.indexOfFirst { abs(it - left) <= 50.0 }
+                if (matchedIdx >= 0) {
+                    columnAnchors[matchedIdx] = (columnAnchors[matchedIdx] + left) / 2.0
                 } else {
-                    columnLefts.add(left)
+                    columnAnchors.add(left)
                 }
             }
         }
-        columnLefts.sort()
 
-        val numCols = max(2, columnLefts.size)
+        columnAnchors.sort()
+        if (columnAnchors.isEmpty()) {
+            columnAnchors.add(tableBounds.left.toDouble())
+            columnAnchors.add(tableBounds.right.toDouble())
+        }
+
+        // Build definitive Column Slots from X-Histogram gutters and column anchors
+        val numCols = max(2, columnAnchors.size)
+        val columnSlots = mutableListOf<ColumnSlot>()
+        for (c in 0 until numCols) {
+            val cLeft = columnAnchors[c].toInt()
+            val cRight = if (c < numCols - 1) {
+                val nextLeft = columnAnchors[c + 1].toInt()
+                // Find potential gutter valley between cLeft and nextLeft
+                val binStart = ((cLeft - tableBounds.left) / binSize).coerceIn(0, numBins - 1)
+                val binEnd = ((nextLeft - tableBounds.left) / binSize).coerceIn(0, numBins - 1)
+                var minRowCov = Int.MAX_VALUE
+                var valleyBin = (binStart + binEnd) / 2
+                for (b in binStart..binEnd) {
+                    if (rowCoverage[b] < minRowCov) {
+                        minRowCov = rowCoverage[b]
+                        valleyBin = b
+                    }
+                }
+                val valleyX = tableBounds.left + (valleyBin * binSize)
+                max(cLeft + 15, kotlin.math.min(valleyX, nextLeft - 10))
+            } else {
+                tableBounds.right
+            }
+            columnSlots.add(ColumnSlot(c, cLeft, cRight))
+        }
+
+        // 3. Grid Row Construction & Merged Header Spanning Detection
         val gridRows = mutableListOf<List<DetectedTableCell>>()
+        val mergedRefs = mutableListOf<String>()
 
         for ((rIdx, row) in rowClusters.withIndex()) {
-            val cellsInRow = mutableListOf<DetectedTableCell>()
-            for (cIdx in 0 until numCols) {
-                val colAnchor = columnLefts.getOrElse(cIdx) { 0.0 }
-                val nextColAnchor = columnLefts.getOrElse(cIdx + 1) { tableBounds.right.toDouble() }
+            val rowNum = rIdx + 1
+            val cellsInRow = MutableList<DetectedTableCell?>(numCols) { null }
 
-                val itemsInCell = row.filter { item ->
-                    val cx = item.boundingBox.centerX().toDouble()
-                    if (cIdx == numCols - 1) {
-                        cx >= colAnchor - 20.0
-                    } else {
-                        cx >= colAnchor - 20.0 && cx < nextColAnchor - 15.0
+            for (item in row) {
+                val itemLeft = item.boundingBox.left
+                val itemRight = item.boundingBox.right
+                val itemWidth = item.boundingBox.width()
+
+                // Find best matching start column slot
+                var startCol = 0
+                var minLeftDist = Int.MAX_VALUE
+                for (c in 0 until numCols) {
+                    val dist = abs(itemLeft - columnSlots[c].left)
+                    if (dist < minLeftDist) {
+                        minLeftDist = dist
+                        startCol = c
                     }
                 }
 
-                val cellText = itemsInCell.joinToString(" ") { it.text.trim() }
-                val cellBounds = if (itemsInCell.isNotEmpty()) {
-                    Rect(
-                        itemsInCell.minOf { it.boundingBox.left },
-                        itemsInCell.minOf { it.boundingBox.top },
-                        itemsInCell.maxOf { it.boundingBox.right },
-                        itemsInCell.maxOf { it.boundingBox.bottom }
-                    )
-                } else {
-                    Rect(colAnchor.toInt(), row.minOf { it.boundingBox.top }, nextColAnchor.toInt(), row.maxOf { it.boundingBox.bottom })
+                // Check if item spans across subsequent columns (merged header cell)
+                var endCol = startCol
+                for (c in (startCol + 1) until numCols) {
+                    if (itemRight > (columnSlots[c].left + 15)) {
+                        endCol = c
+                    }
                 }
 
-                cellsInRow.add(
-                    DetectedTableCell(
+                val colSpan = (endCol - startCol + 1)
+                val isMergedHeader = colSpan > 1 && itemWidth > 75
+
+                if (isMergedHeader) {
+                    val startLetter = getColumnLetter(startCol)
+                    val endLetter = getColumnLetter(endCol)
+                    mergedRefs.add("$startLetter$rowNum:$endLetter$rowNum")
+
+                    val primaryCell = DetectedTableCell(
                         rowIndex = rIdx,
-                        colIndex = cIdx,
-                        bounds = cellBounds,
-                        text = cellText,
-                        items = itemsInCell
+                        colIndex = startCol,
+                        bounds = item.boundingBox,
+                        text = item.text.trim(),
+                        items = listOf(item),
+                        colSpan = colSpan
                     )
+                    cellsInRow[startCol] = primaryCell
+
+                    // Pad subsequent spanned columns with empty placeholder cells to strictly prevent column shift
+                    for (c in (startCol + 1)..endCol) {
+                        val slotBounds = Rect(columnSlots[c].left, item.boundingBox.top, columnSlots[c].right, item.boundingBox.bottom)
+                        cellsInRow[c] = DetectedTableCell(
+                            rowIndex = rIdx,
+                            colIndex = c,
+                            bounds = slotBounds,
+                            text = "",
+                            items = emptyList(),
+                            colSpan = 1
+                        )
+                    }
+                } else {
+                    val existing = cellsInRow[startCol]
+                    if (existing != null && existing.text.isNotBlank()) {
+                        // Multi-word item in same cell
+                        val combinedText = "${existing.text} ${item.text.trim()}"
+                        val unionBounds = Rect(
+                            kotlin.math.min(existing.bounds.left, item.boundingBox.left),
+                            kotlin.math.min(existing.bounds.top, item.boundingBox.top),
+                            max(existing.bounds.right, item.boundingBox.right),
+                            max(existing.bounds.bottom, item.boundingBox.bottom)
+                        )
+                        cellsInRow[startCol] = existing.copy(
+                            bounds = unionBounds,
+                            text = combinedText,
+                            items = existing.items + item
+                        )
+                    } else {
+                        cellsInRow[startCol] = DetectedTableCell(
+                            rowIndex = rIdx,
+                            colIndex = startCol,
+                            bounds = item.boundingBox,
+                            text = item.text.trim(),
+                            items = listOf(item),
+                            colSpan = 1
+                        )
+                    }
+                }
+            }
+
+            // Fill any remaining unassigned cells in the row with clean empty cells
+            val finalRowCells = (0 until numCols).map { c ->
+                cellsInRow[c] ?: DetectedTableCell(
+                    rowIndex = rIdx,
+                    colIndex = c,
+                    bounds = Rect(columnSlots[c].left, row.minOf { it.boundingBox.top }, columnSlots[c].right, row.maxOf { it.boundingBox.bottom }),
+                    text = "",
+                    items = emptyList(),
+                    colSpan = 1
                 )
             }
-            gridRows.add(cellsInRow)
+            gridRows.add(finalRowCells)
         }
 
         return DetectedTable(
@@ -282,7 +430,8 @@ object TableGridDetector {
             rowCount = gridRows.size,
             colCount = numCols,
             rows = gridRows,
-            isRuledGrid = isRuled
+            isRuledGrid = isRuled,
+            mergedCellRefs = mergedRefs
         )
     }
 

@@ -28,7 +28,13 @@ object VectorShapeGenerator {
         strokeColor: Int = Color.rgb(220, 38, 38),
         strokeWidth: Float = 8f,
         fillColor: Int? = null,
-        cornerRadius: Float = 24f
+        cornerRadius: Float = 24f,
+        arrowHeadSize: Float = 36f,
+        arrowStemWidth: Float = strokeWidth,
+        text: String? = null,
+        textColor: Int = Color.BLACK,
+        textSize: Float = 28f,
+        isBoldText: Boolean = true
     ): Bitmap {
         val w = width.coerceAtLeast(60)
         val h = height.coerceAtLeast(60)
@@ -60,8 +66,9 @@ object VectorShapeGenerator {
             }
 
             ShapeType.ROUNDED_RECTANGLE -> {
-                if (fillColor != null) canvas.drawRoundRect(rect, cornerRadius, cornerRadius, fillPaint)
-                canvas.drawRoundRect(rect, cornerRadius, cornerRadius, strokePaint)
+                val r = cornerRadius.coerceIn(0f, minOf(w, h) / 2f)
+                if (fillColor != null) canvas.drawRoundRect(rect, r, r, fillPaint)
+                canvas.drawRoundRect(rect, r, r, strokePaint)
             }
 
             ShapeType.CIRCLE, ShapeType.OVAL -> {
@@ -71,19 +78,21 @@ object VectorShapeGenerator {
 
             ShapeType.LINE -> {
                 val startY = h / 2f
-                canvas.drawLine(halfStroke + 8f, startY, w - halfStroke - 8f, startY, strokePaint)
+                val stemPaint = Paint(strokePaint).apply { this.strokeWidth = arrowStemWidth }
+                canvas.drawLine(halfStroke + 8f, startY, w - halfStroke - 8f, startY, stemPaint)
             }
 
             ShapeType.ARROW -> {
                 val midY = h / 2f
-                val headSize = (h * 0.35f).coerceAtLeast(32f)
+                val headSize = arrowHeadSize.coerceIn(16f, (h * 0.7f).coerceAtLeast(24f))
                 val lineEnd = w - halfStroke - headSize
-                canvas.drawLine(halfStroke + 8f, midY, lineEnd, midY, strokePaint)
+                val stemPaint = Paint(strokePaint).apply { this.strokeWidth = arrowStemWidth }
+                canvas.drawLine(halfStroke + 8f, midY, lineEnd, midY, stemPaint)
 
                 val arrowHead = Path().apply {
-                    moveTo(w - halfStroke - 6f, midY)
-                    lineTo(w - halfStroke - headSize, midY - headSize * 0.6f)
-                    lineTo(w - halfStroke - headSize, midY + headSize * 0.6f)
+                    moveTo(w - halfStroke - 4f, midY)
+                    lineTo(w - halfStroke - headSize, midY - headSize * 0.55f)
+                    lineTo(w - halfStroke - headSize, midY + headSize * 0.55f)
                     close()
                 }
                 val headFillPaint = Paint(strokePaint).apply { style = Paint.Style.FILL }
@@ -92,24 +101,25 @@ object VectorShapeGenerator {
 
             ShapeType.DOUBLE_ARROW -> {
                 val midY = h / 2f
-                val headSize = (h * 0.3f).coerceAtLeast(28f)
-                canvas.drawLine(halfStroke + headSize, midY, w - halfStroke - headSize, midY, strokePaint)
+                val headSize = arrowHeadSize.coerceIn(14f, (h * 0.6f).coerceAtLeast(20f))
+                val stemPaint = Paint(strokePaint).apply { this.strokeWidth = arrowStemWidth }
+                canvas.drawLine(halfStroke + headSize, midY, w - halfStroke - headSize, midY, stemPaint)
 
                 val headFillPaint = Paint(strokePaint).apply { style = Paint.Style.FILL }
                 // Right arrow head
                 val rightHead = Path().apply {
-                    moveTo(w - halfStroke - 6f, midY)
-                    lineTo(w - halfStroke - headSize, midY - headSize * 0.6f)
-                    lineTo(w - halfStroke - headSize, midY + headSize * 0.6f)
+                    moveTo(w - halfStroke - 4f, midY)
+                    lineTo(w - halfStroke - headSize, midY - headSize * 0.55f)
+                    lineTo(w - halfStroke - headSize, midY + headSize * 0.55f)
                     close()
                 }
                 canvas.drawPath(rightHead, headFillPaint)
 
                 // Left arrow head
                 val leftHead = Path().apply {
-                    moveTo(halfStroke + 6f, midY)
-                    lineTo(halfStroke + headSize, midY - headSize * 0.6f)
-                    lineTo(halfStroke + headSize, midY + headSize * 0.6f)
+                    moveTo(halfStroke + 4f, midY)
+                    lineTo(halfStroke + headSize, midY - headSize * 0.55f)
+                    lineTo(halfStroke + headSize, midY + headSize * 0.55f)
                     close()
                 }
                 canvas.drawPath(leftHead, headFillPaint)
@@ -246,8 +256,28 @@ object VectorShapeGenerator {
                     lineTo(rect.left + w * 0.44f, rect.top + h * 0.68f)
                     lineTo(rect.left + w * 0.74f, rect.top + h * 0.34f)
                 }
-                canvas.drawPath(checkPath, checkPaint)
             }
+        }
+
+        // Render embedded text inside shape if provided (e.g. Speech Bubble, Rect Callouts)
+        if (!text.isNullOrBlank()) {
+            val textPaint = android.text.TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = textColor
+                this.textSize = textSize
+                typeface = if (isBoldText) android.graphics.Typeface.DEFAULT_BOLD else android.graphics.Typeface.DEFAULT
+                textAlign = Paint.Align.CENTER
+            }
+            val fm = textPaint.fontMetrics
+            val centerYOffset = (fm.descent + fm.ascent) / 2f
+
+            // For callout bubbles, center text in the upper bubble area
+            val textCenterY = if (type == ShapeType.CALLOUT_BUBBLE) {
+                (rect.top + (rect.bottom - 45f)) / 2f - centerYOffset
+            } else {
+                (rect.top + rect.bottom) / 2f - centerYOffset
+            }
+            val textCenterX = (rect.left + rect.right) / 2f
+            canvas.drawText(text, textCenterX, textCenterY, textPaint)
         }
 
         return bitmap

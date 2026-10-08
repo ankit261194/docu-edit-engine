@@ -45,14 +45,21 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
@@ -79,6 +86,8 @@ import androidx.compose.ui.unit.sp
 import com.docu.editor.core.ocr.model.DetectedTextItem
 import com.docu.editor.domain.model.EditorToolMode
 import com.docu.editor.domain.model.ShapeType
+import com.docu.editor.domain.model.MagicEraserTargetMode
+import com.docu.editor.core.ocr.SearchMatchOccurrence
 import kotlin.math.min
 
 @Composable
@@ -115,6 +124,10 @@ fun DocumentInteractiveCanvas(
     onCommitOverlay: () -> Unit = {},
     onCancelOverlay: () -> Unit = {},
     searchMatchingIndices: List<Int> = emptyList(),
+    searchMatchOccurrences: List<SearchMatchOccurrence> = emptyList(),
+    currentSearchMatchIndex: Int = 0,
+    isSearchActive: Boolean = false,
+    onSearchMatchTapped: (SearchMatchOccurrence) -> Unit = {},
     pdfPageCount: Int = 1,
     currentPageIndex: Int = 0,
     onPreviousPage: () -> Unit = {},
@@ -125,6 +138,7 @@ fun DocumentInteractiveCanvas(
     penColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
     penStrokeWidth: Float = 6f,
     onCommitMarkupStroke: (points: List<android.graphics.PointF>, isHighlighter: Boolean) -> Unit = { _, _ -> },
+    onCommitMarkupTaperedStroke: (points: List<android.graphics.PointF>, isHighlighter: Boolean, strokeWidths: List<Float>?) -> Unit = { pts, isHl, _ -> onCommitMarkupStroke(pts, isHl) },
     selectedShapeType: ShapeType = ShapeType.RECTANGLE,
     shapeStrokeWidth: Float = 6f,
     shapeStrokeColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
@@ -132,6 +146,17 @@ fun DocumentInteractiveCanvas(
     onCommitBlackoutRect: (android.graphics.RectF) -> Unit = {},
     magicEraserBrushRadius: Float = 28f,
     onCommitMagicEraserStroke: (points: List<android.graphics.PointF>, brushRadius: Float) -> Unit = { _, _ -> },
+    magicEraserTargetMode: MagicEraserTargetMode = MagicEraserTargetMode.ALL_OBJECTS,
+    isMagicEraserBatchMode: Boolean = true,
+    isCloudAiEraserEnabled: Boolean = true,
+    onMagicEraserBrushRadiusChanged: (Float) -> Unit = {},
+    onMagicEraserTargetModeChanged: (MagicEraserTargetMode) -> Unit = {},
+    onMagicEraserBatchModeChanged: (Boolean) -> Unit = {},
+    onToggleCloudAiEraser: () -> Unit = {},
+    onCommitMagicEraserBatch: (strokes: List<List<android.graphics.PointF>>, brushRadius: Float, targetMode: MagicEraserTargetMode) -> Unit = { strokes, radius, _ ->
+        if (strokes.isNotEmpty()) onCommitMagicEraserStroke(strokes.first(), radius)
+    },
+    onCloseMagicEraserStudio: () -> Unit = {},
     onTextItemBoundsChanged: (DetectedTextItem, android.graphics.Rect) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier
 ) {
@@ -141,11 +166,15 @@ fun DocumentInteractiveCanvas(
     var isHoldingCompare by remember { mutableStateOf(false) }
     var lassoBoxStart by remember { mutableStateOf<Offset?>(null) }
     var lassoBoxCurrent by remember { mutableStateOf<Offset?>(null) }
+    val liveLassoPolygon = remember { mutableStateListOf<Offset>() }
     var shapeDragStart by remember { mutableStateOf<Offset?>(null) }
     var shapeDragCurrent by remember { mutableStateOf<Offset?>(null) }
     var redactionBoxStart by remember { mutableStateOf<Offset?>(null) }
     var redactionBoxCurrent by remember { mutableStateOf<Offset?>(null) }
     val liveMarkupPoints = remember { mutableStateListOf<android.graphics.PointF>() }
+    val liveMarkupWidths = remember { mutableStateListOf<Float>() }
+    var lastMarkupTime by remember { mutableStateOf(0L) }
+    var lastMarkupPos by remember { mutableStateOf<Offset?>(null) }
     var activeHandle by remember { mutableStateOf(CanvasHandleType.NONE) }
     val snapGuides = remember { mutableStateListOf<SnapGuideLine>() }
     val hapticFeedback = LocalHapticFeedback.current
@@ -179,14 +208,59 @@ fun DocumentInteractiveCanvas(
     val currentOnInsertTextTouch by rememberUpdatedState(onInsertTextTouch)
     val currentOnWhiteoutTouch by rememberUpdatedState(onWhiteoutTouch)
     val currentOnCommitMarkupStroke by rememberUpdatedState(onCommitMarkupStroke)
+    val currentOnCommitMarkupTaperedStroke by rememberUpdatedState(onCommitMarkupTaperedStroke)
     val currentOnCommitShape by rememberUpdatedState(onCommitShape)
     val currentOnCommitBlackoutRect by rememberUpdatedState(onCommitBlackoutRect)
     val currentOnCommitMagicEraserStroke by rememberUpdatedState(onCommitMagicEraserStroke)
+    val currentOnCommitMagicEraserBatch by rememberUpdatedState(onCommitMagicEraserBatch)
+    val currentMagicEraserTargetMode by rememberUpdatedState(magicEraserTargetMode)
+    val currentIsMagicEraserBatchMode by rememberUpdatedState(isMagicEraserBatchMode)
     val currentOnLassoSelectionChanged by rememberUpdatedState(onLassoSelectionChanged)
+    val currentSearchMatchOccurrences by rememberUpdatedState(searchMatchOccurrences)
+    val currentSearchMatchIndexState by rememberUpdatedState(currentSearchMatchIndex)
+    val currentIsSearchActive by rememberUpdatedState(isSearchActive)
+    val currentOnSearchMatchTapped by rememberUpdatedState(onSearchMatchTapped)
+    val accumulatedEraserStrokes = remember { mutableStateListOf<List<android.graphics.PointF>>() }
+
+    androidx.compose.runtime.LaunchedEffect(activeMode) {
+        if (activeMode != EditorToolMode.MAGIC_ERASER) {
+            accumulatedEraserStrokes.clear()
+        }
+    }
+
+    // Auto-center viewport smoothly on the active search match occurrence
+    androidx.compose.runtime.LaunchedEffect(currentSearchMatchIndexState, currentSearchMatchOccurrences, currentIsSearchActive) {
+        if (currentIsSearchActive && currentSearchMatchOccurrences.isNotEmpty() && currentContainerSize.width > 0 && currentContainerSize.height > 0) {
+            val activeOcc = currentSearchMatchOccurrences.getOrNull(currentSearchMatchIndexState)
+            if (activeOcc != null) {
+                val fitScale = min(
+                    currentContainerSize.width.toFloat() / bitmap.width,
+                    currentContainerSize.height.toFloat() / bitmap.height
+                )
+                val targetScale = if (scale < 1.4f) 1.6f else scale
+                val effectiveScale = fitScale * targetScale
+                val targetLeft = (currentContainerSize.width - bitmap.width * effectiveScale) / 2f
+                val targetTop = (currentContainerSize.height - bitmap.height * effectiveScale) / 2f
+                val matchCenterX = activeOcc.highlightBounds.exactCenterX()
+                val matchCenterY = activeOcc.highlightBounds.exactCenterY()
+                val targetOffX = (currentContainerSize.width / 2f) - (targetLeft + matchCenterX * effectiveScale)
+                val targetOffY = (currentContainerSize.height / 2f) - (targetTop + matchCenterY * effectiveScale)
+
+                scale = targetScale
+                offset = Offset(targetOffX, targetOffY)
+            }
+        }
+    }
+
+    val coroutineScope = rememberCoroutineScope()
+    var momentumJob by remember { mutableStateOf<Job?>(null) }
+    var panVelocity by remember { mutableStateOf(Offset.Zero) }
 
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
-        scale = (scale * zoomChange).coerceIn(0.5f, 6.0f)
+        momentumJob?.cancel()
+        scale = (scale * zoomChange).coerceIn(0.5f, 8.0f)
         offset += panChange
+        panVelocity = Offset(panChange.x * 0.7f + panVelocity.x * 0.3f, panChange.y * 0.7f + panVelocity.y * 0.3f)
     }
 
     Box(
@@ -196,15 +270,7 @@ fun DocumentInteractiveCanvas(
             .onSizeChanged { containerSize = it }
             .transformable(
                 state = transformState,
-                enabled = activeMode !in listOf(
-                    EditorToolMode.WHITEOUT,
-                    EditorToolMode.MAGIC_ERASER,
-                    EditorToolMode.HIGHLIGHTER,
-                    EditorToolMode.MARKUP_PEN,
-                    EditorToolMode.SHAPES,
-                    EditorToolMode.REDACTION,
-                    EditorToolMode.LASSO_SELECT
-                )
+                enabled = true
             )
             .pointerInput(bitmap, activeMode) {
                 if (activeMode == EditorToolMode.WHITEOUT) {
@@ -267,10 +333,31 @@ fun DocumentInteractiveCanvas(
                             val baseTop = (currentContainerSize.height - drawHeight) / 2f + currentOffset.y
 
                             val bx = (startOffset.x - baseLeft) / effectiveScale
-                            val by = (startOffset.y - baseTop) / effectiveScale
+                            var by = (startOffset.y - baseTop) / effectiveScale
+
+                            if (activeMode == EditorToolMode.HIGHLIGHTER) {
+                                // Category 8.2 Magnetic Text-Snap: Locks highlight line to nearest OCR baseline/center
+                                val nearestText = currentDetectedItems.firstOrNull { item ->
+                                    val b = item.boundingBox
+                                    val hTol = 24f
+                                    val vTol = (b.height() * 0.75f).coerceIn(16f, 40f)
+                                    bx >= (b.left - hTol) && bx <= (b.right + hTol) &&
+                                    kotlin.math.abs(by - b.centerY().toFloat()) <= vTol
+                                }
+                                if (nearestText != null) {
+                                    by = nearestText.boundingBox.centerY().toFloat()
+                                }
+                            }
+
                             liveMarkupPoints.clear()
+                            liveMarkupWidths.clear()
+                            lastMarkupTime = android.os.SystemClock.uptimeMillis()
+                            lastMarkupPos = startOffset
+
                             if (bx in 0f..bitmap.width.toFloat() && by in 0f..bitmap.height.toFloat()) {
                                 liveMarkupPoints.add(android.graphics.PointF(bx, by))
+                                val initW = if (activeMode == EditorToolMode.MARKUP_PEN) (penStrokeWidth * 0.45f).coerceAtLeast(2f) else markupStrokeWidth
+                                liveMarkupWidths.add(initW)
                             }
                         },
                         onDrag = { change, _ ->
@@ -286,22 +373,65 @@ fun DocumentInteractiveCanvas(
                             val baseTop = (currentContainerSize.height - drawHeight) / 2f + currentOffset.y
 
                             val bx = (change.position.x - baseLeft) / effectiveScale
-                            val by = (change.position.y - baseTop) / effectiveScale
+                            var by = (change.position.y - baseTop) / effectiveScale
+
+                            val currTime = change.uptimeMillis
+                            val dt = (currTime - lastMarkupTime).coerceAtLeast(1L)
+                            val lastP = lastMarkupPos ?: change.position
+                            val dist = kotlin.math.hypot((change.position.x - lastP.x).toDouble(), (change.position.y - lastP.y).toDouble()).toFloat()
+                            val vel = dist / dt.toFloat()
+
+                            lastMarkupTime = currTime
+                            lastMarkupPos = change.position
+
+                            if (activeMode == EditorToolMode.HIGHLIGHTER) {
+                                // Category 8.2 Magnetic Snap: Snap Y coordinate to horizontal text line
+                                val nearestText = currentDetectedItems.firstOrNull { item ->
+                                    val b = item.boundingBox
+                                    val hTol = 24f
+                                    val vTol = (b.height() * 0.75f).coerceIn(16f, 40f)
+                                    bx >= (b.left - hTol) && bx <= (b.right + hTol) &&
+                                    kotlin.math.abs(by - b.centerY().toFloat()) <= vTol
+                                }
+                                if (nearestText != null) {
+                                    by = nearestText.boundingBox.centerY().toFloat()
+                                }
+                            }
+
                             if (bx in 0f..bitmap.width.toFloat() && by in 0f..bitmap.height.toFloat()) {
                                 liveMarkupPoints.add(android.graphics.PointF(bx, by))
+                                if (activeMode == EditorToolMode.MARKUP_PEN) {
+                                    // Category 8.1 Pro Fountain Pen: Velocity-Sensitive Tapering & Stylus Hardware Pressure
+                                    val pressure = change.pressure.coerceIn(0.25f, 2.0f)
+                                    val speedFactor = (1.0f - (vel / 3.0f).coerceIn(0f, 0.6f))
+                                    val segW = (penStrokeWidth * speedFactor * pressure).coerceIn(2f, penStrokeWidth * 1.6f)
+                                    liveMarkupWidths.add(segW)
+                                } else {
+                                    liveMarkupWidths.add(markupStrokeWidth)
+                                }
                             }
                         },
                         onDragEnd = {
                             if (liveMarkupPoints.size >= 2) {
-                                currentOnCommitMarkupStroke(
+                                if (activeMode == EditorToolMode.MARKUP_PEN && liveMarkupWidths.size >= 2) {
+                                    val lastIdx = liveMarkupWidths.size - 1
+                                    liveMarkupWidths[lastIdx] = (liveMarkupWidths[lastIdx] * 0.45f).coerceAtLeast(2f)
+                                    if (lastIdx > 0) {
+                                        liveMarkupWidths[lastIdx - 1] = (liveMarkupWidths[lastIdx - 1] * 0.70f).coerceAtLeast(2f)
+                                    }
+                                }
+                                currentOnCommitMarkupTaperedStroke(
                                     liveMarkupPoints.toList(),
-                                    activeMode == EditorToolMode.HIGHLIGHTER
+                                    activeMode == EditorToolMode.HIGHLIGHTER,
+                                    if (activeMode == EditorToolMode.MARKUP_PEN) liveMarkupWidths.toList() else null
                                 )
                             }
                             liveMarkupPoints.clear()
+                            liveMarkupWidths.clear()
                         },
                         onDragCancel = {
                             liveMarkupPoints.clear()
+                            liveMarkupWidths.clear()
                         }
                     )
                 } else if (activeMode == EditorToolMode.MAGIC_ERASER) {
@@ -347,10 +477,21 @@ fun DocumentInteractiveCanvas(
                         onDragEnd = {
                             liveBrushScreenPos = null
                             if (liveMarkupPoints.size >= 2) {
-                                currentOnCommitMagicEraserStroke(
-                                    liveMarkupPoints.toList(),
-                                    magicEraserBrushRadius
-                                )
+                                val strokeCopy = liveMarkupPoints.toList()
+                                if (currentIsMagicEraserBatchMode) {
+                                    accumulatedEraserStrokes.add(strokeCopy)
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                } else {
+                                    currentOnCommitMagicEraserBatch(
+                                        listOf(strokeCopy),
+                                        magicEraserBrushRadius,
+                                        currentMagicEraserTargetMode
+                                    )
+                                    currentOnCommitMagicEraserStroke(
+                                        strokeCopy,
+                                        magicEraserBrushRadius
+                                    )
+                                }
                             }
                             liveMarkupPoints.clear()
                         },
@@ -474,17 +615,18 @@ fun DocumentInteractiveCanvas(
                 } else if (activeMode == EditorToolMode.LASSO_SELECT) {
                     detectDragGestures(
                         onDragStart = { start ->
-                            lassoBoxStart = start
-                            lassoBoxCurrent = start
+                            liveLassoPolygon.clear()
+                            liveLassoPolygon.add(start)
                         },
                         onDrag = { change, _ ->
                             change.consume()
-                            lassoBoxCurrent = change.position
+                            val last = liveLassoPolygon.lastOrNull()
+                            if (last == null || kotlin.math.hypot((change.position.x - last.x).toDouble(), (change.position.y - last.y).toDouble()) > 6.0) {
+                                liveLassoPolygon.add(change.position)
+                            }
                         },
                         onDragEnd = {
-                            val start = lassoBoxStart
-                            val end = lassoBoxCurrent
-                            if (start != null && end != null) {
+                            if (liveLassoPolygon.size >= 3) {
                                 val fitScale = min(
                                     currentContainerSize.width.toFloat() / bitmap.width,
                                     currentContainerSize.height.toFloat() / bitmap.height
@@ -495,29 +637,54 @@ fun DocumentInteractiveCanvas(
                                 val baseLeft = (currentContainerSize.width - drawWidth) / 2f + currentOffset.x
                                 val baseTop = (currentContainerSize.height - drawHeight) / 2f + currentOffset.y
 
-                                val minX = (minOf(start.x, end.x) - baseLeft) / effectiveScale
-                                val maxX = (maxOf(start.x, end.x) - baseLeft) / effectiveScale
-                                val minY = (minOf(start.y, end.y) - baseTop) / effectiveScale
-                                val maxY = (maxOf(start.y, end.y) - baseTop) / effectiveScale
+                                val polyDocPoints = liveLassoPolygon.map { pt ->
+                                    android.graphics.PointF(
+                                        (pt.x - baseLeft) / effectiveScale,
+                                        (pt.y - baseTop) / effectiveScale
+                                    )
+                                }
+
+                                // Category 8.4 Freehand Loop Ray-Casting Point-in-Polygon
+                                fun isPointInPoly(px: Float, py: Float): Boolean {
+                                    var inside = false
+                                    var j = polyDocPoints.size - 1
+                                    for (i in polyDocPoints.indices) {
+                                        val pi = polyDocPoints[i]
+                                        val pj = polyDocPoints[j]
+                                        if ((pi.y > py) != (pj.y > py) &&
+                                            px < (pj.x - pi.x) * (py - pi.y) / (pj.y - pi.y + 1e-6f) + pi.x
+                                        ) {
+                                            inside = !inside
+                                        }
+                                        j = i
+                                    }
+                                    return inside
+                                }
 
                                 val selected = currentDetectedItems.filter { item ->
                                     val b = item.boundingBox
-                                    b.left < maxX && b.right > minX && b.top < maxY && b.bottom > minY
+                                    val cx = b.centerX().toFloat()
+                                    val cy = b.centerY().toFloat()
+                                    isPointInPoly(cx, cy) ||
+                                    isPointInPoly(b.left.toFloat(), b.top.toFloat()) ||
+                                    isPointInPoly(b.right.toFloat(), b.bottom.toFloat()) ||
+                                    isPointInPoly(b.left.toFloat(), b.bottom.toFloat()) ||
+                                    isPointInPoly(b.right.toFloat(), b.top.toFloat())
                                 }
                                 currentOnLassoSelectionChanged(selected)
                             }
-                            lassoBoxStart = null
-                            lassoBoxCurrent = null
+                            liveLassoPolygon.clear()
                         },
                         onDragCancel = {
-                            lassoBoxStart = null
-                            lassoBoxCurrent = null
+                            liveLassoPolygon.clear()
                         }
                     )
                 } else {
                     // Unified High-Precision Multi-Touch Engine for Canva Layers & Document Interaction
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
+                        momentumJob?.cancel()
+                        momentumJob = null
                         val startOffset = down.position
                         val fitScale = min(
                             currentContainerSize.width.toFloat() / bitmap.width,
@@ -716,68 +883,131 @@ fun DocumentInteractiveCanvas(
                                 if (isTap) {
                                     val now = System.currentTimeMillis()
                                     if (now - lastTapTime < 320L && kotlin.math.hypot((startOffset.x - lastTapPosition.x).toDouble(), (startOffset.y - lastTapPosition.y).toDouble()) < 48.0) {
-                                        // Double Tap Zoom Toggle
-                                        if (scale > 1.1f) {
-                                            scale = 1f
-                                            offset = Offset.Zero
+                                        // Double Tap Smart Zoom Centering with Smooth Animation
+                                        momentumJob?.cancel()
+                                        val targetScale: Float
+                                        val targetOffset: Offset
+
+                                        if (scale > 1.2f) {
+                                            targetScale = 1.0f
+                                            targetOffset = Offset.Zero
                                         } else {
-                                            scale = 2.2f
+                                            targetScale = 2.5f
+                                            val hitItem = currentDetectedItems.firstOrNull { it.boundingBox.contains(docX.toInt(), docY.toInt()) }
+                                            val focalDocX = hitItem?.boundingBox?.centerX()?.toFloat() ?: docX
+                                            val focalDocY = hitItem?.boundingBox?.centerY()?.toFloat() ?: docY
+
+                                            val targetEffectiveScale = fitScale * targetScale
+                                            val targetLeft = (currentContainerSize.width - bitmap.width * targetEffectiveScale) / 2f
+                                            val targetTop = (currentContainerSize.height - bitmap.height * targetEffectiveScale) / 2f
+                                            val targetOffX = (currentContainerSize.width / 2f) - (targetLeft + focalDocX * targetEffectiveScale)
+                                            val targetOffY = (currentContainerSize.height / 2f) - (targetTop + focalDocY * targetEffectiveScale)
+                                            targetOffset = Offset(targetOffX, targetOffY)
+                                        }
+
+                                        coroutineScope.launch {
+                                            val startScale = scale
+                                            val startOff = offset
+                                            val anim = Animatable(0f)
+                                            anim.animateTo(
+                                                targetValue = 1f,
+                                                animationSpec = tween(durationMillis = 280, easing = FastOutSlowInEasing)
+                                            ) {
+                                                val p = value
+                                                scale = startScale + (targetScale - startScale) * p
+                                                offset = Offset(
+                                                    startOff.x + (targetOffset.x - startOff.x) * p,
+                                                    startOff.y + (targetOffset.y - startOff.y) * p
+                                                )
+                                            }
                                         }
                                         lastTapTime = 0L
                                     } else {
                                         lastTapTime = now
                                         lastTapPosition = startOffset
-                                        if (activeMode == EditorToolMode.TEXT_EDIT) {
-                                            // 100% Guaranteed High-Precision Text Selection & Auto-fetch
-                                            var hitItem = currentDetectedItems.firstOrNull { item ->
-                                                item.boundingBox.contains(docX.toInt(), docY.toInt())
+
+                                        // Priority 1: Instant Tap-to-Copy & Match Focus on Canvas Search Highlights
+                                        var handledBySearch = false
+                                        if (currentIsSearchActive && currentSearchMatchOccurrences.isNotEmpty()) {
+                                            val tappedMatch = currentSearchMatchOccurrences.firstOrNull { occ ->
+                                                occ.highlightBounds.contains(docX.toInt(), docY.toInt())
                                             }
-                                            if (hitItem == null && currentDetectedItems.isNotEmpty()) {
-                                                val snapRadiusPx = 36.dp.toPx() / effectiveScale
-                                                var closestDistance = Float.MAX_VALUE
-                                                for (item in currentDetectedItems) {
-                                                    val b = item.boundingBox
-                                                    val ddx = when {
-                                                        docX < b.left -> b.left - docX
-                                                        docX > b.right -> docX - b.right
-                                                        else -> 0f
-                                                    }
-                                                    val ddy = when {
-                                                        docY < b.top -> b.top - docY
-                                                        docY > b.bottom -> docY - b.bottom
-                                                        else -> 0f
-                                                    }
-                                                    val dist = kotlin.math.hypot(ddx, ddy)
-                                                    if (dist <= snapRadiusPx && dist < closestDistance) {
-                                                        closestDistance = dist
-                                                        hitItem = item
+                                            if (tappedMatch != null) {
+                                                hapticFeedback.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                                currentOnSearchMatchTapped(tappedMatch)
+                                                if (activeMode == EditorToolMode.TEXT_EDIT) {
+                                                    currentOnTextItemTapped(tappedMatch.fullLineItem)
+                                                }
+                                                handledBySearch = true
+                                            }
+                                        }
+
+                                        if (!handledBySearch) {
+                                            if (activeMode == EditorToolMode.TEXT_EDIT) {
+                                                // 100% Guaranteed High-Precision Text Selection & Auto-fetch
+                                                var hitItem = currentDetectedItems.firstOrNull { item ->
+                                                    item.boundingBox.contains(docX.toInt(), docY.toInt())
+                                                }
+                                                if (hitItem == null && currentDetectedItems.isNotEmpty()) {
+                                                    val snapRadiusPx = 36.dp.toPx() / effectiveScale
+                                                    var closestDistance = Float.MAX_VALUE
+                                                    for (item in currentDetectedItems) {
+                                                        val b = item.boundingBox
+                                                        val ddx = when {
+                                                            docX < b.left -> b.left - docX
+                                                            docX > b.right -> docX - b.right
+                                                            else -> 0f
+                                                        }
+                                                        val ddy = when {
+                                                            docY < b.top -> b.top - docY
+                                                            docY > b.bottom -> docY - b.bottom
+                                                            else -> 0f
+                                                        }
+                                                        val dist = kotlin.math.hypot(ddx, ddy)
+                                                        if (dist <= snapRadiusPx && dist < closestDistance) {
+                                                            closestDistance = dist
+                                                            hitItem = item
+                                                        }
                                                     }
                                                 }
-                                            }
-                                            if (hitItem != null) {
-                                                if (currentSelectedLayerId != null) {
-                                                    currentOnSelectLayer(null)
+                                                if (hitItem != null) {
+                                                    if (currentSelectedLayerId != null) {
+                                                        currentOnSelectLayer(null)
+                                                    }
+                                                    currentOnTextItemTapped(hitItem)
+                                                } else {
+                                                    if (currentSelectedLayerId != null) {
+                                                        currentOnSelectLayer(null)
+                                                    } else {
+                                                        currentOnTextItemTapped(null)
+                                                    }
                                                 }
-                                                currentOnTextItemTapped(hitItem)
-                                            } else {
+                                            } else if (chosenHandle == CanvasHandleType.NONE) {
                                                 if (currentSelectedLayerId != null) {
                                                     currentOnSelectLayer(null)
                                                 } else {
-                                                    currentOnTextItemTapped(null)
-                                                }
-                                            }
-                                        } else if (chosenHandle == CanvasHandleType.NONE) {
-                                            if (currentSelectedLayerId != null) {
-                                                currentOnSelectLayer(null)
-                                            } else {
-                                                if (activeMode == EditorToolMode.ADD_TEXT) {
-                                                    if (docX in 0f..bitmap.width.toFloat() && docY in 0f..bitmap.height.toFloat()) {
-                                                        currentOnInsertTextTouch(docX, docY)
+                                                    if (activeMode == EditorToolMode.ADD_TEXT) {
+                                                        if (docX in 0f..bitmap.width.toFloat() && docY in 0f..bitmap.height.toFloat()) {
+                                                            currentOnInsertTextTouch(docX, docY)
+                                                        }
+                                                    } else {
+                                                        currentOnTextItemTapped(null)
                                                     }
-                                                } else {
-                                                    currentOnTextItemTapped(null)
                                                 }
                                             }
+                                        }
+                                    }
+                                } else if (isDrag && chosenHandle == CanvasHandleType.NONE && panVelocity.getDistance() > 2f) {
+                                    // Natural Momentum Friction Physics Glide
+                                    momentumJob?.cancel()
+                                    momentumJob = coroutineScope.launch {
+                                        var vx = panVelocity.x * 1.15f
+                                        var vy = panVelocity.y * 1.15f
+                                        while (kotlin.math.hypot(vx.toDouble(), vy.toDouble()) > 0.4) {
+                                            offset += Offset(vx, vy)
+                                            vx *= 0.90f
+                                            vy *= 0.90f
+                                            delay(16)
                                         }
                                     }
                                 }
@@ -828,34 +1058,99 @@ fun DocumentInteractiveCanvas(
                                             var snappedX = false
                                             var snappedY = false
 
-                                            // Snap Horizontal Center & Margins
-                                            if (kotlin.math.abs(lCenterX - docCenterX) <= snapDist) {
-                                                candX = docCenterX - lW / 2f
-                                                guides.add(SnapGuideLine(isVertical = true, position = docCenterX, label = "Center"))
-                                                snappedX = true
-                                            } else if (kotlin.math.abs(candX - docMarginL) <= snapDist) {
-                                                candX = docMarginL
-                                                guides.add(SnapGuideLine(isVertical = true, position = docMarginL, label = "Margin"))
-                                                snappedX = true
-                                            } else if (kotlin.math.abs(candX + lW - docMarginR) <= snapDist) {
-                                                candX = docMarginR - lW
-                                                guides.add(SnapGuideLine(isVertical = true, position = docMarginR, label = "Margin"))
-                                                snappedX = true
+                                            // 1. Magnetic Snapping to other canvas layers (edges & centers)
+                                            for (other in currentCanvasLayers) {
+                                                if (other.id == curActive.id) continue
+                                                val oW = other.bitmap.width * other.scale
+                                                val oH = other.bitmap.height * other.scale
+                                                val oLeft = other.x
+                                                val oRight = other.x + oW
+                                                val oCenterX = oLeft + oW / 2f
+                                                val oTop = other.y
+                                                val oBottom = other.y + oH
+                                                val oCenterY = oTop + oH / 2f
+
+                                                if (!snappedX) {
+                                                    if (kotlin.math.abs(lCenterX - oCenterX) <= snapDist) {
+                                                        candX = oCenterX - lW / 2f
+                                                        guides.add(SnapGuideLine(isVertical = true, position = oCenterX, label = "Layer Center"))
+                                                        snappedX = true
+                                                    } else if (kotlin.math.abs(candX - oLeft) <= snapDist) {
+                                                        candX = oLeft
+                                                        guides.add(SnapGuideLine(isVertical = true, position = oLeft, label = "Layer Align"))
+                                                        snappedX = true
+                                                    } else if (kotlin.math.abs(candX + lW - oRight) <= snapDist) {
+                                                        candX = oRight - lW
+                                                        guides.add(SnapGuideLine(isVertical = true, position = oRight, label = "Layer Align"))
+                                                        snappedX = true
+                                                    } else if (kotlin.math.abs(candX - oRight) <= snapDist) {
+                                                        candX = oRight
+                                                        guides.add(SnapGuideLine(isVertical = true, position = oRight, label = "Layer Snap"))
+                                                        snappedX = true
+                                                    } else if (kotlin.math.abs(candX + lW - oLeft) <= snapDist) {
+                                                        candX = oLeft - lW
+                                                        guides.add(SnapGuideLine(isVertical = true, position = oLeft, label = "Layer Snap"))
+                                                        snappedX = true
+                                                    }
+                                                }
+
+                                                if (!snappedY) {
+                                                    if (kotlin.math.abs(lCenterY - oCenterY) <= snapDist) {
+                                                        candY = oCenterY - lH / 2f
+                                                        guides.add(SnapGuideLine(isVertical = false, position = oCenterY, label = "Layer Center"))
+                                                        snappedY = true
+                                                    } else if (kotlin.math.abs(candY - oTop) <= snapDist) {
+                                                        candY = oTop
+                                                        guides.add(SnapGuideLine(isVertical = false, position = oTop, label = "Layer Align"))
+                                                        snappedY = true
+                                                    } else if (kotlin.math.abs(candY + lH - oBottom) <= snapDist) {
+                                                        candY = oBottom - lH
+                                                        guides.add(SnapGuideLine(isVertical = false, position = oBottom, label = "Layer Align"))
+                                                        snappedY = true
+                                                    } else if (kotlin.math.abs(candY - oBottom) <= snapDist) {
+                                                        candY = oBottom
+                                                        guides.add(SnapGuideLine(isVertical = false, position = oBottom, label = "Layer Snap"))
+                                                        snappedY = true
+                                                    } else if (kotlin.math.abs(candY + lH - oTop) <= snapDist) {
+                                                        candY = oTop - lH
+                                                        guides.add(SnapGuideLine(isVertical = false, position = oTop, label = "Layer Snap"))
+                                                        snappedY = true
+                                                    }
+                                                }
                                             }
 
-                                            // Snap Vertical Center & Margins
-                                            if (kotlin.math.abs(lCenterY - docCenterY) <= snapDist) {
-                                                candY = docCenterY - lH / 2f
-                                                guides.add(SnapGuideLine(isVertical = false, position = docCenterY, label = "Center"))
-                                                snappedY = true
-                                            } else if (kotlin.math.abs(candY - docMarginT) <= snapDist) {
-                                                candY = docMarginT
-                                                guides.add(SnapGuideLine(isVertical = false, position = docMarginT, label = "Margin"))
-                                                snappedY = true
-                                            } else if (kotlin.math.abs(candY + lH - docMarginB) <= snapDist) {
-                                                candY = docMarginB - lH
-                                                guides.add(SnapGuideLine(isVertical = false, position = docMarginB, label = "Margin"))
-                                                snappedY = true
+                                            // 2. Snap Horizontal Center & Margins
+                                            if (!snappedX) {
+                                                if (kotlin.math.abs(lCenterX - docCenterX) <= snapDist) {
+                                                    candX = docCenterX - lW / 2f
+                                                    guides.add(SnapGuideLine(isVertical = true, position = docCenterX, label = "Center"))
+                                                    snappedX = true
+                                                } else if (kotlin.math.abs(candX - docMarginL) <= snapDist) {
+                                                    candX = docMarginL
+                                                    guides.add(SnapGuideLine(isVertical = true, position = docMarginL, label = "Margin"))
+                                                    snappedX = true
+                                                } else if (kotlin.math.abs(candX + lW - docMarginR) <= snapDist) {
+                                                    candX = docMarginR - lW
+                                                    guides.add(SnapGuideLine(isVertical = true, position = docMarginR, label = "Margin"))
+                                                    snappedX = true
+                                                }
+                                            }
+
+                                            // 3. Snap Vertical Center & Margins
+                                            if (!snappedY) {
+                                                if (kotlin.math.abs(lCenterY - docCenterY) <= snapDist) {
+                                                    candY = docCenterY - lH / 2f
+                                                    guides.add(SnapGuideLine(isVertical = false, position = docCenterY, label = "Center"))
+                                                    snappedY = true
+                                                } else if (kotlin.math.abs(candY - docMarginT) <= snapDist) {
+                                                    candY = docMarginT
+                                                    guides.add(SnapGuideLine(isVertical = false, position = docMarginT, label = "Margin"))
+                                                    snappedY = true
+                                                } else if (kotlin.math.abs(candY + lH - docMarginB) <= snapDist) {
+                                                    candY = docMarginB - lH
+                                                    guides.add(SnapGuideLine(isVertical = false, position = docMarginB, label = "Margin"))
+                                                    snappedY = true
+                                                }
                                             }
 
                                             if (snappedX || snappedY) {
@@ -1018,6 +1313,10 @@ fun DocumentInteractiveCanvas(
                                 val hudCenterX = (sBoxLeft + sBoxWidth / 2f).coerceIn(80f, currentContainerSize.width.toFloat() - 80f)
                                 val hudCenterY = (sBoxTop - 45.dp.toPx()).coerceAtLeast(20.dp.toPx())
                                 hudPosition = Offset(hudCenterX - 65.dp.toPx(), hudCenterY)
+                            } else if (isDrag && chosenHandle == CanvasHandleType.NONE && currentSelected == null && currentActiveOverlayBitmap == null) {
+                                // Single-Finger Smooth Document Canvas Pan & Inertial Velocity Accumulation
+                                offset += dragDelta
+                                panVelocity = Offset(dragDelta.x * 0.75f + panVelocity.x * 0.25f, dragDelta.y * 0.75f + panVelocity.y * 0.25f)
                             }
                         }
 
@@ -1074,7 +1373,7 @@ fun DocumentInteractiveCanvas(
                     val boxWidth = box.width() * effectiveScale
                     val boxHeight = box.height() * effectiveScale
 
-                    if (isSearchMatch) {
+                    if (isSearchMatch && searchMatchOccurrences.isEmpty()) {
                         drawRect(
                             color = Color(0xFFFFEB3B).copy(alpha = 0.55f),
                             topLeft = Offset(boxLeft, boxTop),
@@ -1231,25 +1530,149 @@ fun DocumentInteractiveCanvas(
                 }
             }
 
-            // 2.1 Draw active dragging lasso rectangle
-            val lStart = lassoBoxStart
-            val lCurr = lassoBoxCurrent
-            if (lStart != null && lCurr != null) {
-                val left = minOf(lStart.x, lCurr.x)
-                val top = minOf(lStart.y, lCurr.y)
-                val w = kotlin.math.abs(lCurr.x - lStart.x)
-                val h = kotlin.math.abs(lCurr.y - lStart.y)
-                drawRect(
-                    color = Color(0xFF3B82F6).copy(alpha = 0.22f),
-                    topLeft = Offset(left, top),
-                    size = Size(w, h)
+            // 2.05 PRO FEATURE 8: Real-Time Precision Word-Level Search Highlights & Focus Reticle
+            if (isSearchActive && searchMatchOccurrences.isNotEmpty()) {
+                val matchBracketLen = 8.dp.toPx()
+                for ((mIdx, occ) in searchMatchOccurrences.withIndex()) {
+                    val isCurrentFocused = (mIdx == currentSearchMatchIndex)
+                    val mBox = occ.highlightBounds
+                    val mLeft = baseLeft + (mBox.left * effectiveScale)
+                    val mTop = baseTop + (mBox.top * effectiveScale)
+                    val mWidth = mBox.width() * effectiveScale
+                    val mHeight = mBox.height() * effectiveScale
+
+                    if (isCurrentFocused) {
+                        // 1. Golden outer pulse glow halo
+                        drawRoundRect(
+                            color = Color(0xFFF59E0B).copy(alpha = 0.28f),
+                            topLeft = Offset(mLeft - 4.dp.toPx(), mTop - 4.dp.toPx()),
+                            size = Size(mWidth + 8.dp.toPx(), mHeight + 8.dp.toPx()),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(6.dp.toPx())
+                        )
+                        // 2. Focused vibrant amber/gold fill
+                        drawRoundRect(
+                            color = Color(0xFFFBBF24).copy(alpha = 0.70f),
+                            topLeft = Offset(mLeft, mTop),
+                            size = Size(mWidth, mHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx())
+                        )
+                        // 3. Crisp amber contour border
+                        drawRoundRect(
+                            color = Color(0xFFD97706),
+                            topLeft = Offset(mLeft, mTop),
+                            size = Size(mWidth, mHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()),
+                            style = Stroke(width = 2.5.dp.toPx())
+                        )
+                        // 4. Reticle Corner Focus Brackets (CAD / Precision Highlighting)
+                        val bLen = min(matchBracketLen, min(mWidth * 0.35f, mHeight * 0.35f))
+                        val strokeW = 2.dp.toPx()
+                        val reticleColor = Color(0xFF78350F)
+                        // Top-Left
+                        drawLine(reticleColor, Offset(mLeft - 2.dp.toPx(), mTop - 2.dp.toPx() + bLen), Offset(mLeft - 2.dp.toPx(), mTop - 2.dp.toPx()), strokeWidth = strokeW)
+                        drawLine(reticleColor, Offset(mLeft - 2.dp.toPx(), mTop - 2.dp.toPx()), Offset(mLeft - 2.dp.toPx() + bLen, mTop - 2.dp.toPx()), strokeWidth = strokeW)
+                        // Top-Right
+                        drawLine(reticleColor, Offset(mLeft + mWidth + 2.dp.toPx() - bLen, mTop - 2.dp.toPx()), Offset(mLeft + mWidth + 2.dp.toPx(), mTop - 2.dp.toPx()), strokeWidth = strokeW)
+                        drawLine(reticleColor, Offset(mLeft + mWidth + 2.dp.toPx(), mTop - 2.dp.toPx()), Offset(mLeft + mWidth + 2.dp.toPx(), mTop - 2.dp.toPx() + bLen), strokeWidth = strokeW)
+                        // Bottom-Left
+                        drawLine(reticleColor, Offset(mLeft - 2.dp.toPx(), mTop + mHeight + 2.dp.toPx() - bLen), Offset(mLeft - 2.dp.toPx(), mTop + mHeight + 2.dp.toPx()), strokeWidth = strokeW)
+                        drawLine(reticleColor, Offset(mLeft - 2.dp.toPx(), mTop + mHeight + 2.dp.toPx()), Offset(mLeft - 2.dp.toPx() + bLen, mTop + mHeight + 2.dp.toPx()), strokeWidth = strokeW)
+                        // Bottom-Right
+                        drawLine(reticleColor, Offset(mLeft + mWidth + 2.dp.toPx() - bLen, mTop + mHeight + 2.dp.toPx()), Offset(mLeft + mWidth + 2.dp.toPx(), mTop + mHeight + 2.dp.toPx()), strokeWidth = strokeW)
+                        drawLine(reticleColor, Offset(mLeft + mWidth + 2.dp.toPx(), mTop + mHeight + 2.dp.toPx()), Offset(mLeft + mWidth + 2.dp.toPx(), mTop + mHeight + 2.dp.toPx() - bLen), strokeWidth = strokeW)
+                    } else {
+                        // Inactive matches: Clean classic highlighter yellow with soft border
+                        drawRoundRect(
+                            color = Color(0xFFFFEB3B).copy(alpha = 0.45f),
+                            topLeft = Offset(mLeft, mTop),
+                            size = Size(mWidth, mHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.5.dp.toPx())
+                        )
+                        drawRoundRect(
+                            color = Color(0xFFF59E0B).copy(alpha = 0.85f),
+                            topLeft = Offset(mLeft, mTop),
+                            size = Size(mWidth, mHeight),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(2.5.dp.toPx()),
+                            style = Stroke(width = 1.2.dp.toPx())
+                        )
+                    }
+                }
+            }
+
+            // 2.1 Draw active dragging lasso polygon with glowing dashed outline
+            if (liveLassoPolygon.size > 1) {
+                val lassoPath = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(liveLassoPolygon[0].x, liveLassoPolygon[0].y)
+                    for (i in 1 until liveLassoPolygon.size) {
+                        lineTo(liveLassoPolygon[i].x, liveLassoPolygon[i].y)
+                    }
+                    close()
+                }
+                drawPath(
+                    path = lassoPath,
+                    color = Color(0xFF8B5CF6).copy(alpha = 0.20f)
                 )
-                drawRect(
-                    color = Color(0xFF2563EB),
-                    topLeft = Offset(left, top),
-                    size = Size(w, h),
-                    style = Stroke(width = 2.dp.toPx())
+                drawPath(
+                    path = lassoPath,
+                    color = Color(0xFFA855F7),
+                    style = Stroke(
+                        width = 2.5.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f))
+                    )
                 )
+                drawPath(
+                    path = lassoPath,
+                    color = Color.White.copy(alpha = 0.85f),
+                    style = Stroke(
+                        width = 1.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 14f))
+                    )
+                )
+            }
+
+            // 2.1.9 Draw accumulated Magic Eraser multi-strokes with neon mask & glowing outer boundary
+            if (activeMode == EditorToolMode.MAGIC_ERASER && accumulatedEraserStrokes.isNotEmpty()) {
+                val eraserBaseW = (magicEraserBrushRadius * 2f) * effectiveScale
+                for (stroke in accumulatedEraserStrokes) {
+                    if (stroke.size > 1) {
+                        for (i in 0 until stroke.size - 1) {
+                            val p1 = stroke[i]
+                            val p2 = stroke[i + 1]
+                            val s1 = Offset(baseLeft + p1.x * effectiveScale, baseTop + p1.y * effectiveScale)
+                            val s2 = Offset(baseLeft + p2.x * effectiveScale, baseTop + p2.y * effectiveScale)
+
+                            // Outer neon aura
+                            drawLine(
+                                color = Color(0xFFA855F7).copy(alpha = 0.22f),
+                                start = s1,
+                                end = s2,
+                                strokeWidth = eraserBaseW + 6.dp.toPx(),
+                                cap = StrokeCap.Round
+                            )
+                            // Inner high-visibility mask
+                            drawLine(
+                                color = Color(0xFFD946EF).copy(alpha = 0.55f),
+                                start = s1,
+                                end = s2,
+                                strokeWidth = eraserBaseW,
+                                cap = StrokeCap.Round
+                            )
+                            drawCircle(
+                                color = Color(0xFFD946EF).copy(alpha = 0.55f),
+                                radius = eraserBaseW / 2f,
+                                center = s2
+                            )
+                        }
+                    } else if (stroke.size == 1) {
+                        val p = stroke[0]
+                        val s = Offset(baseLeft + p.x * effectiveScale, baseTop + p.y * effectiveScale)
+                        drawCircle(
+                            color = Color(0xFFD946EF).copy(alpha = 0.55f),
+                            radius = eraserBaseW / 2f,
+                            center = s
+                        )
+                    }
+                }
             }
 
             // 2.2 Draw active live highlighter / markup pen / magic eraser stroke
@@ -1261,7 +1684,7 @@ fun DocumentInteractiveCanvas(
                     isHl -> Color(markupColorRgb).copy(alpha = 0.55f)
                     else -> Color(penColorRgb)
                 }
-                val strokeW = when {
+                val baseStrokeW = when {
                     isMagicEraser -> (magicEraserBrushRadius * 2f) * effectiveScale
                     isHl -> markupStrokeWidth * effectiveScale
                     else -> penStrokeWidth * effectiveScale
@@ -1271,13 +1694,25 @@ fun DocumentInteractiveCanvas(
                     val p2 = liveMarkupPoints[i + 1]
                     val s1 = Offset(baseLeft + p1.x * effectiveScale, baseTop + p1.y * effectiveScale)
                     val s2 = Offset(baseLeft + p2.x * effectiveScale, baseTop + p2.y * effectiveScale)
+                    val segW = if (!isHl && !isMagicEraser && liveMarkupWidths.size > i) {
+                        liveMarkupWidths[i] * effectiveScale
+                    } else {
+                        baseStrokeW
+                    }
                     drawLine(
                         color = strokeColor,
                         start = s1,
                         end = s2,
-                        strokeWidth = strokeW,
+                        strokeWidth = segW,
                         cap = StrokeCap.Round
                     )
+                    if (!isHl && !isMagicEraser) {
+                        drawCircle(
+                            color = strokeColor,
+                            radius = segW / 2f,
+                            center = s2
+                        )
+                    }
                 }
             }
 
@@ -1669,21 +2104,58 @@ fun DocumentInteractiveCanvas(
             }
         }
 
-        // Canva Magic Object Eraser Banner
+        // Canva Magic Eraser 2.0 Studio Dock & Dynamic Top Hint
         if (activeMode == EditorToolMode.MAGIC_ERASER) {
             Surface(
-                color = Color(0xFFA855F7).copy(alpha = 0.95f),
+                color = Color(0xF20F172A),
+                border = BorderStroke(1.dp, Color(0xFFD946EF).copy(alpha = 0.6f)),
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 16.dp)
             ) {
                 Text(
-                    text = "🪄 Canva Magic Eraser: Brush over unwanted object to erase",
+                    text = when (currentMagicEraserTargetMode) {
+                        MagicEraserTargetMode.ALL_OBJECTS -> "🪄 Magic Eraser: Brush unwanted object, stamp or spot"
+                        MagicEraserTargetMode.STAMPS_AND_INK -> "🔴 Stamp Isolator: Erase ink (Printed text protected!)"
+                        MagicEraserTargetMode.CREASE_SHADOWS -> "📄 Crease Neutralizer: Trace fold lines to equalize paper"
+                    },
                     color = Color.White,
-                    fontSize = 13.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 12.dp)
+            ) {
+                MagicEraserStudioDock(
+                    brushRadius = magicEraserBrushRadius,
+                    onBrushRadiusChanged = onMagicEraserBrushRadiusChanged,
+                    targetMode = currentMagicEraserTargetMode,
+                    onTargetModeChanged = onMagicEraserTargetModeChanged,
+                    isBatchMode = currentIsMagicEraserBatchMode,
+                    onBatchModeChanged = onMagicEraserBatchModeChanged,
+                    strokeCount = accumulatedEraserStrokes.size,
+                    onUndoLastStroke = {
+                        if (accumulatedEraserStrokes.isNotEmpty()) {
+                            accumulatedEraserStrokes.removeAt(accumulatedEraserStrokes.lastIndex)
+                        }
+                    },
+                    onClearStrokes = {
+                        accumulatedEraserStrokes.clear()
+                    },
+                    onEraseBatch = {
+                        val batch = accumulatedEraserStrokes.toList()
+                        accumulatedEraserStrokes.clear()
+                        currentOnCommitMagicEraserBatch(batch, magicEraserBrushRadius, currentMagicEraserTargetMode)
+                    },
+                    isCloudAiEnabled = isCloudAiEraserEnabled,
+                    onToggleCloudAi = onToggleCloudAiEraser,
+                    onClose = onCloseMagicEraserStudio
                 )
             }
         }

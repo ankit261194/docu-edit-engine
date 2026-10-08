@@ -125,9 +125,9 @@ fun BookDewarpDialog(
                 // Spine Selector Chips
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     val spineOptions = listOf(
-                        Triple(BookCurveDewarper.SpinePosition.LEFT_SPINE, "📖 Left Spine (Left Page)", "Flatten curvature on left gutter"),
-                        Triple(BookCurveDewarper.SpinePosition.RIGHT_SPINE, "📘 Right Spine (Right Page)", "Flatten curvature on right gutter"),
-                        Triple(BookCurveDewarper.SpinePosition.CENTER_GUTTER, "👐 Center Fold (Open Spread)", "Flatten center gutter between facing pages"),
+                        Triple(BookCurveDewarper.SpinePosition.LEFT_SPINE, "📖 Left Spine (Left Page)", "3D Cylindrical mesh unrolling & left spine shadow eraser"),
+                        Triple(BookCurveDewarper.SpinePosition.RIGHT_SPINE, "📘 Right Spine (Right Page)", "3D Cylindrical mesh unrolling & right spine shadow eraser"),
+                        Triple(BookCurveDewarper.SpinePosition.CENTER_GUTTER, "👐 Center Fold (Open Spread)", "3D Cylindrical spread flattening & gutter shadow eraser"),
                         Triple(BookCurveDewarper.SpinePosition.CRUMPLED_PAPER, "📄 Crumpled Paper & Heavy Folds", "Multi-zone adaptive mesh unrolling & fold shadow elimination")
                     )
 

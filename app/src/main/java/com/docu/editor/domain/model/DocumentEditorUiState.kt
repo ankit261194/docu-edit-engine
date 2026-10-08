@@ -24,6 +24,12 @@ enum class EditorToolMode {
     CANVA_STICKERS
 }
 
+enum class MagicEraserTargetMode(val displayName: String, val subtitle: String) {
+    ALL_OBJECTS("All Objects", "Erases stamps, doodles, stains & logos completely"),
+    STAMPS_AND_INK("Stamps & Colored Ink", "Erases colored ink/stamps while strictly protecting underlying printed text"),
+    CREASE_SHADOWS("Crease & Fold Shadows", "Erases paper fold lines & spine shadows with paper tone equalization")
+}
+
 enum class ShapeType(val displayName: String, val icon: String = "⬛") {
     RECTANGLE("Rectangle", "⬛"),
     ROUNDED_RECTANGLE("Rounded Rect", "▢"),
@@ -79,6 +85,7 @@ data class DocumentEditorUiState(
     val showSignatureDialog: Boolean = false,
     val showPdfToolboxDialog: Boolean = false,
     val showTargetSizeAdjusterDialog: Boolean = false,
+    val pendingAdjustedTargetFile: java.io.File? = null,
     val showPkiDigitalSignDialog: Boolean = false,
     val pendingSignedPdfFile: java.io.File? = null,
     val showExportDialog: Boolean = false,
@@ -104,12 +111,21 @@ data class DocumentEditorUiState(
     val overlayAlpha: Float = 1.0f,
     val magicEraserBrushRadius: Float = 28f,
     val isCloudAiEraserEnabled: Boolean = true,
+    val magicEraserTargetMode: MagicEraserTargetMode = MagicEraserTargetMode.ALL_OBJECTS,
+    val isMagicEraserBatchMode: Boolean = true,
     val showCanvaStickersDialog: Boolean = false,
     val whiteoutBrushRadius: Float = 22f,
     val hasUnsavedChanges: Boolean = false,
     val searchQuery: String = "",
     val isSearchActive: Boolean = false,
     val searchMatchingIndices: List<Int> = emptyList(),
+    val searchMatchOccurrences: List<com.docu.editor.core.ocr.SearchMatchOccurrence> = emptyList(),
+    val currentSearchMatchIndex: Int = 0,
+    val isSearchCaseSensitive: Boolean = false,
+    val isSearchWholeWord: Boolean = false,
+    val isSearchHindiTolerant: Boolean = true,
+    val multiPageSearchMatchCounts: Map<Int, Int> = emptyMap(),
+    val searchCopiedWordToast: String? = null,
     val showPagesOverviewDialog: Boolean = false,
     val showExitConfirmationDialog: Boolean = false,
     val showPasswordPromptDialog: Boolean = false,
@@ -136,6 +152,14 @@ data class DocumentEditorUiState(
     val shapeStrokeWidth: Float = 6f,
     val shapeStrokeColorRgb: Int = android.graphics.Color.rgb(220, 38, 38),
     val shapeFillColor: Int? = null,
+    val shapeCornerRadius: Float = 24f,
+    val shapeArrowHeadSize: Float = 36f,
+    val shapeStemWidth: Float = 6f,
+    val shapeEmbeddedText: String? = null,
+    val shapeTextColorRgb: Int = android.graphics.Color.WHITE,
+    val shapeTextSizeSp: Float = 14f,
+    val shapeTextBold: Boolean = true,
+    val selectedLassoTextIndices: Set<Int> = emptySet(),
     val redactionBrushRadius: Float = 24f,
     val canvasLayers: List<DocumentCanvasLayer> = emptyList(),
     val selectedLayerId: String? = null,

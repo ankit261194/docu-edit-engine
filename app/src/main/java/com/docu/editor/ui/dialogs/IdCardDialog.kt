@@ -60,10 +60,21 @@ fun IdCardDialog(
     backBitmap: Bitmap?,
     onPickFrontClicked: () -> Unit,
     onPickBackClicked: () -> Unit,
-    onStitchClicked: (IdCardStitcher.IdCardLayoutMode, String) -> Unit,
+    onStitchClicked: (
+        layoutMode: IdCardStitcher.IdCardLayoutMode,
+        scaleMode: IdCardStitcher.CardScaleMode,
+        paperSize: IdCardStitcher.PaperSize,
+        applyAntiGlare: Boolean,
+        drawCuttingGuide: Boolean,
+        purposeAnnotation: String
+    ) -> Unit,
     onDismiss: () -> Unit
 ) {
     var selectedLayout by remember { mutableStateOf(IdCardStitcher.IdCardLayoutMode.VERTICAL_STACK) }
+    var selectedScale by remember { mutableStateOf(IdCardStitcher.CardScaleMode.PHYSICAL_1TO1) }
+    var selectedPaper by remember { mutableStateOf(IdCardStitcher.PaperSize.A4) }
+    var applyAntiGlare by remember { mutableStateOf(true) }
+    var drawCuttingGuide by remember { mutableStateOf(true) }
     var purposeText by remember { mutableStateOf("") }
 
     val presetWatermarks = listOf(
@@ -115,7 +126,7 @@ fun IdCardDialog(
                 }
 
                 Text(
-                    text = "Capture Front & Back ID cards. Auto-crops to ISO/IEC 7810 ID-1 standard and aligns onto 300 DPI A4 sheet.",
+                    text = "Capture Front & Back ID cards. Aligns to ISO/IEC 7810 ID-1 standard with anti-glare hologram filtering & official cutting guide.",
                     color = Color(0xFF64748B),
                     fontSize = 12.sp,
                     lineHeight = 16.sp,
@@ -126,7 +137,7 @@ fun IdCardDialog(
 
                 // Front Slot
                 IdCardSlot(
-                    label = "1. Front Side",
+                    label = "1. Front Side (मुख पृष्ठ)",
                     bitmap = frontBitmap,
                     onClick = onPickFrontClicked
                 )
@@ -135,16 +146,45 @@ fun IdCardDialog(
 
                 // Back Slot
                 IdCardSlot(
-                    label = "2. Back Side",
+                    label = "2. Back Side (पृष्ठ भाग)",
                     bitmap = backBitmap,
                     onClick = onPickBackClicked
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                // Card Print Scale Selector
+                Text(
+                    text = "Print Scale Standard",
+                    color = Color(0xFF1E293B),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = selectedScale == IdCardStitcher.CardScaleMode.PHYSICAL_1TO1,
+                        onClick = { selectedScale = IdCardStitcher.CardScaleMode.PHYSICAL_1TO1 },
+                        label = { Text("Exact 1:1 (85.6mm)", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = selectedScale == IdCardStitcher.CardScaleMode.ENLARGED_KYC,
+                        onClick = { selectedScale = IdCardStitcher.CardScaleMode.ENLARGED_KYC },
+                        label = { Text("Enlarged KYC (160%)", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
                 // Layout Selector
                 Text(
-                    text = "A4 Page Layout",
+                    text = "Page Arrangement & Canvas",
                     color = Color(0xFF1E293B),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -159,13 +199,34 @@ fun IdCardDialog(
                     FilterChip(
                         selected = selectedLayout == IdCardStitcher.IdCardLayoutMode.VERTICAL_STACK,
                         onClick = { selectedLayout = IdCardStitcher.IdCardLayoutMode.VERTICAL_STACK },
-                        label = { Text("Top & Bottom (KYC)", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                        label = { Text("Top & Bottom", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
                         modifier = Modifier.weight(1f)
                     )
                     FilterChip(
                         selected = selectedLayout == IdCardStitcher.IdCardLayoutMode.HORIZONTAL_SIDE_BY_SIDE,
                         onClick = { selectedLayout = IdCardStitcher.IdCardLayoutMode.HORIZONTAL_SIDE_BY_SIDE },
                         label = { Text("Side-by-Side", fontSize = 11.sp, fontWeight = FontWeight.Medium) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Pro Toggles: Hologram Anti-Glare & Cutting Guide
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    FilterChip(
+                        selected = applyAntiGlare,
+                        onClick = { applyAntiGlare = !applyAntiGlare },
+                        label = { Text(if (applyAntiGlare) "✨ Hologram Anti-Glare" else "Anti-Glare Off", fontSize = 11.sp) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = drawCuttingGuide,
+                        onClick = { drawCuttingGuide = !drawCuttingGuide },
+                        label = { Text(if (drawCuttingGuide) "✂ Cutting Line On" else "No Cutting Line", fontSize = 11.sp) },
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -209,7 +270,14 @@ fun IdCardDialog(
                 val canStitch = frontBitmap != null && backBitmap != null
                 Button(
                     onClick = {
-                        onStitchClicked(selectedLayout, purposeText.trim())
+                        onStitchClicked(
+                            selectedLayout,
+                            selectedScale,
+                            selectedPaper,
+                            applyAntiGlare,
+                            drawCuttingGuide,
+                            purposeText.trim()
+                        )
                     },
                     enabled = canStitch,
                     shape = RoundedCornerShape(12.dp),
@@ -220,7 +288,7 @@ fun IdCardDialog(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        text = if (canStitch) "Stitch to A4 Document" else "Capture Both Sides First",
+                        text = if (canStitch) "Stitch to Official Sheet" else "Capture Both Sides First",
                         color = if (canStitch) Color.White else Color(0xFF94A3B8),
                         fontWeight = FontWeight.Bold,
                         fontSize = 14.sp

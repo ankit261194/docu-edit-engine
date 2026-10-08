@@ -65,6 +65,7 @@ fun CanvaLayersDialog(
     onUpdateOpacity: (String, Float) -> Unit,
     onDuplicateLayer: (String) -> Unit,
     onDeleteLayer: (String) -> Unit,
+    onGroupAllLayers: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val selectedLayer = layers.firstOrNull { it.id == selectedLayerId }
@@ -290,7 +291,36 @@ fun CanvaLayersDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                if (layers.size >= 2) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Button(
+                        onClick = {
+                            onGroupAllLayers()
+                            onDismiss()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(44.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Layers,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Group All Layers (${layers.size})",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Button(
                     onClick = onDismiss,

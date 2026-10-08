@@ -48,6 +48,7 @@ fun IdRedactionDialog(
 ) {
     var selectedMode by remember { mutableStateOf(IdRedactionEngine.RedactionMode.AADHAAR_MASK) }
     var redactAadhaar by remember { mutableStateOf(true) }
+    var sanitizeQr by remember { mutableStateOf(true) }
     var redactPan by remember { mutableStateOf(true) }
     var redactCards by remember { mutableStateOf(true) }
     var redactPassport by remember { mutableStateOf(true) }
@@ -119,6 +120,11 @@ fun IdRedactionDialog(
                         selected = redactAadhaar,
                         onClick = { redactAadhaar = !redactAadhaar },
                         label = { Text("Aadhaar (12-digit)", fontSize = 11.sp) }
+                    )
+                    FilterChip(
+                        selected = sanitizeQr,
+                        onClick = { sanitizeQr = !sanitizeQr },
+                        label = { Text("🔒 Aadhaar QR Sanitizer", fontSize = 11.sp) }
                     )
                     FilterChip(
                         selected = redactPan,
@@ -220,6 +226,7 @@ fun IdRedactionDialog(
                         val options = IdRedactionEngine.RedactionOptions(
                             mode = selectedMode,
                             redactAadhaar = redactAadhaar,
+                            sanitizeAadhaarQr = sanitizeQr,
                             redactPan = redactPan,
                             redactCards = redactCards,
                             redactPassport = redactPassport,

@@ -86,7 +86,20 @@ class BatchOcrQueueManager(private val context: Context) {
                             pagesDetectedItems = emptyMap(),
                             autoRecycleBitmaps = true,
                             ocrFallbackProvider = { bmp ->
-                                ocrAnalyzer.detectTextBlocks(bmp, TextHierarchyLevel.LINE)
+                                val items = ocrAnalyzer.detectTextBlocks(bmp, TextHierarchyLevel.LINE)
+                                val pageText = items.joinToString(" ") { it.text }
+                                if (pageText.isNotBlank()) {
+                                    kotlinx.coroutines.runBlocking {
+                                        DocumentFtsIndexManager.getInstance(context).indexPage(
+                                            docId = outFile.name,
+                                            filePath = outFile.absolutePath,
+                                            fileName = cleanName,
+                                            extractedText = pageText,
+                                            pageNumber = 1
+                                        )
+                                    }
+                                }
+                                items
                             }
                         )
                         outputFiles.add(outFile)
@@ -104,7 +117,20 @@ class BatchOcrQueueManager(private val context: Context) {
                             fitToA4 = fitToA4,
                             detectedItems = emptyList(),
                             ocrFallbackProvider = { b ->
-                                ocrAnalyzer.detectTextBlocks(b, TextHierarchyLevel.LINE)
+                                val items = ocrAnalyzer.detectTextBlocks(b, TextHierarchyLevel.LINE)
+                                val pageText = items.joinToString(" ") { it.text }
+                                if (pageText.isNotBlank()) {
+                                    kotlinx.coroutines.runBlocking {
+                                        DocumentFtsIndexManager.getInstance(context).indexPage(
+                                            docId = outFile.name,
+                                            filePath = outFile.absolutePath,
+                                            fileName = cleanName,
+                                            extractedText = pageText,
+                                            pageNumber = 1
+                                        )
+                                    }
+                                }
+                                items
                             }
                         )
                         bmp.recycle()
@@ -151,5 +177,16 @@ class BatchOcrQueueManager(private val context: Context) {
             name = uri.path?.substringAfterLast('/')
         }
         return name
+    }
+
+    /**
+     * Sub-millisecond SQLite FTS full-text search across all batch OCR indexed documents.
+     */
+    suspend fun searchDocuments(query: String): List<FtsSearchResult> {
+        return DocumentFtsIndexManager.getInstance(context).search(query)
+    }
+
+    suspend fun getIndexedDocumentCount(): Int {
+        return DocumentFtsIndexManager.getInstance(context).getIndexedCount()
     }
 }

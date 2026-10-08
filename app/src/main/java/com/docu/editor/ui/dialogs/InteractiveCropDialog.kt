@@ -86,6 +86,7 @@ fun InteractiveCropDialog(
         try {
             val detected = DocumentEdgeDetector.detectCorners(sourceBitmap)
             currentCorners = detected
+            overlayViewRef?.referenceCorners = detected
             overlayViewRef?.corners = detected
         } catch (_: Exception) {}
     }

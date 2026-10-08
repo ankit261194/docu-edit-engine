@@ -9,6 +9,7 @@ import android.graphics.Paint
 import android.graphics.RadialGradient
 import android.graphics.Shader
 import com.docu.editor.domain.model.CanvaStyleMatchPreset
+import com.docu.editor.domain.model.SelectiveColorTarget
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.opencv.android.Utils
@@ -16,11 +17,13 @@ import org.opencv.core.Core
 import org.opencv.core.Mat
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
+import kotlin.math.roundToInt
 
 /**
  * Canva Pro Adjust, Color Grading & Style Match Engine.
  * Granular pro image tuning (Brightness, Contrast, Saturation, Warmth,
- * Tint, Clarity, Vignette, Blur) + Cinematic Look Presets.
+ * Tint, Clarity, Vignette, Blur), Interactive Tone Curves (Shadows, Midtones, Highlights),
+ * Selective Color Tuning (Blue ink, Red stamps, Green seals, Paper tint), + Cinematic Look Presets.
  */
 object CanvaAdjustEngine {
 
@@ -34,7 +37,13 @@ object CanvaAdjustEngine {
         clarity: Float = 0f,         // 0 .. 100
         vignette: Float = 0f,        // 0 .. 100
         blur: Float = 0f,            // 0 .. 50
-        preset: CanvaStyleMatchPreset = CanvaStyleMatchPreset.NONE
+        preset: CanvaStyleMatchPreset = CanvaStyleMatchPreset.NONE,
+        shadows: Float = 0f,         // -50 .. 50 (Tone Curve: Shadows)
+        midtones: Float = 0f,        // -50 .. 50 (Tone Curve: Midtones)
+        highlights: Float = 0f,      // -50 .. 50 (Tone Curve: Highlights)
+        colorTarget: SelectiveColorTarget = SelectiveColorTarget.ALL_MASTER,
+        targetSaturation: Float = 1.0f, // 0.0 .. 2.5
+        targetLuminance: Float = 1.0f   // 0.5 .. 1.8
     ): Bitmap = withContext(Dispatchers.Default) {
         var bmp = source.copy(Bitmap.Config.ARGB_8888, true)
 
@@ -112,6 +121,72 @@ object CanvaAdjustEngine {
         // 5. Vignette Darkening
         if (vignette > 5f) {
             applyVignetteInPlace(bmp, vignette)
+        }
+
+        // 6. Interactive Tone Curves (Shadows, Midtones, Highlights)
+        if (shadows != 0f || midtones != 0f || highlights != 0f) {
+            val lut = IntArray(256)
+            for (i in 0..255) {
+                val x = i / 255.0
+                val wShadow = (1.0 - x) * (1.0 - x)
+                val wMid = 4.0 * x * (1.0 - x)
+                val wHigh = x * x
+                val delta = shadows * wShadow + midtones * wMid + highlights * wHigh
+                lut[i] = (i + delta).roundToInt().coerceIn(0, 255)
+            }
+            val pixels = IntArray(bmp.width * bmp.height)
+            bmp.getPixels(pixels, 0, bmp.width, 0, 0, bmp.width, bmp.height)
+            for (idx in pixels.indices) {
+                val a = (pixels[idx] ushr 24) and 0xFF
+                val r = lut[(pixels[idx] ushr 16) and 0xFF]
+                val g = lut[(pixels[idx] ushr 8) and 0xFF]
+                val b = lut[pixels[idx] and 0xFF]
+                pixels[idx] = (a shl 24) or (r shl 16) or (g shl 8) or b
+            }
+            bmp.setPixels(pixels, 0, bmp.width, 0, 0, bmp.width, bmp.height)
+        }
+
+        // 7. Selective Color Tuning (target Blue ink, Red stamps, Green seals, Paper tint)
+        if (colorTarget != SelectiveColorTarget.ALL_MASTER || targetSaturation != 1.0f || targetLuminance != 1.0f) {
+            val pixels = IntArray(bmp.width * bmp.height)
+            bmp.getPixels(pixels, 0, bmp.width, 0, 0, bmp.width, bmp.height)
+            val hsv = FloatArray(3)
+            for (idx in pixels.indices) {
+                val col = pixels[idx]
+                val a = (col ushr 24) and 0xFF
+                Color.colorToHSV(col, hsv)
+                val hue = hsv[0]
+                val sat = hsv[1]
+                val value = hsv[2]
+
+                var matches = false
+                when (colorTarget) {
+                    SelectiveColorTarget.ALL_MASTER -> matches = true
+                    SelectiveColorTarget.BLUE_INK -> {
+                        // Blue / Cyan ballpoint & fountain pen ink
+                        if (hue in 175f..265f && sat >= 0.12f) matches = true
+                    }
+                    SelectiveColorTarget.RED_STAMPS -> {
+                        // Red notary seals / stamps
+                        if ((hue >= 330f || hue <= 30f) && sat >= 0.15f) matches = true
+                    }
+                    SelectiveColorTarget.GREEN_SEALS -> {
+                        // Green official verification seals
+                        if (hue in 75f..165f && sat >= 0.15f) matches = true
+                    }
+                    SelectiveColorTarget.PAPER_TINT -> {
+                        // Paper background tint: low sat, high value
+                        if (sat < 0.28f && value > 0.60f) matches = true
+                    }
+                }
+
+                if (matches) {
+                    hsv[1] = (sat * targetSaturation).coerceIn(0f, 1f)
+                    hsv[2] = (value * targetLuminance).coerceIn(0f, 1f)
+                    pixels[idx] = Color.HSVToColor(a, hsv)
+                }
+            }
+            bmp.setPixels(pixels, 0, bmp.width, 0, 0, bmp.width, bmp.height)
         }
 
         return@withContext bmp

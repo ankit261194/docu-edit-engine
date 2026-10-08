@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Functions
 import androidx.compose.material.icons.filled.Hd
 import androidx.compose.material.icons.filled.HistoryEdu
+import androidx.compose.material.icons.filled.Laptop
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MenuBook
@@ -120,9 +121,15 @@ fun CamScannerToolsTab(
     onWhiteboardScan: () -> Unit,
     onTimestampScan: () -> Unit,
     onScanCode: () -> Unit,
-    onBatchResize: () -> Unit = {}
+    onBatchResize: () -> Unit = {},
+    onPcDrop: () -> Unit = {},
+    onExpenseAuditor: () -> Unit = {},
+    onPrivateVault: () -> Unit = {},
+    onAutoMergeKb: () -> Unit = {}
 ) {
     val convertItems = listOf(
+        ToolGridItem("auto_merge_kb", "Merge to KB", Icons.Default.MergeType, Color(0xFF059669), Color(0xFFD1FAE5), hasRedBadge = true, onClick = onAutoMergeKb),
+        ToolGridItem("expense_auditor", "Expense Auditor", Icons.Default.TableChart, Color(0xFF16A34A), Color(0xFFDCFCE7), hasRedBadge = true, onClick = onExpenseAuditor),
         ToolGridItem("batch_resize", "Batch Resizer", Icons.Default.Compress, Color(0xFF2563EB), Color(0xFFEFF6FF), hasRedBadge = true, onClick = onBatchResize),
         ToolGridItem("word", "To Word", Icons.Default.Description, Color(0xFF2563EB), Color(0xFFEFF6FF), onClick = onConvertToWord),
         ToolGridItem("excel", "To Excel", Icons.Default.TableChart, Color(0xFF16A34A), Color(0xFFF0FDF4), onClick = onConvertToExcel),
@@ -134,17 +141,19 @@ fun CamScannerToolsTab(
     )
 
     val importItems = listOf(
+        ToolGridItem("pc_drop", "PC Drop (Wi-Fi)", Icons.Default.Laptop, Color(0xFF4F46E5), Color(0xFFEEF2FF), hasRedBadge = true, onClick = onPcDrop),
         ToolGridItem("imp_img", "Import Images", Icons.Default.PhotoAlbum, Color(0xFF0D9488), Color(0xFFCCFBF1), onClick = onImportImages),
         ToolGridItem("imp_file", "Import Files", Icons.Default.FolderOpen, Color(0xFF2563EB), Color(0xFFEFF6FF), onClick = onImportFiles)
     )
 
     val editItems = listOf(
+        ToolGridItem("private_vault", "Private Vault", Icons.Default.Lock, Color(0xFF6366F1), Color(0xFFEEF2FF), hasRedBadge = true, onClick = onPrivateVault),
         ToolGridItem("sign", "Sign", Icons.Default.HistoryEdu, Color(0xFF0D9488), Color(0xFFCCFBF1), onClick = onSign),
         ToolGridItem("watermark", "Add Watermark", Icons.Default.Security, Color(0xFF3B82F6), Color(0xFFEFF6FF), onClick = onAddWatermark),
         ToolGridItem("merge", "Merge Files", Icons.Default.MergeType, Color(0xFF0284C7), Color(0xFFE0F2FE), onClick = onMergeFiles),
         ToolGridItem("extract_pages", "Extract PDF Pages", Icons.Default.Layers, Color(0xFF2563EB), Color(0xFFEFF6FF), onClick = onExtractPdfPages),
         ToolGridItem("reorder", "Reorder Pages", Icons.Default.SwapVert, Color(0xFF059669), Color(0xFFD1FAE5), onClick = onReorderPages),
-        ToolGridItem("lock", "Lock", Icons.Default.Lock, Color(0xFF10B981), Color(0xFFECFDF5), onClick = onLockPdf)
+        ToolGridItem("lock", "Lock PDF", Icons.Default.Lock, Color(0xFF10B981), Color(0xFFECFDF5), onClick = onLockPdf)
     )
 
     val aiToolsItems = listOf(

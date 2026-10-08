@@ -52,6 +52,9 @@ import kotlinx.coroutines.withContext
 import org.opencv.core.Core
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import com.docu.editor.core.scanner.WhiteboardScannerEngine
+import com.docu.editor.core.scanner.SlidesScannerEngine
+import com.docu.editor.core.scanner.TimestampEngine
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.Executors
@@ -68,7 +71,6 @@ import kotlin.math.max
  * - Zero-OOM downsampling on 50MP/108MP high-resolution camera sensors.
  */
 class LiveCameraScannerActivity : ComponentActivity() {
-
     private lateinit var previewView: PreviewView
     private lateinit var overlayView: ScannerOverlayView
     private lateinit var cropLoupeOverlayView: CropLoupeOverlayView
@@ -94,7 +96,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
     private var isTorchOn = false
     private var isCapturing = false
 
-    enum class ScannerMode { SINGLE, BATCH, ID_CARD, BOOK, WHITEBOARD, PASSPORT }
+    enum class ScannerMode { SINGLE, BATCH, ID_CARD, BOOK, WHITEBOARD, SLIDES, TIMESTAMP, PASSPORT }
     private var scannerMode = ScannerMode.SINGLE
     private var isBatchMode = false
     private var idCardFrontBitmap: Bitmap? = null
@@ -104,6 +106,84 @@ class LiveCameraScannerActivity : ComponentActivity() {
     private lateinit var batchThumbnailBadge: FrameLayout
     private lateinit var batchThumbnailImg: ImageView
     private lateinit var batchBadgeCountText: TextView
+    private lateinit var batchLiveTray: android.widget.HorizontalScrollView
+    private lateinit var batchLiveTrayRow: LinearLayout
+
+    // Hands-Free Book Scanner Suite (Motion AI + Voice Shutter + Dual Split + Spine Shadow)
+    private var bookMotionAutoScanEnabled = true
+    private var bookVoiceShutterEnabled = false
+    private var isBookDualSplitEnabled = true
+    private var isSpineShadowRemovalEnabled = true
+
+    private lateinit var bookControlsDock: LinearLayout
+    private lateinit var bookMotionChip: TextView
+    private lateinit var bookVoiceChip: TextView
+    private lateinit var bookSplitChip: TextView
+    private lateinit var bookSpineShadowChip: TextView
+
+    private val pageTurnMotionDetector by lazy {
+        com.docu.editor.core.scanner.PageTurnMotionDetector(
+            onAutoCaptureTriggered = {
+                runOnUiThread {
+                    if (!isCapturing && scannerMode == ScannerMode.BOOK) {
+                        playShutterFeedback()
+                        captureHighResAndFinish(lastCorners)
+                    }
+                }
+            },
+            onMotionStateChanged = { state, progress ->
+                runOnUiThread {
+                    if (scannerMode == ScannerMode.BOOK) {
+                        when (state) {
+                            com.docu.editor.core.scanner.PageTurnMotionDetector.MotionState.COUNTDOWN_ACTIVE -> {
+                                val secs = ((1.5f * (1f - progress)) * 10f).toInt() / 10f
+                                statusText.text = "📖 Page Settled: Auto-Capturing in ${secs}s... 📸"
+                            }
+                            com.docu.editor.core.scanner.PageTurnMotionDetector.MotionState.HAND_MOVING -> {
+                                statusText.text = "✋ Hand moving... Turn page & hold still"
+                            }
+                            com.docu.editor.core.scanner.PageTurnMotionDetector.MotionState.PAGE_SETTLING -> {
+                                statusText.text = "🎯 Page settling... Hold still"
+                            }
+                            com.docu.editor.core.scanner.PageTurnMotionDetector.MotionState.WAITING_FOR_HAND -> {
+                                statusText.text = "📖 Book Auto-Mode: Turn page to auto-capture (or say 'Scan')"
+                            }
+                            com.docu.editor.core.scanner.PageTurnMotionDetector.MotionState.DEBOUNCED -> {
+                                statusText.text = "⚡ Processing book spread..."
+                            }
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    private val acousticVoiceShutterEngine by lazy {
+        com.docu.editor.core.scanner.AcousticVoiceShutterEngine(
+            context = this,
+            onVoiceShutterTriggered = { command ->
+                runOnUiThread {
+                    if (!isCapturing && scannerMode == ScannerMode.BOOK) {
+                        statusText.text = "🎙️ Voice Trigger: '$command' heard! Capturing... 📸"
+                        playShutterFeedback()
+                        captureHighResAndFinish(lastCorners)
+                    }
+                }
+            },
+            onListeningStateChanged = { isListening ->
+                runOnUiThread {
+                    if (scannerMode == ScannerMode.BOOK && bookVoiceShutterEnabled) {
+                        if (isListening) {
+                            bookVoiceChip.text = "🎙️ Voice: LISTENING"
+                            bookVoiceChip.setTextColor(Color.rgb(56, 189, 248))
+                        } else {
+                            bookVoiceChip.text = "🎙️ Voice: READY"
+                        }
+                    }
+                }
+            }
+        )
+    }
 
     // Enterprise Zero Motion Blur Sensor Integration
     private var sensorManager: SensorManager? = null
@@ -134,6 +214,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
     }
 
     private var lastCorners: DocumentCorners? = null
+    private val temporalQuadFilter = DocumentEdgeDetector.TemporalQuadFilter(5)
     private var analysisFrameW: Int = 1
     private var analysisFrameH: Int = 1
     private var stableFrameCount: Int = 0
@@ -297,11 +378,100 @@ class LiveCameraScannerActivity : ComponentActivity() {
             setOnClickListener { toggleBatchMode() }
         }
         modeRow.addView(batchModeChip)
-
         bottomPanel.addView(modeRow)
 
+        // Hands-Free Book Controls Dock (Horizontal Chip Row)
+        bookControlsDock = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(0, 10, 0, 4)
+        }
+
+        bookMotionChip = TextView(this).apply {
+            text = "🔄 Motion: ON"
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(16, 185, 129))
+                cornerRadius = 20f
+            }
+            setPadding(20, 8, 20, 8)
+            setOnClickListener { toggleBookMotion() }
+        }
+        bookControlsDock.addView(bookMotionChip)
+
+        val bookSpacer1 = View(this).apply { layoutParams = LinearLayout.LayoutParams(12, 1) }
+        bookControlsDock.addView(bookSpacer1)
+
+        bookVoiceChip = TextView(this).apply {
+            text = "🎙️ Voice: OFF"
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            background = GradientDrawable().apply {
+                setColor(Color.argb(190, 15, 23, 42))
+                setStroke(2, Color.argb(120, 255, 255, 255))
+                cornerRadius = 20f
+            }
+            setPadding(20, 8, 20, 8)
+            setOnClickListener { toggleVoiceShutter() }
+        }
+        bookControlsDock.addView(bookVoiceChip)
+
+        val bookSpacer2 = View(this).apply { layoutParams = LinearLayout.LayoutParams(12, 1) }
+        bookControlsDock.addView(bookSpacer2)
+
+        bookSplitChip = TextView(this).apply {
+            text = "📖 Dual-Split: ON"
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(37, 99, 235))
+                cornerRadius = 20f
+            }
+            setPadding(20, 8, 20, 8)
+            setOnClickListener { toggleBookDualSplit() }
+        }
+        bookControlsDock.addView(bookSplitChip)
+
+        val bookSpacer3 = View(this).apply { layoutParams = LinearLayout.LayoutParams(12, 1) }
+        bookControlsDock.addView(bookSpacer3)
+
+        bookSpineShadowChip = TextView(this).apply {
+            text = "🧹 Crease: ON"
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(147, 51, 234))
+                cornerRadius = 20f
+            }
+            setPadding(20, 8, 20, 8)
+            setOnClickListener { toggleSpineShadowRemoval() }
+        }
+        bookControlsDock.addView(bookSpineShadowChip)
+
+        bottomPanel.addView(bookControlsDock)
+
+        batchLiveTrayRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(16, 8, 16, 8)
+        }
+        batchLiveTray = android.widget.HorizontalScrollView(this).apply {
+            visibility = View.GONE
+            isHorizontalScrollBarEnabled = false
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins(0, 8, 0, 8)
+            }
+            addView(batchLiveTrayRow)
+        }
+        bottomPanel.addView(batchLiveTray)
+
         val shutterContainer = FrameLayout(this).apply {
-            setPadding(0, 24, 0, 0)
+            setPadding(0, 16, 0, 0)
         }
 
         val shutterRing = View(this).apply {
@@ -773,6 +943,10 @@ class LiveCameraScannerActivity : ComponentActivity() {
             val detectedCorners = DocumentEdgeDetector.detectCornersFromGrayMat(rotatedMat, curW, curH)
             rotatedMat.release()
 
+            if (scannerMode == ScannerMode.BOOK && bookMotionAutoScanEnabled && !isCapturing) {
+                pageTurnMotionDetector.processFrame(yBytes, frameW, frameH)
+            }
+
             runOnUiThread {
                 handleFrameResult(detectedCorners, curW, curH)
             }
@@ -811,52 +985,76 @@ class LiveCameraScannerActivity : ComponentActivity() {
         }
 
         if (scannerMode == ScannerMode.BOOK) {
-            statusText.text = "📖 Align book spine on dashed center line"
-            stableFrameCount++
-            val progress = (stableFrameCount.toFloat() / 22f).coerceIn(0f, 1f)
-            overlayView.updateCorners(null, true, frameW, frameH, progress)
-            if (autoSnapEnabled && stableFrameCount >= 22 && !isCapturing) {
-                playShutterSound()
-                captureHighResAndFinish(null)
+            overlayView.updateCorners(null, true, frameW, frameH, 1f)
+            if (!bookMotionAutoScanEnabled) {
+                statusText.text = "📖 Align book spine on dashed center line"
+                stableFrameCount++
+                val progress = (stableFrameCount.toFloat() / 22f).coerceIn(0f, 1f)
+                overlayView.updateCorners(null, true, frameW, frameH, progress)
+                if (autoSnapEnabled && stableFrameCount >= 22 && !isCapturing) {
+                    playShutterSound()
+                    captureHighResAndFinish(null)
+                }
             }
             return
         }
 
-        if (corners != null) {
+        val filterResult = temporalQuadFilter.process(corners)
+        val filteredCorners = filterResult.corners
+        val isQuadStable = filterResult.isStable
+        val isJustLocked = filterResult.isJustLocked
+
+        if (isJustLocked) {
+            try {
+                overlayView.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            } catch (_: Exception) {}
+        }
+
+        if (filteredCorners != null) {
             if (isBatchMode && waitingForPageTurn) {
-                val curCenterX = (corners.topLeft.x + corners.topRight.x + corners.bottomRight.x + corners.bottomLeft.x) / 4f
-                val curCenterY = (corners.topLeft.y + corners.topRight.y + corners.bottomRight.y + corners.bottomLeft.y) / 4f
+                val curCenterX = (filteredCorners.topLeft.x + filteredCorners.topRight.x + filteredCorners.bottomRight.x + filteredCorners.bottomLeft.x) / 4f
+                val curCenterY = (filteredCorners.topLeft.y + filteredCorners.topRight.y + filteredCorners.bottomRight.y + filteredCorners.bottomLeft.y) / 4f
                 val drift = kotlin.math.hypot((curCenterX - lastCapturedCenter.x).toDouble(), (curCenterY - lastCapturedCenter.y).toDouble()).toFloat()
                 if (drift > 60f) {
                     waitingForPageTurn = false
                     stableFrameCount = 0
                 } else {
                     statusText.text = "✅ Page ${batchCapturedPaths.size} captured • Flip page to scan next 📄"
-                    overlayView.updateCorners(corners, true, frameW, frameH, 1f)
+                    overlayView.updateCorners(filteredCorners, true, frameW, frameH, 1f, locked = true)
                     return
                 }
             }
 
-            if (isCornersStable(corners, lastCorners)) {
+            if (isQuadStable || isCornersStable(filteredCorners, lastCorners)) {
                 stableFrameCount++
             } else {
                 stableFrameCount = max(0, stableFrameCount - 2)
             }
-            lastCorners = corners
+            lastCorners = filteredCorners
 
             val progress = (stableFrameCount.toFloat() / 9f).coerceIn(0f, 1f)
-            val isSteady = stableFrameCount >= 4
-            overlayView.updateCorners(corners, isSteady, frameW, frameH, progress)
+            val isSteady = isQuadStable || stableFrameCount >= 4
+            overlayView.updateCorners(filteredCorners, isSteady, frameW, frameH, progress, locked = filterResult.isLocked)
 
             if (!isDeviceSteady) {
                 statusText.text = "⚠️ Steady your device... hold still"
                 stableFrameCount = max(0, stableFrameCount - 2)
+            } else if (filterResult.isLocked) {
+                if (autoSnapEnabled) {
+                    statusText.text = "🔒 Quad locked! Auto-snapping..."
+                    if (stableFrameCount >= 14 && !isCapturing) {
+                        playShutterSound()
+                        captureHighResAndFinish(filteredCorners)
+                    }
+                } else {
+                    statusText.text = "🔒 Solid magnetic lock • Tap shutter to capture 📸"
+                }
             } else if (isSteady) {
                 if (autoSnapEnabled) {
                     statusText.text = "🎯 Perfect alignment & steady! Auto-snapping (${(progress * 100).toInt()}%)"
                     if (stableFrameCount >= 18 && !isCapturing) {
                         playShutterSound()
-                        captureHighResAndFinish(corners)
+                        captureHighResAndFinish(filteredCorners)
                     }
                 } else {
                     statusText.text = "📄 Document detected • Press shutter to capture 📸"
@@ -865,13 +1063,14 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 statusText.text = "Align document in camera frame..."
             }
         } else {
+            temporalQuadFilter.reset()
             if (isBatchMode && waitingForPageTurn) {
                 waitingForPageTurn = false
                 stableFrameCount = 0
             }
             stableFrameCount = max(0, stableFrameCount - 3)
             lastCorners = null
-            overlayView.updateCorners(null, false, frameW, frameH, 0f)
+            overlayView.updateCorners(null, false, frameW, frameH, 0f, locked = false)
             statusText.text = if (isBatchMode && batchCapturedPaths.isNotEmpty()) "Flip page for next scan..." else "Point camera at document..."
         }
     }
@@ -912,6 +1111,12 @@ class LiveCameraScannerActivity : ComponentActivity() {
             cameraExecutor,
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                    if (isBatchMode) {
+                        runOnUiThread {
+                            isCapturing = false
+                            statusText.text = "⚡ Enhancing in background • Ready for next page 📄"
+                        }
+                    }
                     processCapturedPhotoAndReturn(tempFile, detectedCorners)
                 }
 
@@ -1025,29 +1230,166 @@ class LiveCameraScannerActivity : ComponentActivity() {
                     }
 
                     if (scannerMode == ScannerMode.BOOK) {
-                        val splitResult = com.docu.editor.core.dewarp.BookSplitEngine.splitBookSpread(fullBitmap, autoDewarpCurvature = true)
-                        val leftBmp = splitResult.leftPage
-                        val rightBmp = splitResult.rightPage
+                        withContext(Dispatchers.Main) {
+                            statusText.text = "📖 Splitting pages & removing spine crease..."
+                        }
+                        if (isBookDualSplitEnabled) {
+                            val splitResult = com.docu.editor.core.dewarp.BookSplitEngine.splitBookSpread(
+                                fullBitmap,
+                                autoDewarpCurvature = true,
+                                removeSpineShadow = isSpineShadowRemovalEnabled
+                            )
+                            val leftBmp = splitResult.leftPage
+                            val rightBmp = splitResult.rightPage
+                            fullBitmap.recycle()
+
+                            val outLeft = File(cacheDir, "scanned_book_p${batchCapturedPaths.size + 1}_${System.currentTimeMillis()}.jpg")
+                            FileOutputStream(outLeft).use { fos ->
+                                leftBmp.compress(Bitmap.CompressFormat.JPEG, 94, fos)
+                            }
+                            leftBmp.recycle()
+
+                            val outRight = File(cacheDir, "scanned_book_p${batchCapturedPaths.size + 2}_${System.currentTimeMillis() + 1}.jpg")
+                            FileOutputStream(outRight).use { fos ->
+                                rightBmp.compress(Bitmap.CompressFormat.JPEG, 94, fos)
+                            }
+                            rightBmp.recycle()
+
+                            batchCapturedPaths.add(outLeft.absolutePath)
+                            batchCapturedPaths.add(outRight.absolutePath)
+                        } else {
+                            val finalBmp = if (isSpineShadowRemovalEnabled) {
+                                com.docu.editor.core.dewarp.SpineShadowRemover.removeSpineShadow(
+                                    fullBitmap,
+                                    com.docu.editor.core.dewarp.SpineShadowRemover.SpineEdge.CENTER_GUTTER
+                                ).also { fullBitmap.recycle() }
+                            } else {
+                                fullBitmap
+                            }
+                            val outSpread = File(cacheDir, "scanned_book_p${batchCapturedPaths.size + 1}_${System.currentTimeMillis()}.jpg")
+                            FileOutputStream(outSpread).use { fos ->
+                                finalBmp.compress(Bitmap.CompressFormat.JPEG, 94, fos)
+                            }
+                            finalBmp.recycle()
+                            batchCapturedPaths.add(outSpread.absolutePath)
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            isCapturing = false
+                            pageTurnMotionDetector.reset()
+                            updateBatchLiveTray()
+                            finishBatchChip.visibility = View.VISIBLE
+                            finishBatchChip.text = "Finish (${batchCapturedPaths.size}) ▶"
+                            batchThumbnailBadge.visibility = View.VISIBLE
+                            batchBadgeCountText.text = "${batchCapturedPaths.size}"
+                            try {
+                                val opts = BitmapFactory.Options().apply { inSampleSize = 8 }
+                                val b = BitmapFactory.decodeFile(batchCapturedPaths.last(), opts)
+                                batchThumbnailImg.setImageBitmap(b)
+                            } catch (_: Exception) {}
+
+                            vibrate()
+                            statusText.text = "📖 Added ${if (isBookDualSplitEnabled) "2 pages" else "1 page"} (Total: ${batchCapturedPaths.size}) • Turn page or say 'Next' 📸"
+                        }
+                        return@launch
+                    }
+
+                    if (scannerMode == ScannerMode.WHITEBOARD) {
+                        val warped = if (corners != null && analysisFrameW > 0 && analysisFrameH > 0) {
+                            PerspectiveTransformer.warpPerspective(fullBitmap, initialCorners)
+                        } else {
+                            fullBitmap
+                        }
+                        withContext(Dispatchers.Main) {
+                            statusText.text = "📊 Processing Whiteboard: Erasing glare & saturating ink..."
+                        }
+                        val processed = WhiteboardScannerEngine.processWhiteboard(warped)
+                        if (warped != fullBitmap && !warped.isRecycled) warped.recycle()
                         fullBitmap.recycle()
 
-                        val outLeft = File(cacheDir, "scanned_book_p1_${System.currentTimeMillis()}.jpg")
-                        FileOutputStream(outLeft).use { fos ->
-                            leftBmp.compress(Bitmap.CompressFormat.JPEG, 94, fos)
+                        val outFile = File(cacheDir, "scanned_whiteboard_${System.currentTimeMillis()}.jpg")
+                        val fosWhiteboard = FileOutputStream(outFile)
+                        try {
+                            processed.compress(Bitmap.CompressFormat.JPEG, 95, fosWhiteboard)
+                            fosWhiteboard.flush()
+                        } finally {
+                            fosWhiteboard.close()
                         }
-                        leftBmp.recycle()
-
-                        val outRight = File(cacheDir, "scanned_book_p2_${System.currentTimeMillis() + 1}.jpg")
-                        FileOutputStream(outRight).use { fos ->
-                            rightBmp.compress(Bitmap.CompressFormat.JPEG, 94, fos)
-                        }
-                        rightBmp.recycle()
-
-                        batchCapturedPaths.add(outLeft.absolutePath)
-                        batchCapturedPaths.add(outRight.absolutePath)
+                        processed.recycle()
 
                         withContext(Dispatchers.Main) {
                             val resultIntent = Intent().apply {
-                                putStringArrayListExtra(EXTRA_BATCH_PATHS, batchCapturedPaths)
+                                putExtra(EXTRA_SCANNED_PATH, outFile.absolutePath)
+                                putExtra(EXTRA_AUTO_MAGIC_COLOR, false)
+                            }
+                            setResult(Activity.RESULT_OK, resultIntent)
+                            finish()
+                        }
+                        return@launch
+                    }
+
+                    if (scannerMode == ScannerMode.SLIDES) {
+                        withContext(Dispatchers.Main) {
+                            statusText.text = "📽️ Processing Slides: 16:9 keystone & moiré notch filter..."
+                        }
+                        val processed = SlidesScannerEngine.processSlideScan(fullBitmap, corners = initialCorners)
+                        fullBitmap.recycle()
+
+                        val outFile = File(cacheDir, "scanned_slide_${System.currentTimeMillis()}.jpg")
+                        val fosSlide = FileOutputStream(outFile)
+                        try {
+                            processed.compress(Bitmap.CompressFormat.JPEG, 95, fosSlide)
+                            fosSlide.flush()
+                        } finally {
+                            fosSlide.close()
+                        }
+                        processed.recycle()
+
+                        withContext(Dispatchers.Main) {
+                            val resultIntent = Intent().apply {
+                                putExtra(EXTRA_SCANNED_PATH, outFile.absolutePath)
+                                putExtra(EXTRA_AUTO_MAGIC_COLOR, false)
+                            }
+                            setResult(Activity.RESULT_OK, resultIntent)
+                            finish()
+                        }
+                        return@launch
+                    }
+
+                    if (scannerMode == ScannerMode.TIMESTAMP) {
+                        val warped = if (corners != null && analysisFrameW > 0 && analysisFrameH > 0) {
+                            PerspectiveTransformer.warpPerspective(fullBitmap, initialCorners)
+                        } else {
+                            fullBitmap
+                        }
+                        withContext(Dispatchers.Main) {
+                            statusText.text = "🕒 Stamping studio badge & cryptographic EXIF..."
+                        }
+                        val config = TimestampEngine.TimestampConfig(
+                            companyName = "DOCUEDIT ENTERPRISE",
+                            locationAddress = "Field Verified Location",
+                            timestamp = java.util.Date()
+                        )
+                        val stamped = TimestampEngine.applyTimestampBadge(warped, config)
+                        if (warped != fullBitmap && !warped.isRecycled) warped.recycle()
+                        fullBitmap.recycle()
+
+                        val outFile = File(cacheDir, "scanned_timestamp_${System.currentTimeMillis()}.jpg")
+                        val fosTimestamp = FileOutputStream(outFile)
+                        try {
+                            stamped.compress(Bitmap.CompressFormat.JPEG, 95, fosTimestamp)
+                            fosTimestamp.flush()
+                        } finally {
+                            fosTimestamp.close()
+                        }
+                        stamped.recycle()
+
+                        TimestampEngine.injectTamperProofExif(outFile.absolutePath, config)
+
+                        withContext(Dispatchers.Main) {
+                            val resultIntent = Intent().apply {
+                                putExtra(EXTRA_SCANNED_PATH, outFile.absolutePath)
+                                putExtra(EXTRA_AUTO_MAGIC_COLOR, false)
                             }
                             setResult(Activity.RESULT_OK, resultIntent)
                             finish()
@@ -1061,10 +1403,18 @@ class LiveCameraScannerActivity : ComponentActivity() {
                         } else {
                             fullBitmap
                         }
+
+                        // Background coroutine auto-crop, shadow removal & Magic Color enhancement
+                        val enhanced = com.docu.editor.core.scanner.DocumentFilters.applyFilter(
+                            warped,
+                            com.docu.editor.core.scanner.DocumentFilters.FilterType.MAGIC_COLOR
+                        )
+
                         val outFile = File(cacheDir, "scanned_batch_${batchCapturedPaths.size}_${System.currentTimeMillis()}.jpg")
                         FileOutputStream(outFile).use { fos ->
-                            warped.compress(Bitmap.CompressFormat.JPEG, 92, fos)
+                            enhanced.compress(Bitmap.CompressFormat.JPEG, 92, fos)
                         }
+                        if (enhanced != warped) enhanced.recycle()
                         if (warped != fullBitmap) warped.recycle()
                         fullBitmap.recycle()
 
@@ -1082,9 +1432,10 @@ class LiveCameraScannerActivity : ComponentActivity() {
 
                             finishBatchChip.visibility = View.VISIBLE
                             finishBatchChip.text = "Finish (${batchCapturedPaths.size}) ▶"
-                            statusText.text = "✅ Page ${batchCapturedPaths.size} scanned! Flip page to scan next 📄"
+                            statusText.text = "✅ Page ${batchCapturedPaths.size} enhanced! Flip page to scan next 📄"
                             isCapturing = false
                             waitingForPageTurn = true
+                            updateBatchLiveTray()
                             vibrate()
                         }
                     } else {
@@ -1094,6 +1445,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
                         currentWarpedBitmap = warped
                         withContext(Dispatchers.Main) {
                             cropLoupeOverlayView.sourceBitmap = fullBitmap
+                            cropLoupeOverlayView.referenceCorners = initialCorners
                             cropLoupeOverlayView.corners = initialCorners
                             showFilterReviewScreen(warped)
                         }
@@ -1110,6 +1462,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
     private fun showCropLoupeReview(bitmap: Bitmap, corners: DocumentCorners) {
         capturedBitmap = bitmap
         cropLoupeOverlayView.sourceBitmap = bitmap
+        cropLoupeOverlayView.referenceCorners = corners
         cropLoupeOverlayView.corners = corners
 
         previewView.visibility = View.GONE
@@ -1280,18 +1633,87 @@ class LiveCameraScannerActivity : ComponentActivity() {
             ScannerMode.BATCH -> ScannerMode.ID_CARD
             ScannerMode.ID_CARD -> ScannerMode.BOOK
             ScannerMode.BOOK -> ScannerMode.WHITEBOARD
-            ScannerMode.WHITEBOARD -> ScannerMode.PASSPORT
+            ScannerMode.WHITEBOARD -> ScannerMode.SLIDES
+            ScannerMode.SLIDES -> ScannerMode.TIMESTAMP
+            ScannerMode.TIMESTAMP -> ScannerMode.PASSPORT
             ScannerMode.PASSPORT -> ScannerMode.SINGLE
         }
         setScannerMode(nextMode)
+    }
+
+    private fun toggleBookMotion() {
+        bookMotionAutoScanEnabled = !bookMotionAutoScanEnabled
+        pageTurnMotionDetector.isEnabled = bookMotionAutoScanEnabled
+        if (bookMotionAutoScanEnabled) {
+            bookMotionChip.text = "🔄 Motion: ON"
+            (bookMotionChip.background as? GradientDrawable)?.setColor(Color.rgb(16, 185, 129))
+            statusText.text = "📖 Page-turn motion auto-capture enabled"
+            pageTurnMotionDetector.reset()
+        } else {
+            bookMotionChip.text = "🔄 Motion: OFF"
+            (bookMotionChip.background as? GradientDrawable)?.setColor(Color.argb(190, 15, 23, 42))
+            statusText.text = "✋ Motion auto-capture paused"
+        }
+    }
+
+    private fun toggleVoiceShutter() {
+        if (!bookVoiceShutterEnabled) {
+            if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), 101)
+                return
+            }
+            bookVoiceShutterEnabled = true
+            acousticVoiceShutterEngine.start()
+            bookVoiceChip.text = "🎙️ Voice: ON"
+            (bookVoiceChip.background as? GradientDrawable)?.setColor(Color.rgb(2, 132, 199))
+            android.widget.Toast.makeText(this, "Voice Shutter Active: Say 'Scan' or 'Next'!", android.widget.Toast.LENGTH_SHORT).show()
+        } else {
+            bookVoiceShutterEnabled = false
+            acousticVoiceShutterEngine.stop()
+            bookVoiceChip.text = "🎙️ Voice: OFF"
+            (bookVoiceChip.background as? GradientDrawable)?.setColor(Color.argb(190, 15, 23, 42))
+        }
+    }
+
+    private fun toggleBookDualSplit() {
+        isBookDualSplitEnabled = !isBookDualSplitEnabled
+        if (isBookDualSplitEnabled) {
+            bookSplitChip.text = "📖 Dual-Split: ON"
+            (bookSplitChip.background as? GradientDrawable)?.setColor(Color.rgb(37, 99, 235))
+            statusText.text = "📖 Dual-page split enabled (Left & Right pages)"
+        } else {
+            bookSplitChip.text = "📖 Dual-Split: OFF"
+            (bookSplitChip.background as? GradientDrawable)?.setColor(Color.argb(190, 15, 23, 42))
+            statusText.text = "📄 Single spread mode enabled"
+        }
+    }
+
+    private fun toggleSpineShadowRemoval() {
+        isSpineShadowRemovalEnabled = !isSpineShadowRemovalEnabled
+        if (isSpineShadowRemovalEnabled) {
+            bookSpineShadowChip.text = "🧹 Crease: ON"
+            (bookSpineShadowChip.background as? GradientDrawable)?.setColor(Color.rgb(147, 51, 234))
+            statusText.text = "🧹 Spine crease shadow removal active"
+        } else {
+            bookSpineShadowChip.text = "🧹 Crease: OFF"
+            (bookSpineShadowChip.background as? GradientDrawable)?.setColor(Color.argb(190, 15, 23, 42))
+            statusText.text = "Spine shadow removal disabled"
+        }
     }
 
     fun setScannerMode(mode: ScannerMode) {
         scannerMode = mode
         isBatchMode = (scannerMode == ScannerMode.BATCH)
 
+        if (scannerMode != ScannerMode.BOOK) {
+            bookControlsDock.visibility = View.GONE
+            acousticVoiceShutterEngine.stop()
+            pageTurnMotionDetector.reset()
+        }
+
         when (scannerMode) {
             ScannerMode.SINGLE -> {
+                batchLiveTray.visibility = View.GONE
                 batchModeChip.text = "📄 SINGLE"
                 batchModeChip.setTextColor(Color.WHITE)
                 (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.argb(120, 255, 255, 255))
@@ -1311,8 +1733,10 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 statusText.text = "Batch scan mode: Shoot sequence of pages"
                 if (batchCapturedPaths.isNotEmpty()) {
                     finishBatchChip.visibility = View.VISIBLE
+                    finishBatchChip.text = "Finish (${batchCapturedPaths.size}) ▶"
                     batchThumbnailBadge.visibility = View.VISIBLE
                 } else {
+                    finishBatchChip.visibility = View.GONE
                     batchThumbnailBadge.visibility = View.GONE
                 }
                 overlayView.isIdCardMode = false
@@ -1320,8 +1744,10 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 overlayView.invalidate()
                 idCardFrontBitmap?.recycle()
                 idCardFrontBitmap = null
+                updateBatchLiveTray()
             }
             ScannerMode.ID_CARD -> {
+                batchLiveTray.visibility = View.GONE
                 batchModeChip.text = "🪪 ID CARD"
                 batchModeChip.setTextColor(Color.rgb(251, 146, 60))
                 (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(251, 146, 60))
@@ -1335,23 +1761,66 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 idCardFrontBitmap = null
             }
             ScannerMode.BOOK -> {
+                bookControlsDock.visibility = View.VISIBLE
                 batchModeChip.text = "📖 BOOK (2-PAGE)"
                 batchModeChip.setTextColor(Color.rgb(250, 204, 21))
                 (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(250, 204, 21))
-                statusText.text = "📖 Align book: Left & Right pages will auto-split"
-                finishBatchChip.visibility = View.GONE
-                batchThumbnailBadge.visibility = View.GONE
+                statusText.text = if (bookMotionAutoScanEnabled) "📖 Turn page to auto-capture, or say 'Scan' / 'Next'" else "📖 Align book: Left & Right pages will auto-split"
+                if (batchCapturedPaths.isNotEmpty()) {
+                    finishBatchChip.visibility = View.VISIBLE
+                    finishBatchChip.text = "Finish (${batchCapturedPaths.size}) ▶"
+                    batchThumbnailBadge.visibility = View.VISIBLE
+                } else {
+                    finishBatchChip.visibility = View.GONE
+                    batchThumbnailBadge.visibility = View.GONE
+                }
                 overlayView.isIdCardMode = false
                 overlayView.isBookMode = true
                 overlayView.invalidate()
                 idCardFrontBitmap?.recycle()
                 idCardFrontBitmap = null
+                if (bookMotionAutoScanEnabled) {
+                    pageTurnMotionDetector.reset()
+                }
+                if (bookVoiceShutterEnabled) {
+                    acousticVoiceShutterEngine.start()
+                }
+                updateBatchLiveTray()
             }
             ScannerMode.WHITEBOARD -> {
+                batchLiveTray.visibility = View.GONE
                 batchModeChip.text = "📊 WHITEBOARD"
                 batchModeChip.setTextColor(Color.rgb(168, 85, 247))
                 (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(168, 85, 247))
-                statusText.text = "📊 Whiteboard mode: Anti-glare contrast filter active"
+                statusText.text = "📊 Whiteboard: Anti-glare specular inpainting & marker boost"
+                finishBatchChip.visibility = View.GONE
+                batchThumbnailBadge.visibility = View.GONE
+                overlayView.isIdCardMode = false
+                overlayView.isBookMode = false
+                overlayView.invalidate()
+                idCardFrontBitmap?.recycle()
+                idCardFrontBitmap = null
+            }
+            ScannerMode.SLIDES -> {
+                batchLiveTray.visibility = View.GONE
+                batchModeChip.text = "📽️ SLIDES"
+                batchModeChip.setTextColor(Color.rgb(249, 115, 22))
+                (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(249, 115, 22))
+                statusText.text = "📽️ Slides: 16:9 keystone correction & moiré notch filter"
+                finishBatchChip.visibility = View.GONE
+                batchThumbnailBadge.visibility = View.GONE
+                overlayView.isIdCardMode = false
+                overlayView.isBookMode = false
+                overlayView.invalidate()
+                idCardFrontBitmap?.recycle()
+                idCardFrontBitmap = null
+            }
+            ScannerMode.TIMESTAMP -> {
+                batchLiveTray.visibility = View.GONE
+                batchModeChip.text = "🕒 TIMESTAMP"
+                batchModeChip.setTextColor(Color.rgb(59, 130, 246))
+                (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(59, 130, 246))
+                statusText.text = "🕒 Timestamp: Studio GPS geotag badge & cryptographic EXIF"
                 finishBatchChip.visibility = View.GONE
                 batchThumbnailBadge.visibility = View.GONE
                 overlayView.isIdCardMode = false
@@ -1361,6 +1830,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 idCardFrontBitmap = null
             }
             ScannerMode.PASSPORT -> {
+                batchLiveTray.visibility = View.GONE
                 batchModeChip.text = "🛂 PASSPORT"
                 batchModeChip.setTextColor(Color.rgb(45, 212, 191))
                 (batchModeChip.background as? GradientDrawable)?.setStroke(2, Color.rgb(45, 212, 191))
@@ -1375,6 +1845,64 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 idCardFrontBitmap = null
             }
         }
+    }
+
+    private fun updateBatchLiveTray() {
+        if ((!isBatchMode && scannerMode != ScannerMode.BOOK) || batchCapturedPaths.isEmpty()) {
+            batchLiveTray.visibility = View.GONE
+            return
+        }
+        batchLiveTray.visibility = View.VISIBLE
+        batchLiveTrayRow.removeAllViews()
+
+        for ((idx, path) in batchCapturedPaths.withIndex()) {
+            val thumbCard = FrameLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(110, 150).apply {
+                    setMargins(10, 4, 10, 4)
+                }
+                background = GradientDrawable().apply {
+                    cornerRadius = 14f
+                    setColor(Color.argb(220, 30, 41, 59))
+                    setStroke(2, Color.rgb(0, 230, 118))
+                }
+                setPadding(4, 4, 4, 4)
+                setOnClickListener { showBatchReviewDialog() }
+            }
+
+            val img = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+                try {
+                    val opts = BitmapFactory.Options().apply { inSampleSize = 8 }
+                    val b = BitmapFactory.decodeFile(path, opts)
+                    setImageBitmap(b)
+                } catch (_: Exception) {}
+            }
+            thumbCard.addView(img)
+
+            val badge = TextView(this).apply {
+                text = "${idx + 1}"
+                setTextColor(Color.WHITE)
+                textSize = 10f
+                typeface = android.graphics.Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.rgb(16, 185, 129))
+                }
+                layoutParams = FrameLayout.LayoutParams(38, 38).apply {
+                    gravity = Gravity.TOP or Gravity.START
+                    setMargins(4, 4, 0, 0)
+                }
+            }
+            thumbCard.addView(badge)
+
+            batchLiveTrayRow.addView(thumbCard)
+        }
+        batchLiveTray.post { batchLiveTray.fullScroll(android.widget.HorizontalScrollView.FOCUS_RIGHT) }
     }
 
     private fun showBatchReviewDialog() {
@@ -1393,6 +1921,14 @@ class LiveCameraScannerActivity : ComponentActivity() {
         }
 
         fun refreshThumbnails() {
+            updateBatchLiveTray()
+            batchBadgeCountText.text = "${batchCapturedPaths.size}"
+            if (batchCapturedPaths.isEmpty()) {
+                batchThumbnailBadge.visibility = View.GONE
+                finishBatchChip.visibility = View.GONE
+            } else {
+                finishBatchChip.text = "Finish (${batchCapturedPaths.size}) ▶"
+            }
             row.removeAllViews()
             for ((idx, path) in batchCapturedPaths.withIndex()) {
                 val card = LinearLayout(this@LiveCameraScannerActivity).apply {
@@ -1457,8 +1993,9 @@ class LiveCameraScannerActivity : ComponentActivity() {
                         if (batchCapturedPaths.isEmpty()) {
                             dialog.dismiss()
                             finishBatchChip.visibility = View.GONE
+                            batchThumbnailBadge.visibility = View.GONE
+                            updateBatchLiveTray()
                         } else {
-                            finishBatchChip.text = "Finish (${batchCapturedPaths.size}) ▶"
                             refreshThumbnails()
                         }
                     }
@@ -1561,20 +2098,44 @@ class LiveCameraScannerActivity : ComponentActivity() {
         } catch (_: Exception) {}
     }
 
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 101) {
+            if (grantResults.isNotEmpty() && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                bookVoiceShutterEnabled = true
+                acousticVoiceShutterEngine.start()
+                bookVoiceChip.text = "🎙️ Voice: ON"
+                (bookVoiceChip.background as? GradientDrawable)?.setColor(Color.rgb(2, 132, 199))
+                android.widget.Toast.makeText(this, "Voice Shutter Active: Say 'Scan' or 'Next'!", android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                android.widget.Toast.makeText(this, "Microphone permission required for voice shutter", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         motionSensor?.let {
             sensorManager?.registerListener(sensorListener, it, SensorManager.SENSOR_DELAY_UI)
+        }
+        if (scannerMode == ScannerMode.BOOK && bookVoiceShutterEnabled) {
+            acousticVoiceShutterEngine.start()
         }
     }
 
     override fun onPause() {
         super.onPause()
         sensorManager?.unregisterListener(sensorListener)
+        acousticVoiceShutterEngine.stop()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        acousticVoiceShutterEngine.stop()
         try {
             mediaActionSound.release()
         } catch (_: Exception) {}

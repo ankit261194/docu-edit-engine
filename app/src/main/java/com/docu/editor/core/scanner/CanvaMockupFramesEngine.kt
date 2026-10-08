@@ -389,24 +389,46 @@ object CanvaMockupFramesEngine {
             (pad + phoneH).toFloat()
         )
 
-        // 3D Realistic Ambient Shadow
-        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(80, 0, 0, 0)
-            setShadowLayer(38f, 0f, 22f, Color.argb(120, 0, 0, 0))
+        // 1. Dual-Layer Ambient Occlusion Shadows
+        // Diffuse atmospheric shadow
+        val diffuseShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(60, 0, 0, 0)
+            setShadowLayer(52f, 0f, 26f, Color.argb(90, 0, 0, 0))
         }
-        canvas.drawRoundRect(phoneRect, 68f, 68f, shadowPaint)
+        canvas.drawRoundRect(phoneRect, 68f, 68f, diffuseShadowPaint)
 
-        // Outer Metallic Chassis (Space Black Titanium gradient)
+        // Tight contact shadow
+        val contactShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(120, 0, 0, 0)
+            setShadowLayer(14f, 0f, 6f, Color.argb(170, 0, 0, 0))
+        }
+        canvas.drawRoundRect(phoneRect, 68f, 68f, contactShadowPaint)
+
+        // 2. Outer Metallic Chassis (Space Black Titanium gradient)
         val chassisPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             shader = LinearGradient(
                 phoneRect.left, phoneRect.top,
                 phoneRect.right, phoneRect.bottom,
-                intArrayOf(Color.rgb(38, 40, 48), Color.rgb(18, 19, 24), Color.rgb(44, 46, 56)),
+                intArrayOf(Color.rgb(42, 44, 52), Color.rgb(18, 19, 24), Color.rgb(48, 50, 60)),
                 null,
                 Shader.TileMode.CLAMP
             )
         }
         canvas.drawRoundRect(phoneRect, 68f, 68f, chassisPaint)
+
+        // 3. Metallic Chamfered Bezel Highlight Rim
+        val bevelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 2.5f
+            shader = LinearGradient(
+                phoneRect.left, phoneRect.top,
+                phoneRect.right, phoneRect.bottom,
+                intArrayOf(Color.argb(160, 240, 245, 255), Color.argb(40, 100, 110, 125), Color.argb(120, 220, 230, 245)),
+                null,
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawRoundRect(phoneRect, 68f, 68f, bevelPaint)
 
         // Screen area
         val screenRect = RectF(
@@ -444,13 +466,18 @@ object CanvaMockupFramesEngine {
         }
         canvas.drawCircle(notchL + notchW * 0.75f, notchT + notchH / 2f, 7f, lensPaint)
 
-        // Glossy glass screen highlight overlay
+        // 4. 45° Diagonal Specular Glass Reflection Glare Band
         val glossPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             shader = LinearGradient(
                 screenRect.left, screenRect.top,
-                screenRect.right, screenRect.top + screenRect.height() * 0.4f,
-                intArrayOf(Color.argb(55, 255, 255, 255), Color.argb(0, 255, 255, 255)),
-                null,
+                screenRect.right, screenRect.bottom,
+                intArrayOf(
+                    Color.argb(70, 255, 255, 255),
+                    Color.argb(15, 255, 255, 255),
+                    Color.argb(45, 255, 255, 255),
+                    Color.argb(0, 255, 255, 255)
+                ),
+                floatArrayOf(0.0f, 0.35f, 0.52f, 0.80f),
                 Shader.TileMode.CLAMP
             )
         }
@@ -478,16 +505,21 @@ object CanvaMockupFramesEngine {
         val output = Bitmap.createBitmap(totalW, totalH, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(output)
 
-        // Drop shadow for lid and base
-        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(70, 0, 0, 0)
-            setShadowLayer(32f, 0f, 18f, Color.argb(100, 0, 0, 0))
+        // 1. Dual-Layer Ambient Occlusion Shadows for Lid
+        val diffuseShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(55, 0, 0, 0)
+            setShadowLayer(46f, 0f, 24f, Color.argb(80, 0, 0, 0))
         }
-
         val lidLeft = (totalW - lidW) / 2f
         val lidTop = pad.toFloat()
         val lidRect = RectF(lidLeft, lidTop, lidLeft + lidW, lidTop + lidH)
-        canvas.drawRoundRect(lidRect, 28f, 28f, shadowPaint)
+        canvas.drawRoundRect(lidRect, 28f, 28f, diffuseShadowPaint)
+
+        val contactShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(110, 0, 0, 0)
+            setShadowLayer(14f, 0f, 6f, Color.argb(150, 0, 0, 0))
+        }
+        canvas.drawRoundRect(lidRect, 28f, 28f, contactShadowPaint)
 
         // Aluminum Lid Bezel
         val lidPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -501,13 +533,30 @@ object CanvaMockupFramesEngine {
         canvas.drawBitmap(scaledSource, screenRect.left, screenRect.top, null)
         scaledSource.recycle()
 
+        // 2. 45° Specular Glass Screen Reflection
+        val screenGlarePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                screenRect.left, screenRect.top,
+                screenRect.right, screenRect.bottom,
+                intArrayOf(
+                    Color.argb(60, 255, 255, 255),
+                    Color.argb(10, 255, 255, 255),
+                    Color.argb(35, 255, 255, 255),
+                    Color.argb(0, 255, 255, 255)
+                ),
+                floatArrayOf(0.0f, 0.35f, 0.55f, 0.85f),
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawRect(screenRect, screenGlarePaint)
+
         // Web camera dot
         val camPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.rgb(45, 55, 72)
         }
         canvas.drawCircle(lidLeft + lidW / 2f, lidTop + bezel / 2f, 5f, camPaint)
 
-        // Base Keyboard Deck
+        // 3. Base Keyboard Deck with Metallic Chamfer Bevel
         val baseLeft = pad.toFloat()
         val baseTop = lidTop + lidH
         val baseRect = RectF(baseLeft, baseTop, baseLeft + baseW, baseTop + baseH)
@@ -515,12 +564,19 @@ object CanvaMockupFramesEngine {
             shader = LinearGradient(
                 baseLeft, baseTop,
                 baseLeft, baseTop + baseH,
-                intArrayOf(Color.rgb(195, 200, 208), Color.rgb(155, 160, 170)),
+                intArrayOf(Color.rgb(205, 210, 218), Color.rgb(155, 160, 170)),
                 null,
                 Shader.TileMode.CLAMP
             )
         }
         canvas.drawRoundRect(baseRect, 14f, 14f, basePaint)
+
+        // Metallic edge chamfer highlight along deck top
+        val deckChamferPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(160, 255, 255, 255)
+            strokeWidth = 2f
+        }
+        canvas.drawLine(baseLeft + 14f, baseTop + 1f, baseLeft + baseW - 14f, baseTop + 1f, deckChamferPaint)
 
         // Thumb notch in base
         val notchW = baseW * 0.16f
@@ -547,18 +603,43 @@ object CanvaMockupFramesEngine {
         matrix.postRotate(-6f, source.width / 2f, source.height / 2f)
         matrix.postTranslate(pad.toFloat() * 0.8f, pad.toFloat() * 0.8f)
 
-        // Projected multi-layer drop shadow
-        val shadowMatrix = Matrix(matrix)
-        shadowMatrix.postTranslate(26f, 38f)
-
-        val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            colorFilter = android.graphics.PorterDuffColorFilter(Color.argb(85, 0, 0, 0), PorterDuff.Mode.SRC_IN)
+        // 1. Dual-Layer Ambient Occlusion Shadows
+        // Diffuse atmospheric shadow
+        val diffuseShadowMatrix = Matrix(matrix)
+        diffuseShadowMatrix.postTranslate(36f, 48f)
+        val diffuseShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            colorFilter = android.graphics.PorterDuffColorFilter(Color.argb(55, 0, 0, 0), PorterDuff.Mode.SRC_IN)
         }
-        canvas.drawBitmap(source, shadowMatrix, shadowPaint)
+        canvas.drawBitmap(source, diffuseShadowMatrix, diffuseShadowPaint)
 
-        // Crisp 3D tilted document
+        // Tight contact shadow
+        val contactShadowMatrix = Matrix(matrix)
+        contactShadowMatrix.postTranslate(14f, 18f)
+        val contactShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            colorFilter = android.graphics.PorterDuffColorFilter(Color.argb(125, 0, 0, 0), PorterDuff.Mode.SRC_IN)
+        }
+        canvas.drawBitmap(source, contactShadowMatrix, contactShadowPaint)
+
+        // 2. Crisp 3D tilted document
         val docPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         canvas.drawBitmap(source, matrix, docPaint)
+
+        // 3. Diagonal Specular Glass Reflection Glare across tilted sheet
+        val glarePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = LinearGradient(
+                0f, 0f,
+                source.width.toFloat(), source.height.toFloat(),
+                intArrayOf(
+                    Color.argb(50, 255, 255, 255),
+                    Color.argb(10, 255, 255, 255),
+                    Color.argb(35, 255, 255, 255),
+                    Color.argb(0, 255, 255, 255)
+                ),
+                floatArrayOf(0.0f, 0.35f, 0.52f, 0.80f),
+                Shader.TileMode.CLAMP
+            )
+        }
+        canvas.drawBitmap(source, matrix, glarePaint)
 
         return output
     }

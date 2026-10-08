@@ -12,8 +12,8 @@ android {
         applicationId = "com.docu.editor"
         minSdk = 26
         targetSdk = 34
-        versionCode = 45
-        versionName = "10.7.0"
+        versionCode = 46
+        versionName = "10.8.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -94,7 +94,9 @@ dependencies {
     // Computer Vision & ML
     implementation(libs.mlkit.text.recognition)
     implementation(libs.mlkit.text.recognition.devanagari)
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
     implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
+    implementation("com.google.mlkit:face-detection:16.1.7")
     implementation(libs.opencv.android)
     implementation(libs.pdfbox.android)
     implementation(libs.coil.compose)
@@ -110,4 +112,10 @@ dependencies {
 
     // Cryptographic PKI Digital Signature Engine (X.509, PKCS#12, CMS, Adobe Green Checkmark)
     implementation("org.bouncycastle:bcpkix-jdk15to18:1.72")
+
+    // QR Code Engine for PC Drop Wi-Fi Share
+    implementation("com.google.zxing:core:3.5.3")
+
+    // Android BiometricPrompt Framework (Fingerprint, Face, Hardware Device Credential)
+    implementation("androidx.biometric:biometric:1.2.0-alpha05")
 }

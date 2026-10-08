@@ -74,6 +74,7 @@ fun PagesOverviewDialog(
     onDeletePage: (Int) -> Unit,
     onMovePage: (fromIndex: Int, toIndex: Int) -> Unit = { _, _ -> },
     onRotatePage: (pageIndex: Int) -> Unit = {},
+    onRotateMultiplePages: (pageIndices: Set<Int>) -> Unit = {},
     onDuplicatePage: (pageIndex: Int) -> Unit = {},
     onDeleteMultiplePages: (pageIndices: Set<Int>) -> Unit = {},
     onAddPageFromCamera: () -> Unit = {},
@@ -174,6 +175,22 @@ fun PagesOverviewDialog(
                                 }
                             ) {
                                 Text(if (selectedPages.size == pageCount) "Deselect" else "Select All", fontSize = 11.sp)
+                            }
+                            if (selectedPages.isNotEmpty()) {
+                                Button(
+                                    onClick = {
+                                        onRotateMultiplePages(selectedPages)
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.RotateRight, contentDescription = null, modifier = Modifier.size(13.dp), tint = Color.White)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Rotate 90°", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                                Spacer(modifier = Modifier.width(4.dp))
                             }
                             if (selectedPages.isNotEmpty() && selectedPages.size < pageCount) {
                                 Button(

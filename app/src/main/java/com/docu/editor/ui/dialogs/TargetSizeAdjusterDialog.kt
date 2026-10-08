@@ -59,11 +59,12 @@ enum class SizeAdjustMode {
 @Composable
 fun TargetSizeAdjusterDialog(
     initialFormat: String = "JPG",
-    onConfirmAdjust: (mode: SizeAdjustMode, targetKb: Int, format: String) -> Unit,
+    onConfirmAdjust: (mode: SizeAdjustMode, targetKb: Int, format: String, targetDpi: Int) -> Unit,
     onDismiss: () -> Unit
 ) {
     var mode by remember { mutableStateOf(SizeAdjustMode.DECREASE) }
     var selectedFormat by remember { mutableStateOf(initialFormat) }
+    var selectedDpi by remember { mutableIntStateOf(300) }
     var targetKbText by remember { mutableStateOf("50") }
 
     val presets = listOf(
@@ -348,6 +349,40 @@ fun TargetSizeAdjusterDialog(
                     }
                 }
 
+                // DPI Resolution Selector for Govt Portals (UPSC/SSC 200 DPI, 300 DPI)
+                if (selectedFormat == "JPG") {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text("DPI Resolution Tag", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
+                            Text("UPSC/SSC Portal Strict Check", fontSize = 9.sp, color = Color(0xFF64748B))
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            listOf(Pair(200, "200 DPI (Govt)"), Pair(300, "300 DPI (HD)")).forEach { (dpi, label) ->
+                                val isSelected = selectedDpi == dpi
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isSelected) Color(0xFFEFF6FF) else Color(0xFFF8FAFC),
+                                    border = BorderStroke(1.dp, if (isSelected) Color(0xFF2563EB) else Color(0xFFE2E8F0)),
+                                    modifier = Modifier.clickable { selectedDpi = dpi }
+                                ) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 10.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) Color(0xFF1E40AF) else Color(0xFF64748B),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(18.dp))
 
                 val targetKbInt = targetKbText.toIntOrNull() ?: 0
@@ -356,7 +391,7 @@ fun TargetSizeAdjusterDialog(
                 Button(
                     onClick = {
                         if (isValid) {
-                            onConfirmAdjust(mode, targetKbInt, selectedFormat)
+                            onConfirmAdjust(mode, targetKbInt, selectedFormat, selectedDpi)
                         }
                     },
                     enabled = isValid,
@@ -372,11 +407,12 @@ fun TargetSizeAdjusterDialog(
                 ) {
                     Icon(Icons.Default.Compress, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
+                    val dpiLabel = if (selectedFormat == "JPG") " • ${selectedDpi}DPI" else ""
                     Text(
                         text = when (mode) {
-                            SizeAdjustMode.DECREASE -> "🎯 Compress to ≤ $targetKbInt KB ($selectedFormat)"
-                            SizeAdjustMode.EXACT -> "🎯 Make Exact $targetKbInt.0 KB ($selectedFormat)"
-                            SizeAdjustMode.INCREASE -> "🎯 Increase to ≥ $targetKbInt KB ($selectedFormat)"
+                            SizeAdjustMode.DECREASE -> "🎯 Compress to ≤ $targetKbInt KB ($selectedFormat$dpiLabel)"
+                            SizeAdjustMode.EXACT -> "🎯 Make Exact $targetKbInt.0 KB ($selectedFormat$dpiLabel)"
+                            SizeAdjustMode.INCREASE -> "🎯 Increase to ≥ $targetKbInt KB ($selectedFormat$dpiLabel)"
                         },
                         fontWeight = FontWeight.Bold,
                         color = Color.White

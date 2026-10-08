@@ -121,16 +121,16 @@ fun PageSizeDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Fit Mode Toggle
+                // Fit Mode Toggle (3 Pro Options)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     FilterChip(
                         selected = selectedFitMode == PageSizeEngine.FitMode.FIT_WITH_MARGINS,
                         onClick = { selectedFitMode = PageSizeEngine.FitMode.FIT_WITH_MARGINS },
-                        label = { Text("Fit with White Margins (Print Safe)", fontSize = 11.sp) },
-                        leadingIcon = { Icon(Icons.Default.FitScreen, null, modifier = Modifier.size(14.dp)) },
+                        label = { Text("Fit Margins", fontSize = 10.sp, maxLines = 1) },
+                        leadingIcon = { Icon(Icons.Default.FitScreen, null, modifier = Modifier.size(13.dp)) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = Color(0xFF2563EB),
                             selectedLabelColor = Color.White
@@ -140,8 +140,19 @@ fun PageSizeDialog(
                     FilterChip(
                         selected = selectedFitMode == PageSizeEngine.FitMode.FILL_AND_CROP,
                         onClick = { selectedFitMode = PageSizeEngine.FitMode.FILL_AND_CROP },
-                        label = { Text("Fill & Crop", fontSize = 11.sp) },
-                        leadingIcon = { Icon(Icons.Default.CropFree, null, modifier = Modifier.size(14.dp)) },
+                        label = { Text("Fill & Crop", fontSize = 10.sp, maxLines = 1) },
+                        leadingIcon = { Icon(Icons.Default.CropFree, null, modifier = Modifier.size(13.dp)) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF2563EB),
+                            selectedLabelColor = Color.White
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = selectedFitMode == PageSizeEngine.FitMode.EXPAND_CANVAS_ONLY,
+                        onClick = { selectedFitMode = PageSizeEngine.FitMode.EXPAND_CANVAS_ONLY },
+                        label = { Text("Expand Only", fontSize = 10.sp, maxLines = 1) },
+                        leadingIcon = { Icon(Icons.Default.AspectRatio, null, modifier = Modifier.size(13.dp)) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = Color(0xFF2563EB),
                             selectedLabelColor = Color.White

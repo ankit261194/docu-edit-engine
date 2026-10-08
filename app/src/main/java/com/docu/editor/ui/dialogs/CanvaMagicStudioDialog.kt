@@ -67,10 +67,10 @@ fun CanvaMagicStudioDialog(
 ) {
     val tools = listOf(
         MagicToolItem(
-            title = "Magic Eraser (Pixel Eraser)",
-            subtitle = "Brush over unwanted objects, dates, or marks to erase seamlessly",
+            title = "Magic Eraser 2.0 (AI Inpainting)",
+            subtitle = "Erase stamps, pen marks, and crease folds with strict printed text protection",
             icon = Icons.Default.AutoFixHigh,
-            iconColor = Color(0xFFF59E0B),
+            iconColor = Color(0xFFD946EF),
             onClick = { onTriggerMagicEraser(); onDismiss() }
         ),
         MagicToolItem(

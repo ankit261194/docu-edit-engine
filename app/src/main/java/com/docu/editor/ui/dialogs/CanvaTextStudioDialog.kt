@@ -70,6 +70,8 @@ fun CanvaTextStudioDialog(
     initialText: String = "Headline Text",
     initialColorRgb: Int = android.graphics.Color.WHITE,
     initialFontSize: Float = 48f,
+    initialLetterSpacingEm: Float = 0.05f,
+    initialLineHeightMultiplier: Float = 1.2f,
     onAddTextLayer: (
         text: String,
         colorRgb: Int,
@@ -77,13 +79,17 @@ fun CanvaTextStudioDialog(
         isBold: Boolean,
         isItalic: Boolean,
         fontFamily: String,
-        effect: TextEffectType
+        effect: TextEffectType,
+        letterSpacingEm: Float,
+        lineHeightMultiplier: Float
     ) -> Unit,
     onDismiss: () -> Unit
 ) {
     var text by remember { mutableStateOf(initialText) }
     var selectedColorRgb by remember { mutableIntStateOf(initialColorRgb) }
     var fontSize by remember { mutableFloatStateOf(initialFontSize) }
+    var letterSpacingEm by remember { mutableFloatStateOf(initialLetterSpacingEm) }
+    var lineHeightMultiplier by remember { mutableFloatStateOf(initialLineHeightMultiplier) }
     var isBold by remember { mutableStateOf(true) }
     var isItalic by remember { mutableStateOf(false) }
     var selectedFontFamily by remember { mutableStateOf("Sans-Serif") }
@@ -302,6 +308,48 @@ fun CanvaTextStudioDialog(
                         )
                     )
 
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Letter Spacing (Tracking) Slider
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Letter Spacing (Tracking)", color = Color(0xFF94A3B8), fontSize = 13.sp)
+                        Text("${String.format("%.2f", letterSpacingEm)} em", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                    Slider(
+                        value = letterSpacingEm,
+                        onValueChange = { letterSpacingEm = it },
+                        valueRange = -0.05f..0.30f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF8B5CF6),
+                            activeTrackColor = Color(0xFF8B5CF6),
+                            inactiveTrackColor = Color(0xFF2A2D3D)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Line Height (Leading) Slider
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Line Height (Leading)", color = Color(0xFF94A3B8), fontSize = 13.sp)
+                        Text("${String.format("%.2f", lineHeightMultiplier)}x", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                    Slider(
+                        value = lineHeightMultiplier,
+                        onValueChange = { lineHeightMultiplier = it },
+                        valueRange = 0.8f..2.5f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF8B5CF6),
+                            activeTrackColor = Color(0xFF8B5CF6),
+                            inactiveTrackColor = Color(0xFF2A2D3D)
+                        )
+                    )
+
                     Spacer(modifier = Modifier.height(10.dp))
 
                     // Colors & Formatting (Bold, Italic)
@@ -430,7 +478,9 @@ fun CanvaTextStudioDialog(
                             isBold,
                             isItalic,
                             selectedFontFamily,
-                            selectedEffect
+                            selectedEffect,
+                            letterSpacingEm,
+                            lineHeightMultiplier
                         )
                         onDismiss()
                     },

@@ -30,16 +30,15 @@ class MultiScriptOcrAnalyzer {
     ): List<DetectedTextItem> = withContext(Dispatchers.Default) {
         val image = InputImage.fromBitmap(bitmap, 0)
 
-        when (scriptMode) {
+        val items = when (scriptMode) {
             ScriptMode.LATIN -> baseAnalyzer.detectTextBlocks(bitmap, hierarchyLevel)
-            ScriptMode.DEVANAGARI_HINDI -> {
-                // Run Devanagari recognition directly
+            ScriptMode.DEVANAGARI_HINDI, ScriptMode.AUTO_DETECT -> {
                 baseAnalyzer.detectTextBlocks(bitmap, hierarchyLevel)
             }
-            ScriptMode.AUTO_DETECT -> {
-                // Try Latin first; if few items or Devanagari characters present, run dual
-                baseAnalyzer.detectTextBlocks(bitmap, hierarchyLevel)
-            }
+        }
+        items.map { item ->
+            val cleaned = com.docu.editor.core.ocr.util.DevanagariPostProcessor.postProcess(item.text)
+            if (cleaned != item.text) item.copy(text = cleaned) else item
         }
     }
 

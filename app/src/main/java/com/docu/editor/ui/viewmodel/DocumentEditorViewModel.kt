@@ -28,6 +28,7 @@ import android.provider.MediaStore
 import android.util.Base64
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
 import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
@@ -41,6 +42,9 @@ import com.docu.editor.core.history.SavedDocumentItem
 import com.docu.editor.core.font.FontClassification
 import com.docu.editor.core.font.FontMatcher
 import com.docu.editor.core.ocr.OcrAnalyzer
+import com.docu.editor.core.ocr.DocumentSearchEngine
+import com.docu.editor.core.ocr.SearchEngineOptions
+import com.docu.editor.core.ocr.SearchMatchOccurrence
 import com.docu.editor.core.ocr.model.DetectedTextItem
 import com.docu.editor.core.ocr.model.TextHierarchyLevel
 import android.graphics.Point
@@ -84,8 +88,11 @@ import com.docu.editor.domain.model.DocumentCanvasLayer
 import com.docu.editor.domain.model.CanvaFrameType
 import com.docu.editor.domain.model.TextEffectType
 import com.docu.editor.domain.model.BrandPalette
+import com.docu.editor.domain.model.BrandProfile
 import com.docu.editor.domain.model.CanvaAnimationType
 import com.docu.editor.domain.model.CanvaStyleMatchPreset
+import com.docu.editor.domain.model.SelectiveColorTarget
+import com.docu.editor.domain.model.MagicEraserTargetMode
 import com.docu.editor.core.scanner.CanvaMockupFramesEngine
 import com.docu.editor.core.scanner.CanvaTextStudioEngine
 import com.docu.editor.core.scanner.CanvaBrandKitEngine
@@ -138,23 +145,28 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     }
 
     sealed class UndoStep {
+        abstract val actionTag: String
+
         data class TextPatch(
             val patchBitmap: Bitmap,
             val x: Int,
             val y: Int,
             val targetItemId: String,
             val previousText: String,
-            val previousBoundingBox: Rect
+            val previousBoundingBox: Rect,
+            override val actionTag: String = "Text Edit"
         ) : UndoStep()
 
         data class PixelPatch(
             val patchBitmap: Bitmap,
             val x: Int,
-            val y: Int
+            val y: Int,
+            override val actionTag: String = "Canvas Modification"
         ) : UndoStep()
 
         data class FullBitmap(
-            val bitmap: Bitmap
+            val bitmap: Bitmap,
+            override val actionTag: String = "Page Transform"
         ) : UndoStep()
     }
 
@@ -374,9 +386,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         userPassword: String,
         ownerPassword: String = userPassword + "_owner",
         canPrint: Boolean = true,
+        canPrintDegraded: Boolean = false,
         canExtractContent: Boolean = false,
         canModify: Boolean = false,
         canFillInForm: Boolean = true,
+        canAssembleDocument: Boolean = false,
         keyLength: Int = 128
     ) {
         val context = getApplication<Application>()
@@ -432,9 +446,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     userPassword = userPassword,
                     ownerPassword = ownerPassword,
                     canPrint = canPrint,
+                    canPrintDegraded = canPrintDegraded,
                     canExtractContent = canExtractContent,
                     canModify = canModify,
                     canFillInForm = canFillInForm,
+                    canAssembleDocument = canAssembleDocument,
                     keyLength = keyLength,
                     outputFile = outFile
                 )
@@ -899,6 +915,47 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun rotateMultiplePages(indices: Set<Int>, degrees: Float = 90f) {
+        val state = _uiState.value
+        val validIndices = indices.filter { it in 0 until state.pdfPageCount }
+        if (validIndices.isEmpty()) return
+        saveCurrentPageToCache()
+
+        viewModelScope.launch {
+            val context = getApplication<Application>()
+            val matrix = android.graphics.Matrix().apply { postRotate(degrees) }
+            var currentRotatedBmp: Bitmap? = null
+
+            for (pageIndex in validIndices) {
+                val currentBmp = editedPagesMap[pageIndex] ?: withContext(Dispatchers.IO) {
+                    if (state.activePdfUri != null) {
+                        PdfPageLoader.renderPageToBitmap(context, state.activePdfUri, pageIndex)
+                    } else if (state.batchScannedPaths.size > pageIndex) {
+                        com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(state.batchScannedPaths[pageIndex], 2880)
+                    } else {
+                        state.currentBitmap
+                    }
+                } ?: continue
+
+                val rotated = Bitmap.createBitmap(currentBmp, 0, 0, currentBmp.width, currentBmp.height, matrix, true)
+                editedPagesMap[pageIndex] = rotated
+                if (pageIndex == state.currentPdfPageIndex) {
+                    currentRotatedBmp = rotated
+                }
+            }
+
+            _uiState.update {
+                it.copy(
+                    originalBitmap = currentRotatedBmp ?: it.originalBitmap,
+                    currentBitmap = currentRotatedBmp ?: it.currentBitmap,
+                    canvasRevision = it.canvasRevision + 1,
+                    hasUnsavedChanges = true,
+                    successMessage = "Rotated ${validIndices.size} pages by ${degrees.toInt()}°"
+                )
+            }
+        }
+    }
+
     fun appendPageFromBitmap(newBmp: Bitmap) {
         saveCurrentPageToCache()
         val state = _uiState.value
@@ -977,6 +1034,13 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             val bitmap = withContext(Dispatchers.Default) {
                 SampleDocumentGenerator.generateSampleInvoice()
             }
+            setDocumentBitmap(bitmap)
+        }
+    }
+
+    fun loadSampleBitmap(bitmap: Bitmap, templateTitle: String = "Sample Document") {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isScanning = true, processingMessage = "Loading template...", documentTitle = templateTitle) }
             setDocumentBitmap(bitmap)
         }
     }
@@ -1158,26 +1222,53 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(isCloudAiEraserEnabled = enabled) }
     }
 
+    fun setMagicEraserTargetMode(mode: MagicEraserTargetMode) {
+        _uiState.update { it.copy(magicEraserTargetMode = mode) }
+    }
+
+    fun setMagicEraserBatchMode(enabled: Boolean) {
+        _uiState.update { it.copy(isMagicEraserBatchMode = enabled) }
+    }
+
     fun applyMagicObjectEraser(strokePoints: List<PointF>, brushRadius: Float = _uiState.value.magicEraserBrushRadius) {
+        applyMagicObjectEraserBatch(
+            strokes = listOf(strokePoints),
+            brushRadius = brushRadius,
+            targetMode = _uiState.value.magicEraserTargetMode
+        )
+    }
+
+    fun applyMagicObjectEraserBatch(
+        strokes: List<List<PointF>>,
+        brushRadius: Float = _uiState.value.magicEraserBrushRadius,
+        targetMode: MagicEraserTargetMode = _uiState.value.magicEraserTargetMode
+    ) {
         val current = _uiState.value.currentBitmap ?: return
-        if (strokePoints.isEmpty()) return
+        val validStrokes = strokes.filter { it.isNotEmpty() }
+        if (validStrokes.isEmpty()) return
+
         val isCloud = _uiState.value.isCloudAiEraserEnabled
         val apiKey = getGeminiApiKey()
-        val isUsingCloud = isCloud && apiKey.isNotBlank()
+        val isUsingCloud = isCloud && apiKey.isNotBlank() && targetMode == MagicEraserTargetMode.ALL_OBJECTS
 
         viewModelScope.launch {
             _uiState.update { 
                 it.copy(
                     isApplyingEdit = true, 
-                    processingMessage = if (isUsingCloud) "✨ Cloud AI Inpainting background..." else "🪄 Restoring natural document texture..."
+                    processingMessage = when (targetMode) {
+                        MagicEraserTargetMode.STAMPS_AND_INK -> "🔴 Erasing stamps & preserving printed text..."
+                        MagicEraserTargetMode.CREASE_SHADOWS -> "📄 Neutralizing paper crease & fold shadows..."
+                        MagicEraserTargetMode.ALL_OBJECTS -> if (isUsingCloud) "✨ Cloud AI Inpainting background..." else "🪄 Erasing objects with natural texture blend..."
+                    }
                 ) 
             }
             try {
                 pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
-                val erased = com.docu.editor.core.scanner.MagicObjectEraserEngine.eraseStroke(
+                val erased = com.docu.editor.core.scanner.MagicObjectEraserEngine.eraseMultiStrokeMask(
                     sourceBitmap = current,
-                    strokePoints = strokePoints,
+                    strokes = validStrokes,
                     brushRadius = brushRadius,
+                    targetMode = targetMode,
                     useCloudAi = isUsingCloud,
                     apiKey = apiKey
                 )
@@ -1192,7 +1283,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         isApplyingEdit = false,
                         hasUnsavedChanges = true,
                         canvasRevision = it.canvasRevision + 1,
-                        successMessage = if (isUsingCloud) "✨ Erased with Cloud AI Generative Fill" else "Object erased with natural texture blend"
+                        successMessage = when (targetMode) {
+                            MagicEraserTargetMode.STAMPS_AND_INK -> "🔴 Erased ${validStrokes.size} stamp/ink marks (Printed text protected)"
+                            MagicEraserTargetMode.CREASE_SHADOWS -> "📄 Neutralized fold crease & paper shadows"
+                            MagicEraserTargetMode.ALL_OBJECTS -> if (isUsingCloud) "✨ Erased with Cloud AI Generative Fill" else "Object erased with natural texture blend"
+                        }
                     )
                 }
             } catch (e: Exception) {
@@ -1208,98 +1303,32 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     fun applyWhiteoutCircle(bitmapX: Float, bitmapY: Float, radius: Float = _uiState.value.whiteoutBrushRadius) {
         val currentBitmap = _uiState.value.currentBitmap ?: return
 
-        val patchL = (bitmapX - radius - 4).toInt().coerceIn(0, currentBitmap.width - 1)
-        val patchT = (bitmapY - radius - 4).toInt().coerceIn(0, currentBitmap.height - 1)
-        val patchR = (bitmapX + radius + 4).toInt().coerceIn(0, currentBitmap.width)
-        val patchB = (bitmapY + radius + 4).toInt().coerceIn(0, currentBitmap.height)
+        val patchL = (bitmapX - radius - 6).toInt().coerceIn(0, currentBitmap.width - 1)
+        val patchT = (bitmapY - radius - 6).toInt().coerceIn(0, currentBitmap.height - 1)
+        val patchR = (bitmapX + radius + 6).toInt().coerceIn(0, currentBitmap.width)
+        val patchB = (bitmapY + radius + 6).toInt().coerceIn(0, currentBitmap.height)
         val patchW = max(1, patchR - patchL)
         val patchH = max(1, patchB - patchT)
 
         val patchBmp = Bitmap.createBitmap(currentBitmap, patchL, patchT, patchW, patchH)
         pushUndoStep(UndoStep.PixelPatch(patchBmp, patchL, patchT))
 
-        // Sample authentic local paper color in ring around eraser
-        var sumR = 0L
-        var sumG = 0L
-        var sumB = 0L
-        var count = 0
-        val sampleRadius = (radius + 6).toInt()
-        val cx = bitmapX.toInt()
-        val cy = bitmapY.toInt()
-        for (dx in -sampleRadius..sampleRadius step 3) {
-            for (dy in -sampleRadius..sampleRadius step 3) {
-                val distSq = dx * dx + dy * dy
-                if (distSq in (radius * radius).toInt()..(sampleRadius * sampleRadius)) {
-                    val px = (cx + dx).coerceIn(0, currentBitmap.width - 1)
-                    val py = (cy + dy).coerceIn(0, currentBitmap.height - 1)
-                    val pixel = currentBitmap.getPixel(px, py)
-                    val r = Color.red(pixel)
-                    val g = Color.green(pixel)
-                    val b = Color.blue(pixel)
-                    val luma = 0.299f * r + 0.587f * g + 0.114f * b
-                    if (luma > 150) {
-                        sumR += r
-                        sumG += g
-                        sumB += b
-                        count++
-                    }
+        viewModelScope.launch(Dispatchers.Default) {
+            val inpainted = backgroundInpainter.inpaintCircle(currentBitmap, bitmapX, bitmapY, radius)
+            withContext(Dispatchers.Main) {
+                editedPagesMap[_uiState.value.currentPdfPageIndex] = inpainted
+                _uiState.update {
+                    it.copy(
+                        currentBitmap = inpainted,
+                        canUndo = true,
+                        canRedo = false,
+                        hasUnsavedChanges = true,
+                        canvasRevision = it.canvasRevision + 1
+                    )
                 }
+                updateRecentDocumentThumbnail(inpainted)
             }
         }
-        val paperColor = if (count > 0) {
-            Color.rgb((sumR / count).toInt(), (sumG / count).toInt(), (sumB / count).toInt())
-        } else {
-            Color.WHITE
-        }
-
-        val canvas = Canvas(currentBitmap)
-        val colors = intArrayOf(
-            paperColor,
-            paperColor,
-            Color.argb((Color.alpha(paperColor) * 0.75f).toInt(), Color.red(paperColor), Color.green(paperColor), Color.blue(paperColor)),
-            Color.argb(0, Color.red(paperColor), Color.green(paperColor), Color.blue(paperColor))
-        )
-        val stops = floatArrayOf(0f, 0.70f, 0.90f, 1.0f)
-        val radialShader = RadialGradient(
-            bitmapX, bitmapY, radius,
-            colors, stops,
-            Shader.TileMode.CLAMP
-        )
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = radialShader
-            style = Paint.Style.FILL
-        }
-        canvas.drawCircle(bitmapX, bitmapY, radius, paint)
-
-        val paperLuma = (Color.red(paperColor) * 0.299f + Color.green(paperColor) * 0.587f + Color.blue(paperColor) * 0.114f).toInt()
-        if (paperLuma < 245) {
-            val noisePaint = Paint().apply { style = Paint.Style.FILL }
-            val random = kotlin.random.Random((bitmapX.toLong() shl 16) xor bitmapY.toLong())
-            val noiseDots = (radius * 0.35f).toInt().coerceIn(3, 30)
-            val isDarkPaper = paperLuma < 120
-            for (i in 0 until noiseDots) {
-                val angle = random.nextFloat() * 2f * Math.PI.toFloat()
-                val dist = random.nextFloat() * (radius * 0.75f)
-                val nx = bitmapX + kotlin.math.cos(angle) * dist
-                val ny = bitmapY + kotlin.math.sin(angle) * dist
-                val alpha = random.nextInt(4, 14)
-                val grainVal = if (isDarkPaper) 220 else 80
-                noisePaint.color = Color.argb(alpha, grainVal, grainVal, grainVal)
-                canvas.drawPoint(nx, ny, noisePaint)
-            }
-        }
-
-        editedPagesMap[_uiState.value.currentPdfPageIndex] = currentBitmap
-
-        _uiState.update {
-            it.copy(
-                canUndo = true,
-                canRedo = false,
-                hasUnsavedChanges = true,
-                canvasRevision = it.canvasRevision + 1
-            )
-        }
-        updateRecentDocumentThumbnail(currentBitmap)
     }
 
     fun isNetworkConnected(): Boolean {
@@ -1441,13 +1470,41 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         (currentBitmap.width - targetItem.boundingBox.left - 12).toFloat().coerceAtLeast(16f)
                     }
 
-                    val deltaX = (naturalNewWidth - targetItem.boundingBox.width()).toInt()
-                    val canReflow = nextAdjacentItem != null && deltaX > 0 &&
-                        sameLineItems.isNotEmpty() &&
-                        (sameLineItems.last().boundingBox.right + deltaX < currentBitmap.width - 12)
+                    val rawDeltaX = (naturalNewWidth - targetItem.boundingBox.width()).toInt()
+                    val actualDeltaX: Int
+                    val canReflow: Boolean
+
+                    if (nextAdjacentItem != null && sameLineItems.isNotEmpty()) {
+                        if (rawDeltaX > 0) {
+                            // Word expanded (e.g. "Dr" -> "Doctor"): push subsequent words right
+                            val availableRightSpace = (currentBitmap.width - 16 - sameLineItems.last().boundingBox.right).coerceAtLeast(0)
+                            if (availableRightSpace >= rawDeltaX) {
+                                actualDeltaX = rawDeltaX
+                                canReflow = true
+                            } else if (availableRightSpace > 10) {
+                                actualDeltaX = availableRightSpace
+                                canReflow = true
+                            } else {
+                                actualDeltaX = 0
+                                canReflow = false
+                            }
+                        } else if (rawDeltaX < -4) {
+                            // Word contracted (e.g. "Department" -> "Dept"): pull subsequent words left
+                            val minGap = (singleLineH * 0.22f).toInt().coerceAtLeast(4)
+                            val maxAllowedPullLeft = (sameLineItems.first().boundingBox.left - (targetItem.boundingBox.left + naturalNewWidth.toInt() + minGap)).coerceAtLeast(0)
+                            actualDeltaX = -minOf(kotlin.math.abs(rawDeltaX), maxAllowedPullLeft)
+                            canReflow = actualDeltaX != 0
+                        } else {
+                            actualDeltaX = 0
+                            canReflow = false
+                        }
+                    } else {
+                        actualDeltaX = 0
+                        canReflow = false
+                    }
 
                     var workingBitmap = currentBitmap
-                    val shiftedItems = if (canReflow) {
+                    val shiftedItems = if (canReflow && actualDeltaX != 0) {
                         val reflowBmp = workingBitmap.copy(Bitmap.Config.ARGB_8888, true)
                         val c = Canvas(reflowBmp)
                         for (item in sameLineItems) {
@@ -1458,7 +1515,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                                 val erased = backgroundInpainter.inpaint(reflowBmp, item.boundingBox)
                                 c.drawBitmap(erased, 0f, 0f, null)
                                 erased.recycle()
-                                c.drawBitmap(cropped, (item.boundingBox.left + deltaX).toFloat(), item.boundingBox.top.toFloat(), null)
+                                val targetX = (item.boundingBox.left + actualDeltaX).toFloat()
+                                c.drawBitmap(cropped, targetX, item.boundingBox.top.toFloat(), null)
                                 cropped.recycle()
                             }
                         }
@@ -1466,9 +1524,9 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         sameLineItems.map { item ->
                             item.copy(
                                 boundingBox = Rect(
-                                    item.boundingBox.left + deltaX,
+                                    item.boundingBox.left + actualDeltaX,
                                     item.boundingBox.top,
-                                    item.boundingBox.right + deltaX,
+                                    item.boundingBox.right + actualDeltaX,
                                     item.boundingBox.bottom
                                 )
                             )
@@ -1477,7 +1535,9 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         emptyList()
                     }
 
-                    val inpaintRight = if (canReflow || nextAdjacentItem == null) {
+                    val inpaintRight = if (actualDeltaX < 0) {
+                        maxOf(targetItem.boundingBox.right, (sameLineItems.firstOrNull()?.boundingBox?.left ?: targetItem.boundingBox.right))
+                    } else if (canReflow || nextAdjacentItem == null) {
                         maxOf(targetItem.boundingBox.right, minOf(targetItem.boundingBox.left + naturalNewWidth.toInt() + 4, workingBitmap.width))
                     } else {
                         maxOf(targetItem.boundingBox.right, minOf(targetItem.boundingBox.left + naturalNewWidth.toInt() + 4, nextAdjacentItem.boundingBox.left - 2))
@@ -1508,7 +1568,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             isBold = effectiveBold,
                             sizeMultiplier = sizeMultiplier,
                             alignment = alignment,
-                            availableWidth = if (canReflow) naturalNewWidth + 10f else maxAvailableWidth
+                            availableWidth = if (canReflow) {
+                                (targetItem.boundingBox.width() + actualDeltaX + 8).toFloat().coerceAtLeast(16f)
+                            } else {
+                                maxAvailableWidth
+                            }
                         )
                     )
 
@@ -1757,7 +1821,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         return when (filter) {
             DocumentFilterMode.ORIGINAL -> DocumentFilters.FilterType.ORIGINAL
             DocumentFilterMode.MAGIC_COLOR -> DocumentFilters.FilterType.MAGIC_COLOR
-            DocumentFilterMode.PHOTO_RESTORE -> DocumentFilters.FilterType.VIVID_DOC
+            DocumentFilterMode.PHOTO_RESTORE -> DocumentFilters.FilterType.PHOTO_RESTORE
             DocumentFilterMode.SHADOW_REMOVER -> DocumentFilters.FilterType.REMOVE_SHADOWS
             DocumentFilterMode.WATERMARK_REMOVER -> DocumentFilters.FilterType.REMOVE_WATERMARK
             DocumentFilterMode.FINGER_REMOVER -> DocumentFilters.FilterType.REMOVE_FINGERS
@@ -1980,19 +2044,27 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     fun stitchIdCardToA4(
         layoutMode: com.docu.editor.core.scanner.IdCardStitcher.IdCardLayoutMode = com.docu.editor.core.scanner.IdCardStitcher.IdCardLayoutMode.VERTICAL_STACK,
+        scaleMode: com.docu.editor.core.scanner.IdCardStitcher.CardScaleMode = com.docu.editor.core.scanner.IdCardStitcher.CardScaleMode.PHYSICAL_1TO1,
+        paperSize: com.docu.editor.core.scanner.IdCardStitcher.PaperSize = com.docu.editor.core.scanner.IdCardStitcher.PaperSize.A4,
+        applyAntiGlare: Boolean = true,
+        drawCuttingGuide: Boolean = true,
         purposeAnnotation: String = ""
     ) {
         val front = _uiState.value.idCardFrontBitmap ?: return
         val back = _uiState.value.idCardBackBitmap ?: return
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Stitching ID Card to A4 sheet...") }
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Stitching ID Card to official print-ready sheet...") }
             try {
                 val a4Bitmap = withContext(Dispatchers.Default) {
                     com.docu.editor.core.scanner.IdCardStitcher.stitchIdCardToA4(
                         frontCard = front,
                         backCard = back,
                         layoutMode = layoutMode,
+                        scaleMode = scaleMode,
+                        paperSize = paperSize,
+                        applyAntiGlare = applyAntiGlare,
+                        drawCuttingGuide = drawCuttingGuide,
                         purposeAnnotation = purposeAnnotation
                     )
                 }
@@ -2012,27 +2084,56 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun applyTimestampBadge(config: com.docu.editor.core.scanner.TimestampEngine.TimestampConfig) {
+        val current = _uiState.value.currentBitmap ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Applying studio timestamp badge...") }
+            try {
+                val stamped = com.docu.editor.core.scanner.TimestampEngine.applyTimestampBadge(current, config)
+                setDocumentBitmap(stamped)
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        successMessage = "Timestamp & verified GPS geotag applied!"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        errorMessage = "Failed to apply timestamp: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
     // --- Signature & Stamp Extractor ---
 
-    fun extractSignatureFromBitmap(source: Bitmap, inkRgb: Int = android.graphics.Color.rgb(10, 30, 100)) {
+    fun extractSignatureFromBitmap(
+        source: Bitmap,
+        inkRgb: Int = android.graphics.Color.rgb(10, 30, 100),
+        vectorSmoothing: Boolean = true
+    ) {
         val option = when (inkRgb) {
             android.graphics.Color.rgb(15, 15, 15) -> SignatureExtractor.InkColorOption.CLASSIC_BLACK
             android.graphics.Color.rgb(190, 25, 35) -> SignatureExtractor.InkColorOption.STAMP_RED
+            android.graphics.Color.rgb(16, 120, 70) -> SignatureExtractor.InkColorOption.EMERALD_GREEN
             else -> SignatureExtractor.InkColorOption.BALLPOINT_BLUE
         }
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Extracting transparent signature...") }
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Extracting vector smoothed signature...") }
             try {
                 val signTransparent = withContext(Dispatchers.Default) {
-                    SignatureExtractor.extractSignature(source, option)
+                    SignatureExtractor.extractSignature(source, option, vectorSmoothing = vectorSmoothing)
                 }
                 _uiState.update {
                     it.copy(
                         extractedSignature = signTransparent,
                         isApplyingEdit = false,
                         processingMessage = null,
-                        successMessage = "Signature extracted with 100% alpha transparency!"
+                        successMessage = "Signature extracted with vector anti-aliasing & ink chemistry!"
                     )
                 }
             } catch (e: Exception) {
@@ -2041,19 +2142,23 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun extractStampFromBitmap(source: Bitmap, target: StampExtractor.StampColorTarget = StampExtractor.StampColorTarget.RED_STAMP) {
+    fun extractStampFromBitmap(
+        source: Bitmap,
+        target: StampExtractor.StampColorTarget = StampExtractor.StampColorTarget.RED_STAMP,
+        deOccludeText: Boolean = true
+    ) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Extracting stamp/seal...") }
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Isolating stamp with text de-occlusion...") }
             try {
                 val stampTransparent = withContext(Dispatchers.Default) {
-                    StampExtractor.extractStamp(source, target)
+                    StampExtractor.extractStamp(source, target, deOccludeOverlappingText = deOccludeText)
                 }
                 _uiState.update {
                     it.copy(
                         extractedSignature = stampTransparent,
                         isApplyingEdit = false,
                         processingMessage = null,
-                        successMessage = "Stamp isolated successfully!"
+                        successMessage = "Official seal isolated & de-occluded successfully!"
                     )
                 }
             } catch (e: Exception) {
@@ -2064,7 +2169,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     fun extractStampFromBitmap(source: Bitmap, isRed: Boolean) {
         val target = if (isRed) StampExtractor.StampColorTarget.RED_STAMP else StampExtractor.StampColorTarget.BLUE_PURPLE_STAMP
-        extractStampFromBitmap(source, target)
+        extractStampFromBitmap(source, target, deOccludeText = true)
     }
 
     // --- PDF Tools ---
@@ -2594,6 +2699,140 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         isApplyingEdit = false,
                         processingMessage = null,
                         errorMessage = "Whiteout failed: ${e.message}"
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Category 8.4 Pro Lasso: Clones selected text region into an interactive moveable layer.
+     */
+    fun duplicateLassoSelection() {
+        val selected = _uiState.value.selectedItems
+        val current = _uiState.value.currentBitmap ?: return
+        if (selected.isEmpty()) return
+
+        var minL = Int.MAX_VALUE
+        var minT = Int.MAX_VALUE
+        var maxR = Int.MIN_VALUE
+        var maxB = Int.MIN_VALUE
+        for (item in selected) {
+            minL = minOf(minL, item.boundingBox.left)
+            minT = minOf(minT, item.boundingBox.top)
+            maxR = maxOf(maxR, item.boundingBox.right)
+            maxB = maxOf(maxB, item.boundingBox.bottom)
+        }
+        val pad = 8
+        val cropL = (minL - pad).coerceIn(0, current.width - 1)
+        val cropT = (minT - pad).coerceIn(0, current.height - 1)
+        val cropR = (maxR + pad).coerceIn(0, current.width)
+        val cropB = (maxB + pad).coerceIn(0, current.height)
+        val cropW = maxOf(1, cropR - cropL)
+        val cropH = maxOf(1, cropB - cropT)
+
+        val croppedBmp = Bitmap.createBitmap(current, cropL, cropT, cropW, cropH)
+        val newLayer = DocumentCanvasLayer(
+            bitmap = croppedBmp,
+            x = (cropL + 35f).coerceAtMost((current.width - 60).toFloat()),
+            y = (cropT + 35f).coerceAtMost((current.height - 60).toFloat()),
+            scale = 1.0f,
+            rotation = 0f,
+            alpha = 1.0f,
+            title = "Cloned Selection (${selected.size} items)"
+        )
+
+        _uiState.update { state ->
+            state.copy(
+                canvasLayers = state.canvasLayers + newLayer,
+                selectedLayerId = newLayer.id,
+                selectedItems = emptyList(),
+                hasUnsavedChanges = true,
+                canvasRevision = state.canvasRevision + 1,
+                successMessage = "✓ Cloned ${selected.size} items as moveable layer"
+            )
+        }
+    }
+
+    /**
+     * Category 8.4 Pro Lasso: Inpaints source background and lifts selected region as moveable layer.
+     */
+    fun moveLassoSelection() {
+        val selected = _uiState.value.selectedItems
+        val current = _uiState.value.currentBitmap ?: return
+        if (selected.isEmpty()) return
+
+        pushUndoStep(UndoStep.FullBitmap(current.copy(Bitmap.Config.ARGB_8888, true)))
+
+        var minL = Int.MAX_VALUE
+        var minT = Int.MAX_VALUE
+        var maxR = Int.MIN_VALUE
+        var maxB = Int.MIN_VALUE
+        for (item in selected) {
+            minL = minOf(minL, item.boundingBox.left)
+            minT = minOf(minT, item.boundingBox.top)
+            maxR = maxOf(maxR, item.boundingBox.right)
+            maxB = maxOf(maxB, item.boundingBox.bottom)
+        }
+        val pad = 4
+        val cropL = (minL - pad).coerceIn(0, current.width - 1)
+        val cropT = (minT - pad).coerceIn(0, current.height - 1)
+        val cropR = (maxR + pad).coerceIn(0, current.width)
+        val cropB = (maxB + pad).coerceIn(0, current.height)
+        val cropW = maxOf(1, cropR - cropL)
+        val cropH = maxOf(1, cropB - cropT)
+
+        val cutBmp = Bitmap.createBitmap(current, cropL, cropT, cropW, cropH)
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Lifting ${selected.size} items into moveable layer...") }
+            try {
+                val workingBmp = withContext(Dispatchers.Default) {
+                    var bmp = current.copy(Bitmap.Config.ARGB_8888, true)
+                    for (item in selected) {
+                        val cleaned = backgroundInpainter.inpaint(bmp, item.boundingBox)
+                        bmp.recycle()
+                        bmp = cleaned
+                    }
+                    bmp
+                }
+
+                val selectedIds = selected.map { it.id }.toSet()
+                val remainingItems = _uiState.value.detectedItems.filterNot { selectedIds.contains(it.id) }
+
+                val newLayer = DocumentCanvasLayer(
+                    bitmap = cutBmp,
+                    x = cropL.toFloat(),
+                    y = cropT.toFloat(),
+                    scale = 1.0f,
+                    rotation = 0f,
+                    alpha = 1.0f,
+                    title = "Moved Selection (${selected.size} items)"
+                )
+
+                val pageIdx = _uiState.value.currentPdfPageIndex
+                editedPagesMap[pageIdx] = workingBmp
+
+                _uiState.update { state ->
+                    state.copy(
+                        currentBitmap = workingBmp,
+                        detectedItems = remainingItems,
+                        canvasLayers = state.canvasLayers + newLayer,
+                        selectedLayerId = newLayer.id,
+                        selectedItems = emptyList(),
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        hasUnsavedChanges = true,
+                        canvasRevision = state.canvasRevision + 1,
+                        successMessage = "✓ Lifted ${selected.size} items (drag anywhere to reposition)"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        errorMessage = "Move selection failed: ${e.message}"
                     )
                 }
             }
@@ -3318,6 +3557,75 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun groupAllLayers() {
+        val layers = _uiState.value.canvasLayers
+        if (layers.size < 2) return
+
+        var minX = Float.MAX_VALUE
+        var minY = Float.MAX_VALUE
+        var maxX = Float.MIN_VALUE
+        var maxY = Float.MIN_VALUE
+
+        for (layer in layers) {
+            val drawW = layer.bitmap.width * layer.scale
+            val drawH = layer.bitmap.height * layer.scale
+            if (layer.x < minX) minX = layer.x
+            if (layer.y < minY) minY = layer.y
+            if (layer.x + drawW > maxX) maxX = layer.x + drawW
+            if (layer.y + drawH > maxY) maxY = layer.y + drawH
+        }
+
+        val groupW = (maxX - minX).toInt().coerceAtLeast(50)
+        val groupH = (maxY - minY).toInt().coerceAtLeast(50)
+
+        val groupBitmap = Bitmap.createBitmap(groupW, groupH, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(groupBitmap)
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+
+        for (layer in layers) {
+            val relX = layer.x - minX
+            val relY = layer.y - minY
+            val drawW = (layer.bitmap.width * layer.scale).toInt().coerceAtLeast(1)
+            val drawH = (layer.bitmap.height * layer.scale).toInt().coerceAtLeast(1)
+            val dstRect = Rect(relX.toInt(), relY.toInt(), (relX + drawW).toInt(), (relY + drawH).toInt())
+
+            paint.alpha = (layer.alpha * 255).toInt().coerceIn(0, 255)
+            if (layer.rotation != 0f) {
+                canvas.save()
+                canvas.rotate(layer.rotation, relX + drawW / 2f, relY + drawH / 2f)
+                canvas.drawBitmap(layer.bitmap, null, dstRect, paint)
+                canvas.restore()
+            } else {
+                canvas.drawBitmap(layer.bitmap, null, dstRect, paint)
+            }
+        }
+
+        val groupedLayer = DocumentCanvasLayer(
+            id = java.util.UUID.randomUUID().toString(),
+            bitmap = groupBitmap,
+            x = minX,
+            y = minY,
+            scale = 1.0f,
+            rotation = 0f,
+            alpha = 1.0f,
+            title = "Group (${layers.size} Layers)"
+        )
+
+        _uiState.update { state ->
+            state.copy(
+                canvasLayers = listOf(groupedLayer),
+                selectedLayerId = groupedLayer.id,
+                activeOverlayBitmap = groupedLayer.bitmap,
+                overlayPositionX = groupedLayer.x,
+                overlayPositionY = groupedLayer.y,
+                overlayScale = 1.0f,
+                overlayRotation = 0f,
+                canvasRevision = state.canvasRevision + 1,
+                successMessage = "Grouped ${layers.size} layers into single object!"
+            )
+        }
+    }
+
     fun flattenAllLayersToDocument(saveUndo: Boolean = true): Bitmap? {
         val current = _uiState.value.currentBitmap ?: return null
         val layers = _uiState.value.canvasLayers
@@ -3429,22 +3737,165 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    // --- Search in Document ---
+    // --- Enterprise Offline Secure OCR Search & Highlight 2.0 ---
 
     fun setSearchQuery(query: String) {
-        val matches = if (query.isBlank()) {
-            emptyList()
-        } else {
-            val q = query.trim().lowercase()
-            _uiState.value.detectedItems.mapIndexedNotNull { index, item ->
-                if (item.text.lowercase().contains(q)) index else null
+        val state = _uiState.value
+        val options = SearchEngineOptions(
+            isCaseSensitive = state.isSearchCaseSensitive,
+            isWholeWord = state.isSearchWholeWord,
+            isHindiScriptTolerant = state.isSearchHindiTolerant,
+            searchAllPages = true
+        )
+
+        val pageMatches = DocumentSearchEngine.findMatchesInPage(
+            items = state.detectedItems,
+            pageIndex = state.currentPdfPageIndex,
+            query = query,
+            options = options
+        )
+        val matchingIndices = pageMatches.map { it.itemIndex }.distinct()
+
+        // Multi-page match counting
+        val multiPageCounts = mutableMapOf<Int, Int>()
+        if (state.pdfPageCount > 1 && query.isNotBlank()) {
+            multiPageCounts[state.currentPdfPageIndex] = pageMatches.size
+            for (pIdx in 0 until state.pdfPageCount) {
+                if (pIdx != state.currentPdfPageIndex) {
+                    val pItems = pageDetectedItemsMap[pIdx] ?: emptyList()
+                    val pMatches = DocumentSearchEngine.findMatchesInPage(pItems, pIdx, query, options)
+                    if (pMatches.isNotEmpty()) {
+                        multiPageCounts[pIdx] = pMatches.size
+                    }
+                }
             }
         }
+
         _uiState.update {
             it.copy(
                 searchQuery = query,
-                searchMatchingIndices = matches
+                searchMatchingIndices = matchingIndices,
+                searchMatchOccurrences = pageMatches,
+                currentSearchMatchIndex = if (pageMatches.isNotEmpty()) 0 else 0,
+                multiPageSearchMatchCounts = multiPageCounts
             )
+        }
+    }
+
+    fun setSearchCaseSensitive(enabled: Boolean) {
+        _uiState.update { it.copy(isSearchCaseSensitive = enabled) }
+        setSearchQuery(_uiState.value.searchQuery)
+    }
+
+    fun setSearchWholeWord(enabled: Boolean) {
+        _uiState.update { it.copy(isSearchWholeWord = enabled) }
+        setSearchQuery(_uiState.value.searchQuery)
+    }
+
+    fun setSearchHindiTolerant(enabled: Boolean) {
+        _uiState.update { it.copy(isSearchHindiTolerant = enabled) }
+        setSearchQuery(_uiState.value.searchQuery)
+    }
+
+    fun navigateToNextSearchMatch() {
+        val state = _uiState.value
+        val matches = state.searchMatchOccurrences
+        if (matches.isEmpty()) return
+
+        if (state.currentSearchMatchIndex < matches.size - 1) {
+            _uiState.update { it.copy(currentSearchMatchIndex = it.currentSearchMatchIndex + 1) }
+        } else if (state.pdfPageCount > 1) {
+            // Check next pages for matches
+            val nextPagesWithMatches = state.multiPageSearchMatchCounts.keys
+                .filter { it > state.currentPdfPageIndex }
+                .sorted()
+            if (nextPagesWithMatches.isNotEmpty()) {
+                val targetPage = nextPagesWithMatches.first()
+                goToPage(targetPage)
+            } else {
+                val firstPageWithMatches = state.multiPageSearchMatchCounts.keys.minOrNull()
+                if (firstPageWithMatches != null && firstPageWithMatches != state.currentPdfPageIndex) {
+                    goToPage(firstPageWithMatches)
+                } else {
+                    _uiState.update { it.copy(currentSearchMatchIndex = 0) }
+                }
+            }
+        } else {
+            _uiState.update { it.copy(currentSearchMatchIndex = 0) }
+        }
+    }
+
+    fun navigateToPreviousSearchMatch() {
+        val state = _uiState.value
+        val matches = state.searchMatchOccurrences
+        if (matches.isEmpty()) return
+
+        if (state.currentSearchMatchIndex > 0) {
+            _uiState.update { it.copy(currentSearchMatchIndex = it.currentSearchMatchIndex - 1) }
+        } else if (state.pdfPageCount > 1) {
+            val prevPagesWithMatches = state.multiPageSearchMatchCounts.keys
+                .filter { it < state.currentPdfPageIndex }
+                .sortedDescending()
+            if (prevPagesWithMatches.isNotEmpty()) {
+                val targetPage = prevPagesWithMatches.first()
+                goToPage(targetPage)
+            } else {
+                val lastPageWithMatches = state.multiPageSearchMatchCounts.keys.maxOrNull()
+                if (lastPageWithMatches != null && lastPageWithMatches != state.currentPdfPageIndex) {
+                    goToPage(lastPageWithMatches)
+                } else {
+                    _uiState.update { it.copy(currentSearchMatchIndex = matches.lastIndex) }
+                }
+            }
+        } else {
+            _uiState.update { it.copy(currentSearchMatchIndex = matches.lastIndex) }
+        }
+    }
+
+    fun navigateToSearchMatchIndex(index: Int) {
+        val matches = _uiState.value.searchMatchOccurrences
+        if (matches.isEmpty()) return
+        _uiState.update { it.copy(currentSearchMatchIndex = index.coerceIn(0, matches.lastIndex)) }
+    }
+
+    fun copySearchMatchToClipboard(occurrence: SearchMatchOccurrence) {
+        copyTextToClipboard(occurrence.matchedWord, "Matched Word")
+        val matchIdx = _uiState.value.searchMatchOccurrences.indexOf(occurrence)
+        if (matchIdx >= 0) {
+            _uiState.update { it.copy(currentSearchMatchIndex = matchIdx) }
+        }
+    }
+
+    fun copyTextToClipboard(text: String, label: String = "Document Text") {
+        try {
+            val context = getApplication<Application>()
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+            val clip = ClipData.newPlainText(label, text)
+            clipboard?.setPrimaryClip(clip)
+            _uiState.update { it.copy(searchCopiedWordToast = text) }
+
+            viewModelScope.launch {
+                delay(2500)
+                _uiState.update { state ->
+                    if (state.searchCopiedWordToast == text) state.copy(searchCopiedWordToast = null) else state
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    fun clearCopiedWordToast() {
+        _uiState.update { it.copy(searchCopiedWordToast = null) }
+    }
+
+    fun goToPage(targetPage: Int) {
+        val state = _uiState.value
+        if (targetPage < 0 || targetPage >= state.pdfPageCount || targetPage == state.currentPdfPageIndex) return
+        if (state.activePdfUri != null) {
+            saveCurrentPageToCache()
+            loadPdfPage(state.activePdfUri, targetPage)
+        } else if (state.batchScannedPaths.isNotEmpty() && targetPage < state.batchScannedPaths.size) {
+            saveCurrentPageToCache()
+            loadBatchPage(targetPage)
         }
     }
 
@@ -3453,8 +3904,14 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             it.copy(
                 isSearchActive = active,
                 searchQuery = if (active) it.searchQuery else "",
-                searchMatchingIndices = if (active) it.searchMatchingIndices else emptyList()
+                searchMatchingIndices = if (active) it.searchMatchingIndices else emptyList(),
+                searchMatchOccurrences = if (active) it.searchMatchOccurrences else emptyList(),
+                currentSearchMatchIndex = 0,
+                searchCopiedWordToast = null
             )
+        }
+        if (active && _uiState.value.searchQuery.isNotBlank()) {
+            setSearchQuery(_uiState.value.searchQuery)
         }
     }
 
@@ -3713,10 +4170,18 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun updateDocumentCategory(id: String, newCategory: String) {
+    fun updateDocumentCategory(id: String, newCategory: String, newSubtype: String? = null) {
         val context = getApplication<Application>()
         viewModelScope.launch(Dispatchers.IO) {
-            DocumentHistoryManager.updateDocumentCategory(context, id, newCategory)
+            DocumentHistoryManager.updateDocumentCategory(context, id, newCategory, newSubtype)
+            refreshRecentDocuments()
+        }
+    }
+
+    fun updateDocumentExpiry(id: String, expiryDate: String, expiryEpochMs: Long, hasReminder: Boolean) {
+        val context = getApplication<Application>()
+        viewModelScope.launch(Dispatchers.IO) {
+            DocumentHistoryManager.updateDocumentExpiry(context, id, expiryDate, expiryEpochMs, hasReminder)
             refreshRecentDocuments()
         }
     }
@@ -3833,7 +4298,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         points: List<PointF>,
         colorRgb: Int,
         strokeWidth: Float,
-        isHighlighter: Boolean
+        isHighlighter: Boolean,
+        strokeWidths: List<Float>? = null
     ) {
         val currentBitmap = _uiState.value.currentBitmap ?: return
         if (points.size < 2) return
@@ -3848,7 +4314,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             if (p.y < minY) minY = p.y
             if (p.y > maxY) maxY = p.y
         }
-        val pad = (strokeWidth + 12f).toInt()
+        val pad = (strokeWidth * 2f + 16f).toInt()
         val patchL = (minX.toInt() - pad).coerceIn(0, currentBitmap.width - 1)
         val patchT = (minY.toInt() - pad).coerceIn(0, currentBitmap.height - 1)
         val patchR = (maxX.toInt() + pad).coerceIn(0, currentBitmap.width)
@@ -3860,34 +4326,69 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         pushUndoStep(UndoStep.PixelPatch(patchBmp, patchL, patchT))
 
         val canvas = Canvas(currentBitmap)
-        val path = android.graphics.Path()
-        path.moveTo(points[0].x, points[0].y)
-        for (i in 1 until points.size) {
-            val pPrev = points[i - 1]
-            val pCurr = points[i]
-            val midX = (pPrev.x + pCurr.x) / 2f
-            val midY = (pPrev.y + pCurr.y) / 2f
-            path.quadTo(pPrev.x, pPrev.y, midX, midY)
-        }
-        path.lineTo(points.last().x, points.last().y)
 
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            this.strokeWidth = strokeWidth
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-            if (isHighlighter) {
+        if (isHighlighter) {
+            val path = android.graphics.Path()
+            path.moveTo(points[0].x, points[0].y)
+            for (i in 1 until points.size) {
+                val pPrev = points[i - 1]
+                val pCurr = points[i]
+                val midX = (pPrev.x + pCurr.x) / 2f
+                val midY = (pPrev.y + pCurr.y) / 2f
+                path.quadTo(pPrev.x, pPrev.y, midX, midY)
+            }
+            path.lineTo(points.last().x, points.last().y)
+
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                this.strokeWidth = strokeWidth
+                strokeCap = Paint.Cap.ROUND
+                strokeJoin = Paint.Join.ROUND
                 val alpha = 115
                 val r = Color.red(colorRgb)
                 val g = Color.green(colorRgb)
                 val b = Color.blue(colorRgb)
                 color = Color.argb(alpha, r, g, b)
                 xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.MULTIPLY)
-            } else {
+            }
+            canvas.drawPath(path, paint)
+        } else {
+            // Category 8.1 Pro Fountain Pen: Velocity-Sensitive Stroke Tapering & Stylus Pressure
+            val paintStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = colorRgb
+                style = Paint.Style.STROKE
+                strokeCap = Paint.Cap.ROUND
+                strokeJoin = Paint.Join.ROUND
+            }
+            val paintDot = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = colorRgb
+                style = Paint.Style.FILL
+            }
+
+            val n = points.size
+            for (i in 0 until n - 1) {
+                val p1 = points[i]
+                val p2 = points[i + 1]
+                val segW = if (strokeWidths != null && strokeWidths.size > i) {
+                    strokeWidths[i]
+                } else {
+                    val dist = kotlin.math.hypot((p2.x - p1.x).toDouble(), (p2.y - p1.y).toDouble()).toFloat()
+                    val speedFactor = (1.0f - (dist / 40f).coerceIn(0f, 0.45f))
+                    val taperFactor = when {
+                        i == 0 -> 0.45f
+                        i == 1 -> 0.75f
+                        i == n - 2 -> 0.45f
+                        i == n - 3 -> 0.75f
+                        else -> 1.0f
+                    }
+                    (strokeWidth * speedFactor * taperFactor).coerceIn(2f, strokeWidth * 1.5f)
+                }
+
+                paintStroke.strokeWidth = segW
+                canvas.drawLine(p1.x, p1.y, p2.x, p2.y, paintStroke)
+                canvas.drawCircle(p2.x, p2.y, segW / 2f, paintDot)
             }
         }
-        canvas.drawPath(path, paint)
 
         val pageIdx = _uiState.value.currentPdfPageIndex
         editedPagesMap[pageIdx] = currentBitmap
@@ -3987,15 +4488,16 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(showTargetSizeAdjusterDialog = show) }
     }
 
-    fun adjustDocumentToTargetSize(mode: SizeAdjustMode, targetKb: Int, format: String) {
+    fun adjustDocumentToTargetSize(mode: SizeAdjustMode, targetKb: Int, format: String, targetDpi: Int = 300) {
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
                     isApplyingEdit = true,
-                    processingMessage = if (mode == SizeAdjustMode.DECREASE)
-                        "Compressing to ${targetKb} KB ($format)..."
-                    else
-                        "Padding to ${targetKb} KB for Govt Portal ($format)...",
+                    processingMessage = when (mode) {
+                        SizeAdjustMode.DECREASE -> "Compressing to ≤ $targetKb KB ($format • $targetDpi DPI)..."
+                        SizeAdjustMode.EXACT -> "Adjusting to exact $targetKb.0 KB ($format • $targetDpi DPI)..."
+                        SizeAdjustMode.INCREASE -> "Padding to ≥ $targetKb KB ($format • $targetDpi DPI)..."
+                    },
                     showTargetSizeAdjusterDialog = false
                 )
             }
@@ -4008,15 +4510,15 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     val tempPdf = getOrGenerateConsolidatedPdf() ?: throw IllegalStateException("Failed to generate document PDF")
                     val fileName = "DocuEdit_Target_${targetKb}KB_${time}.pdf"
                     val tempOut = File(cacheDir, fileName)
-                    val result = if (mode == SizeAdjustMode.DECREASE) {
-                        TargetFileSizeEngine.compressPdfToTargetKb(
+                    val result = if (mode == SizeAdjustMode.INCREASE) {
+                        TargetFileSizeEngine.increasePdfToTargetKb(
                             context = context,
                             sourceUri = Uri.fromFile(tempPdf),
                             targetKb = targetKb,
                             outputFile = tempOut
                         )
                     } else {
-                        TargetFileSizeEngine.increasePdfToTargetKb(
+                        TargetFileSizeEngine.compressPdfToTargetKb(
                             context = context,
                             sourceUri = Uri.fromFile(tempPdf),
                             targetKb = targetKb,
@@ -4030,6 +4532,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         it.copy(
                             isApplyingEdit = false,
                             processingMessage = null,
+                            pendingAdjustedTargetFile = tempOut,
                             successMessage = "Target size ready: $fileName (${actualKb} KB) saved to Downloads"
                         )
                     }
@@ -4037,35 +4540,52 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     val currentBmp = _uiState.value.currentBitmap ?: throw IllegalStateException("No active document loaded")
                     val fileName = "DocuEdit_Target_${targetKb}KB_${time}.jpg"
                     val tempOut = File(cacheDir, fileName)
-                    val result = if (mode == SizeAdjustMode.DECREASE) {
-                        TargetFileSizeEngine.compressBitmapToTargetKb(
-                            bitmap = currentBmp,
-                            targetKb = targetKb,
-                            outputFile = tempOut
-                        )
-                    } else {
-                        val tempJpg = File.createTempFile("temp_adjust_", ".jpg", cacheDir)
-                        withContext(Dispatchers.IO) {
-                            FileOutputStream(tempJpg).use { currentBmp.compress(Bitmap.CompressFormat.JPEG, 95, it) }
+                    val result = when (mode) {
+                        SizeAdjustMode.DECREASE -> {
+                            TargetFileSizeEngine.compressBitmapToTargetKb(
+                                bitmap = currentBmp,
+                                targetKb = targetKb,
+                                outputFile = tempOut,
+                                targetDpi = targetDpi,
+                                exactMatch = false
+                            )
                         }
-                        val res = TargetFileSizeEngine.increaseJpegToTargetKb(
-                            inputJpegFile = tempJpg,
-                            targetKb = targetKb,
-                            outputFile = tempOut
-                        )
-                        tempJpg.delete()
-                        res
+                        SizeAdjustMode.EXACT -> {
+                            TargetFileSizeEngine.compressBitmapToTargetKb(
+                                bitmap = currentBmp,
+                                targetKb = targetKb,
+                                outputFile = tempOut,
+                                targetDpi = targetDpi,
+                                exactMatch = true
+                            )
+                        }
+                        SizeAdjustMode.INCREASE -> {
+                            val tempJpg = File.createTempFile("temp_adjust_", ".jpg", cacheDir)
+                            withContext(Dispatchers.IO) {
+                                FileOutputStream(tempJpg).use { currentBmp.compress(Bitmap.CompressFormat.JPEG, 95, it) }
+                            }
+                            val res = TargetFileSizeEngine.increaseJpegToTargetKb(
+                                inputJpegFile = tempJpg,
+                                targetKb = targetKb,
+                                outputFile = tempOut,
+                                targetDpi = targetDpi
+                            )
+                            tempJpg.delete()
+                            res
+                        }
                     }
                     val actualKb = result.finalBytes / 1024
-                    // Save to Gallery so user finds it in Photos app immediately!
-                    val finalBmp = BitmapFactory.decodeFile(tempOut.absolutePath) ?: currentBmp
-                    DocuStorageUtil.saveBitmapToGallery(context, finalBmp, "DocuEdit_Target_${targetKb}KB_${time}")
+                    // Direct Export Stream Binding:
+                    // NEVER re-decode into a bitmap to avoid inflating the file back to raw size!
+                    // Stream byte-for-byte directly into Gallery (DocuEdit album) and Downloads.
+                    DocuStorageUtil.saveImageFileToGallery(context, tempOut, fileName, "image/jpeg")
                     DocuStorageUtil.saveFileToPublicDownloads(context, tempOut, fileName, "image/jpeg")
                     _uiState.update {
                         it.copy(
                             isApplyingEdit = false,
                             processingMessage = null,
-                            successMessage = "Saved to Gallery & Downloads: (${actualKb} KB)"
+                            pendingAdjustedTargetFile = tempOut,
+                            successMessage = "Saved byte-for-byte to Gallery & Downloads: (${actualKb} KB • ${targetDpi} DPI)"
                         )
                     }
                 }
@@ -4623,6 +5143,29 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         updateSelectedShapeLayer(fillColor = colorRgb)
     }
 
+    fun setShapeCornerRadius(radius: Float) {
+        val clamped = radius.coerceIn(0f, 100f)
+        _uiState.update { it.copy(shapeCornerRadius = clamped) }
+        updateSelectedShapeLayer(cornerRadius = clamped)
+    }
+
+    fun setShapeArrowHeadSize(size: Float) {
+        val clamped = size.coerceIn(12f, 90f)
+        _uiState.update { it.copy(shapeArrowHeadSize = clamped) }
+        updateSelectedShapeLayer(arrowHeadSize = clamped)
+    }
+
+    fun setShapeEmbeddedText(text: String?) {
+        val clean = text?.ifBlank { null }
+        _uiState.update { it.copy(shapeEmbeddedText = clean) }
+        updateSelectedShapeLayer(embeddedText = clean)
+    }
+
+    fun setShapeTextColor(colorRgb: Int) {
+        _uiState.update { it.copy(shapeTextColorRgb = colorRgb) }
+        updateSelectedShapeLayer(textColor = colorRgb)
+    }
+
     /**
      * Canva Pro Interactive Shape Layer Spawner:
      * When user draws on canvas, creates an interactive DocumentCanvasLayer that can be
@@ -4633,7 +5176,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         start: PointF,
         end: PointF,
         colorRgb: Int,
-        strokeWidth: Float
+        strokeWidth: Float,
+        cornerRadius: Float = _uiState.value.shapeCornerRadius,
+        arrowHeadSize: Float = _uiState.value.shapeArrowHeadSize,
+        stemWidth: Float = _uiState.value.shapeStemWidth,
+        embeddedText: String? = _uiState.value.shapeEmbeddedText
     ) {
         val currentBitmap = _uiState.value.currentBitmap ?: return
 
@@ -4645,13 +5192,24 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         val shapeH = (maxY - minY).toInt().coerceAtLeast(80)
 
         val fillColor = _uiState.value.shapeFillColor
+        val textColor = _uiState.value.shapeTextColorRgb
+        val isBold = _uiState.value.shapeTextBold
+        val textSizePx = _uiState.value.shapeTextSizeSp * 2.2f
+
         val shapeBmp = com.docu.editor.core.scanner.VectorShapeGenerator.createShapeBitmap(
             type = type,
             width = shapeW,
             height = shapeH,
             strokeColor = colorRgb,
             strokeWidth = strokeWidth,
-            fillColor = fillColor
+            fillColor = fillColor,
+            arrowHeadSize = arrowHeadSize,
+            arrowStemWidth = stemWidth,
+            cornerRadius = cornerRadius,
+            text = embeddedText,
+            textColor = textColor,
+            textSize = textSizePx,
+            isBoldText = isBold
         )
 
         val newLayer = DocumentCanvasLayer(
@@ -4668,7 +5226,14 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             shapeStrokeWidth = strokeWidth,
             shapeFillColor = fillColor,
             shapeWidth = shapeW,
-            shapeHeight = shapeH
+            shapeHeight = shapeH,
+            cornerRadius = cornerRadius,
+            arrowHeadSize = arrowHeadSize,
+            arrowStemWidth = stemWidth,
+            text = embeddedText ?: "",
+            textColor = textColor,
+            fontSize = textSizePx,
+            isBold = isBold
         )
 
         val updated = _uiState.value.canvasLayers + newLayer
@@ -4692,7 +5257,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         type: ShapeType,
         strokeColor: Int = _uiState.value.shapeStrokeColorRgb,
         strokeWidth: Float = _uiState.value.shapeStrokeWidth,
-        fillColor: Int? = _uiState.value.shapeFillColor
+        fillColor: Int? = _uiState.value.shapeFillColor,
+        cornerRadius: Float = _uiState.value.shapeCornerRadius,
+        arrowHeadSize: Float = _uiState.value.shapeArrowHeadSize,
+        stemWidth: Float = _uiState.value.shapeStemWidth,
+        embeddedText: String? = _uiState.value.shapeEmbeddedText
     ) {
         val currentBitmap = _uiState.value.currentBitmap ?: return
         val w = 320
@@ -4700,13 +5269,24 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         val centerX = (currentBitmap.width - w) / 2f
         val centerY = (currentBitmap.height - h) / 2f
 
+        val textColor = _uiState.value.shapeTextColorRgb
+        val isBold = _uiState.value.shapeTextBold
+        val textSizePx = _uiState.value.shapeTextSizeSp * 2.2f
+
         val shapeBmp = com.docu.editor.core.scanner.VectorShapeGenerator.createShapeBitmap(
             type = type,
             width = w,
             height = h,
             strokeColor = strokeColor,
             strokeWidth = strokeWidth,
-            fillColor = fillColor
+            fillColor = fillColor,
+            arrowHeadSize = arrowHeadSize,
+            arrowStemWidth = stemWidth,
+            cornerRadius = cornerRadius,
+            text = embeddedText,
+            textColor = textColor,
+            textSize = textSizePx,
+            isBoldText = isBold
         )
 
         val newLayer = DocumentCanvasLayer(
@@ -4723,7 +5303,14 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             shapeStrokeWidth = strokeWidth,
             shapeFillColor = fillColor,
             shapeWidth = w,
-            shapeHeight = h
+            shapeHeight = h,
+            cornerRadius = cornerRadius,
+            arrowHeadSize = arrowHeadSize,
+            arrowStemWidth = stemWidth,
+            text = embeddedText ?: "",
+            textColor = textColor,
+            fontSize = textSizePx,
+            isBold = isBold
         )
 
         val updated = _uiState.value.canvasLayers + newLayer
@@ -4746,7 +5333,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     fun updateSelectedShapeLayer(
         fillColor: Int? = _uiState.value.shapeFillColor,
         strokeColor: Int? = null,
-        strokeWidth: Float? = null
+        strokeWidth: Float? = null,
+        cornerRadius: Float? = null,
+        arrowHeadSize: Float? = null,
+        embeddedText: String? = null,
+        textColor: Int? = null
     ) {
         val selected = _uiState.value.selectedLayer ?: return
         if (!selected.isShapeLayer) return
@@ -4754,6 +5345,13 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         val newFill = fillColor
         val newStroke = strokeColor ?: selected.shapeStrokeColor
         val newWidth = strokeWidth ?: selected.shapeStrokeWidth
+        val newCornerRadius = cornerRadius ?: selected.cornerRadius
+        val newArrowHead = arrowHeadSize ?: selected.arrowHeadSize
+        val newStemW = selected.arrowStemWidth
+        val newText = if (embeddedText != null) embeddedText else selected.text
+        val newTextColor = textColor ?: selected.textColor
+        val newFontSize = selected.fontSize
+        val newBold = selected.isBold
 
         val newBmp = com.docu.editor.core.scanner.VectorShapeGenerator.createShapeBitmap(
             type = selected.shapeType,
@@ -4761,14 +5359,27 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             height = selected.shapeHeight,
             strokeColor = newStroke,
             strokeWidth = newWidth,
-            fillColor = newFill
+            fillColor = newFill,
+            arrowHeadSize = newArrowHead,
+            arrowStemWidth = newStemW,
+            cornerRadius = newCornerRadius,
+            text = newText,
+            textColor = newTextColor,
+            textSize = newFontSize,
+            isBoldText = newBold
         )
 
         val updatedLayer = selected.copy(
             bitmap = newBmp,
             shapeFillColor = newFill,
             shapeStrokeColor = newStroke,
-            shapeStrokeWidth = newWidth
+            shapeStrokeWidth = newWidth,
+            cornerRadius = newCornerRadius,
+            arrowHeadSize = newArrowHead,
+            text = newText,
+            textColor = newTextColor,
+            fontSize = newFontSize,
+            isBold = newBold
         )
 
         val newLayers = _uiState.value.canvasLayers.map { if (it.id == selected.id) updatedLayer else it }
@@ -5205,20 +5816,67 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun checkAcroFormsForCurrentPdf() {
-        val uri = _uiState.value.activePdfUri ?: return
+        val uri = _uiState.value.activePdfUri
+        val currentBmp = _uiState.value.currentBitmap
+        if (uri == null && currentBmp == null) {
+            _uiState.update { it.copy(errorMessage = "No active document loaded to scan form fields") }
+            return
+        }
+
         viewModelScope.launch {
-            val hasForms = com.docu.editor.core.pdf.AcroFormManager.hasAcroForm(getApplication(), uri)
-            if (hasForms) {
-                val fields = com.docu.editor.core.pdf.AcroFormManager.getFormFields(getApplication(), uri)
+            _uiState.update { it.copy(isScanning = true, processingMessage = "Detecting fillable form fields...") }
+
+            var nativeFields: List<com.docu.editor.core.pdf.AcroFormFieldItem> = emptyList()
+            if (uri != null) {
+                val hasForms = com.docu.editor.core.pdf.AcroFormManager.hasAcroForm(getApplication(), uri)
+                if (hasForms) {
+                    nativeFields = com.docu.editor.core.pdf.AcroFormManager.getFormFields(getApplication(), uri)
+                }
+            }
+
+            if (nativeFields.isNotEmpty()) {
                 _uiState.update {
                     it.copy(
+                        isScanning = false,
+                        processingMessage = null,
                         hasInteractiveAcroForm = true,
-                        acroFormFields = fields,
+                        acroFormFields = nativeFields,
                         showAcroFormDialog = true
                     )
                 }
+            } else if (currentBmp != null) {
+                // Non-Fillable Flat PDF Auto-Detector: Detect underlines and checkboxes
+                val detectedItems = _uiState.value.detectedItems.ifEmpty {
+                    ocrAnalyzer.detectTextBlocks(currentBmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE)
+                }
+                val flatFields = com.docu.editor.core.pdf.AcroFormManager.detectFlatFormFields(getApplication(), currentBmp, detectedItems)
+                if (flatFields.isNotEmpty()) {
+                    _uiState.update {
+                        it.copy(
+                            isScanning = false,
+                            processingMessage = null,
+                            hasInteractiveAcroForm = false,
+                            acroFormFields = flatFields,
+                            showAcroFormDialog = true
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isScanning = false,
+                            processingMessage = null,
+                            errorMessage = "No interactive or underlined fillable blanks detected on this page"
+                        )
+                    }
+                }
             } else {
-                _uiState.update { it.copy(errorMessage = "No interactive form fields found in this PDF") }
+                _uiState.update {
+                    it.copy(
+                        isScanning = false,
+                        processingMessage = null,
+                        errorMessage = "No form fields detected"
+                    )
+                }
             }
         }
     }
@@ -5228,6 +5886,28 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun saveAcroFormFields(fieldValues: Map<String, String>) {
+        val currentFields = _uiState.value.acroFormFields
+        val isFlat = currentFields.any { it.isFlatField }
+
+        if (isFlat) {
+            val current = _uiState.value.currentBitmap ?: return
+            val filledCount = fieldValues.count { it.value.isNotBlank() }
+            if (filledCount == 0) {
+                _uiState.update { it.copy(showAcroFormDialog = false) }
+                return
+            }
+            saveUndoForBitmap(current, actionTag = "Fill Form")
+            val stampedBmp = com.docu.editor.core.pdf.AcroFormManager.burnFlatFormFields(current, currentFields, fieldValues)
+            setEditedBitmap(stampedBmp, actionTag = "Fill Form")
+            _uiState.update {
+                it.copy(
+                    showAcroFormDialog = false,
+                    successMessage = "Cleanly stamped $filledCount form fields onto document"
+                )
+            }
+            return
+        }
+
         val uri = _uiState.value.activePdfUri ?: return
         viewModelScope.launch {
             _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Saving interactive PDF form...") }
@@ -5858,7 +6538,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         y = step.y,
                         targetItemId = step.targetItemId,
                         previousText = currentText,
-                        previousBoundingBox = Rect(currentBox)
+                        previousBoundingBox = Rect(currentBox),
+                        actionTag = step.actionTag
                     )
                 )
 
@@ -5878,14 +6559,15 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         detectedItems = updatedItems,
                         canUndo = undoStack.isNotEmpty(),
                         canRedo = true,
-                        canvasRevision = it.canvasRevision + 1
+                        canvasRevision = it.canvasRevision + 1,
+                        successMessage = "Undid: ${step.actionTag}"
                     )
                 }
             }
 
             is UndoStep.PixelPatch -> {
                 val redoPatch = Bitmap.createBitmap(current, step.x, step.y, step.patchBitmap.width, step.patchBitmap.height)
-                redoStack.push(UndoStep.PixelPatch(redoPatch, step.x, step.y))
+                redoStack.push(UndoStep.PixelPatch(redoPatch, step.x, step.y, actionTag = step.actionTag))
 
                 val canvas = Canvas(current)
                 canvas.drawBitmap(step.patchBitmap, step.x.toFloat(), step.y.toFloat(), null)
@@ -5896,14 +6578,15 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         currentBitmap = current,
                         canUndo = undoStack.isNotEmpty(),
                         canRedo = true,
-                        canvasRevision = it.canvasRevision + 1
+                        canvasRevision = it.canvasRevision + 1,
+                        successMessage = "Undid: ${step.actionTag}"
                     )
                 }
             }
 
             is UndoStep.FullBitmap -> {
                 val redoBmp = current.copy(Bitmap.Config.ARGB_8888, true)
-                redoStack.push(UndoStep.FullBitmap(redoBmp))
+                redoStack.push(UndoStep.FullBitmap(redoBmp, actionTag = step.actionTag))
 
                 val restoredBmp = step.bitmap
                 _uiState.update {
@@ -5912,7 +6595,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         detectedItems = emptyList(),
                         canUndo = undoStack.isNotEmpty(),
                         canRedo = true,
-                        canvasRevision = it.canvasRevision + 1
+                        canvasRevision = it.canvasRevision + 1,
+                        successMessage = "Undid: ${step.actionTag}"
                     )
                 }
             }
@@ -5937,7 +6621,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         y = step.y,
                         targetItemId = step.targetItemId,
                         previousText = currentText,
-                        previousBoundingBox = Rect(currentBox)
+                        previousBoundingBox = Rect(currentBox),
+                        actionTag = step.actionTag
                     )
                 )
 
@@ -5957,14 +6642,15 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         detectedItems = updatedItems,
                         canUndo = true,
                         canRedo = redoStack.isNotEmpty(),
-                        canvasRevision = it.canvasRevision + 1
+                        canvasRevision = it.canvasRevision + 1,
+                        successMessage = "Redid: ${step.actionTag}"
                     )
                 }
             }
 
             is UndoStep.PixelPatch -> {
                 val undoPatch = Bitmap.createBitmap(current, step.x, step.y, step.patchBitmap.width, step.patchBitmap.height)
-                undoStack.push(UndoStep.PixelPatch(undoPatch, step.x, step.y))
+                undoStack.push(UndoStep.PixelPatch(undoPatch, step.x, step.y, actionTag = step.actionTag))
 
                 val canvas = Canvas(current)
                 canvas.drawBitmap(step.patchBitmap, step.x.toFloat(), step.y.toFloat(), null)
@@ -5975,14 +6661,15 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         currentBitmap = current,
                         canUndo = true,
                         canRedo = redoStack.isNotEmpty(),
-                        canvasRevision = it.canvasRevision + 1
+                        canvasRevision = it.canvasRevision + 1,
+                        successMessage = "Redid: ${step.actionTag}"
                     )
                 }
             }
 
             is UndoStep.FullBitmap -> {
                 val undoBmp = current.copy(Bitmap.Config.ARGB_8888, true)
-                undoStack.push(UndoStep.FullBitmap(undoBmp))
+                undoStack.push(UndoStep.FullBitmap(undoBmp, actionTag = step.actionTag))
 
                 val restoredBmp = step.bitmap
                 _uiState.update {
@@ -5991,7 +6678,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         detectedItems = emptyList(),
                         canUndo = true,
                         canRedo = redoStack.isNotEmpty(),
-                        canvasRevision = it.canvasRevision + 1
+                        canvasRevision = it.canvasRevision + 1,
+                        successMessage = "Redid: ${step.actionTag}"
                     )
                 }
             }
@@ -6119,14 +6807,88 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         _uiState.update { it.copy(showCanvaLayersDialog = show) }
     }
 
-    private fun saveUndoForBitmap(bmp: Bitmap) {
-        pushUndoStep(UndoStep.FullBitmap(bmp.copy(Bitmap.Config.ARGB_8888, true)))
+    private fun computeDirtyBounds(bmpA: Bitmap, bmpB: Bitmap): Rect? {
+        val width = bmpA.width
+        val height = bmpA.height
+        if (width <= 0 || height <= 0 || width != bmpB.width || height != bmpB.height) return null
+
+        val stride = 4
+        var minY = height
+        var maxY = -1
+        var minX = width
+        var maxX = -1
+
+        val rowA = IntArray(width)
+        val rowB = IntArray(width)
+
+        for (y in 0 until height step stride) {
+            bmpA.getPixels(rowA, 0, width, 0, y, width, 1)
+            bmpB.getPixels(rowB, 0, width, 0, y, width, 1)
+
+            var rowHasDiff = false
+            for (x in 0 until width step stride) {
+                if (rowA[x] != rowB[x]) {
+                    rowHasDiff = true
+                    if (x < minX) minX = x
+                    if (x > maxX) maxX = x
+                }
+            }
+            if (rowHasDiff) {
+                if (y < minY) minY = y
+                if (y > maxY) maxY = y
+            }
+        }
+
+        if (minY > maxY || minX > maxX) {
+            return null
+        }
+
+        val padding = 8
+        val clampLeft = (minX - padding).coerceIn(0, width - 1)
+        val clampTop = (minY - padding).coerceIn(0, height - 1)
+        val clampRight = (maxX + padding + stride).coerceIn(clampLeft + 1, width)
+        val clampBottom = (maxY + padding + stride).coerceIn(clampTop + 1, height)
+
+        return Rect(clampLeft, clampTop, clampRight, clampBottom)
     }
 
-    fun setEditedBitmap(newBmp: Bitmap) {
+    fun recordBitmapUndo(oldBmp: Bitmap, newBmp: Bitmap? = null, actionTag: String = "Page Edit") {
+        if (newBmp != null && oldBmp.width == newBmp.width && oldBmp.height == newBmp.height) {
+            val dirtyRect = computeDirtyBounds(oldBmp, newBmp)
+            if (dirtyRect != null) {
+                val dirtyArea = dirtyRect.width().toLong() * dirtyRect.height().toLong()
+                val totalArea = oldBmp.width.toLong() * oldBmp.height.toLong()
+                if (dirtyArea <= (totalArea * 0.65)) {
+                    val patchBmp = Bitmap.createBitmap(
+                        oldBmp,
+                        dirtyRect.left,
+                        dirtyRect.top,
+                        dirtyRect.width(),
+                        dirtyRect.height()
+                    )
+                    pushUndoStep(UndoStep.PixelPatch(patchBmp, dirtyRect.left, dirtyRect.top, actionTag = actionTag))
+                    return
+                }
+            }
+        }
+        pushUndoStep(UndoStep.FullBitmap(oldBmp.copy(Bitmap.Config.ARGB_8888, true), actionTag = actionTag))
+    }
+
+    fun saveUndoForBitmap(bmp: Bitmap, newBmp: Bitmap? = null, actionTag: String = "Page Edit") {
+        recordBitmapUndo(bmp, newBmp, actionTag)
+    }
+
+    fun setEditedBitmap(newBmp: Bitmap, actionTag: String = "Page Edit") {
         val current = _uiState.value.currentBitmap
         if (current != null && current != newBmp) {
-            saveUndoForBitmap(current)
+            val lastStep = if (undoStack.isNotEmpty()) undoStack.peek() else null
+            val alreadySaved = when (lastStep) {
+                is UndoStep.FullBitmap -> lastStep.bitmap == current
+                else -> false
+            }
+            if (!alreadySaved) {
+                recordBitmapUndo(current, newBmp, actionTag)
+            }
         }
         editedPagesMap[_uiState.value.currentPdfPageIndex] = newBmp
         _uiState.update {
@@ -6165,7 +6927,9 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         isBold: Boolean,
         isItalic: Boolean,
         fontFamily: String,
-        effect: TextEffectType
+        effect: TextEffectType,
+        letterSpacingEm: Float = 0.05f,
+        lineHeightMultiplier: Float = 1.2f
     ) {
         val current = _uiState.value.currentBitmap ?: return
         val bmp = CanvaTextStudioEngine.createStyledTypographyBitmap(
@@ -6176,7 +6940,9 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             isBold = isBold,
             isItalic = isItalic,
             fontFamily = fontFamily,
-            effect = effect
+            effect = effect,
+            letterSpacingEm = letterSpacingEm,
+            lineHeightMultiplier = lineHeightMultiplier
         )
 
         val posX = (current.width - bmp.width) / 2f
@@ -6195,7 +6961,9 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             isBold = isBold,
             isItalic = isItalic,
             fontFamily = fontFamily,
-            textEffect = effect
+            textEffect = effect,
+            letterSpacingEm = letterSpacingEm,
+            lineHeightMultiplier = lineHeightMultiplier
         )
 
         saveUndoForBitmap(current)
@@ -6225,6 +6993,21 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    fun applyBrandProfile(profile: BrandProfile) {
+        val current = _uiState.value.currentBitmap
+        if (current != null) saveUndoForBitmap(current)
+        val currentLayers = _uiState.value.canvasLayers
+        val updated = CanvaBrandKitEngine.applyProfileToLayers(currentLayers, profile)
+        _uiState.update {
+            it.copy(
+                canvasLayers = updated,
+                activeBrandPaletteId = profile.id,
+                hasUnsavedChanges = true,
+                successMessage = "Applied ${profile.clientName} branding to all layers!"
+            )
+        }
+    }
+
     fun applyCanvaAdjustments(
         brightness: Float,
         contrast: Float,
@@ -6234,7 +7017,13 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         clarity: Float,
         vignette: Float,
         blur: Float,
-        preset: CanvaStyleMatchPreset
+        preset: CanvaStyleMatchPreset,
+        shadows: Float = 0f,
+        midtones: Float = 0f,
+        highlights: Float = 0f,
+        colorTarget: SelectiveColorTarget = SelectiveColorTarget.ALL_MASTER,
+        targetSaturation: Float = 1.0f,
+        targetLuminance: Float = 1.0f
     ) {
         val current = _uiState.value.currentBitmap ?: return
         viewModelScope.launch {
@@ -6250,7 +7039,13 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 clarity = clarity,
                 vignette = vignette,
                 blur = blur,
-                preset = preset
+                preset = preset,
+                shadows = shadows,
+                midtones = midtones,
+                highlights = highlights,
+                colorTarget = colorTarget,
+                targetSaturation = targetSaturation,
+                targetLuminance = targetLuminance
             )
             setEditedBitmap(adjusted)
             _uiState.update {

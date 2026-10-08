@@ -26,7 +26,11 @@ data class SavedDocumentItem(
     val isCloudSynced: Boolean = false,
     val cloudDocId: String = "",
     val cloudShareUrl: String = "",
-    val lastSyncedTime: Long = 0L
+    val lastSyncedTime: Long = 0L,
+    val documentSubtype: String = "",
+    val expiryDateString: String = "",
+    val expiryEpochMs: Long = 0L,
+    val hasCalendarReminder: Boolean = false
 ) {
     val formattedDate: String
         get() = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(timestamp))
@@ -37,6 +41,11 @@ data class SavedDocumentItem(
             fileSizeBytes >= 1024 -> "${fileSizeBytes / 1024} KB"
             else -> "$fileSizeBytes B"
         }
+
+    val daysUntilExpiry: Int?
+        get() = if (expiryEpochMs > 0L) {
+            ((expiryEpochMs - System.currentTimeMillis()) / (1000L * 60L * 60L * 24L)).toInt()
+        } else null
 }
 
 object DocumentHistoryManager {
@@ -71,7 +80,11 @@ object DocumentHistoryManager {
                             isCloudSynced = obj.optBoolean("isCloudSynced", false),
                             cloudDocId = obj.optString("cloudDocId", ""),
                             cloudShareUrl = obj.optString("cloudShareUrl", ""),
-                            lastSyncedTime = obj.optLong("lastSyncedTime", 0L)
+                            lastSyncedTime = obj.optLong("lastSyncedTime", 0L),
+                            documentSubtype = obj.optString("documentSubtype", ""),
+                            expiryDateString = obj.optString("expiryDateString", ""),
+                            expiryEpochMs = obj.optLong("expiryEpochMs", 0L),
+                            hasCalendarReminder = obj.optBoolean("hasCalendarReminder", false)
                         )
                     )
                 }
@@ -109,6 +122,39 @@ object DocumentHistoryManager {
         }
         if (thumbBmp != bitmap) thumbBmp.recycle()
 
+        // Automatic AI Classification & Expiry Extraction
+        var effectiveCategory = category
+        var effectiveSubtype = ""
+        var effectiveExpiryDate = ""
+        var effectiveExpiryEpoch = 0L
+
+        if (extractedOcrText.isNotBlank()) {
+            val classResult = com.docu.editor.core.classification.DocumentClassificationEngine.classify(extractedOcrText, title)
+            if (effectiveCategory == "All" || effectiveCategory.isBlank()) {
+                effectiveCategory = classResult.category.displayName
+            }
+            effectiveSubtype = classResult.subtype
+
+            val expiryResult = com.docu.editor.core.classification.ExpiryWatchdogEngine.extractExpiry(extractedOcrText)
+            if (expiryResult.hasExpiry) {
+                effectiveExpiryDate = expiryResult.formattedDate
+                effectiveExpiryEpoch = expiryResult.expiryEpochMs
+            }
+
+            if (effectiveCategory.equals("Bills & Finance", ignoreCase = true) || extractedOcrText.contains("Tax Invoice", ignoreCase = true) || extractedOcrText.contains("GSTIN", ignoreCase = true)) {
+                try {
+                    val expenseItem = com.docu.editor.core.expense.ReceiptEntityExtractor.extract(
+                        ocrText = extractedOcrText,
+                        documentTitle = title,
+                        documentId = id,
+                        imagePath = thumbFile.absolutePath
+                    )
+                    com.docu.editor.core.expense.ExpenseAuditManager.saveReceipt(context, expenseItem)
+                } catch (_: Exception) {
+                }
+            }
+        }
+
         val item = SavedDocumentItem(
             id = id,
             title = title,
@@ -117,8 +163,11 @@ object DocumentHistoryManager {
             pageCount = pageCount,
             timestamp = System.currentTimeMillis(),
             fileSizeBytes = docFile.length(),
-            category = category,
-            extractedOcrText = extractedOcrText
+            category = effectiveCategory,
+            extractedOcrText = extractedOcrText,
+            documentSubtype = effectiveSubtype,
+            expiryDateString = effectiveExpiryDate,
+            expiryEpochMs = effectiveExpiryEpoch
         )
 
         val currentList = getSavedDocuments(context).toMutableList()
@@ -211,11 +260,34 @@ object DocumentHistoryManager {
         updated
     }
 
-    suspend fun updateDocumentCategory(context: Context, id: String, newCategory: String) = withContext(Dispatchers.IO) {
+    suspend fun updateDocumentCategory(context: Context, id: String, newCategory: String, newSubtype: String? = null) = withContext(Dispatchers.IO) {
         val currentList = getSavedDocuments(context).toMutableList()
         val index = currentList.indexOfFirst { it.id == id }
         if (index != -1) {
-            currentList[index] = currentList[index].copy(category = newCategory)
+            val existing = currentList[index]
+            currentList[index] = existing.copy(
+                category = newCategory,
+                documentSubtype = newSubtype ?: existing.documentSubtype
+            )
+            saveIndex(context, currentList)
+        }
+    }
+
+    suspend fun updateDocumentExpiry(
+        context: Context,
+        id: String,
+        expiryDateString: String,
+        expiryEpochMs: Long,
+        hasCalendarReminder: Boolean
+    ) = withContext(Dispatchers.IO) {
+        val currentList = getSavedDocuments(context).toMutableList()
+        val index = currentList.indexOfFirst { it.id == id }
+        if (index != -1) {
+            currentList[index] = currentList[index].copy(
+                expiryDateString = expiryDateString,
+                expiryEpochMs = expiryEpochMs,
+                hasCalendarReminder = hasCalendarReminder
+            )
             saveIndex(context, currentList)
         }
     }
@@ -296,6 +368,10 @@ object DocumentHistoryManager {
                 put("cloudDocId", item.cloudDocId)
                 put("cloudShareUrl", item.cloudShareUrl)
                 put("lastSyncedTime", item.lastSyncedTime)
+                put("documentSubtype", item.documentSubtype)
+                put("expiryDateString", item.expiryDateString)
+                put("expiryEpochMs", item.expiryEpochMs)
+                put("hasCalendarReminder", item.hasCalendarReminder)
             }
             array.put(obj)
         }
