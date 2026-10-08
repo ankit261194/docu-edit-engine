@@ -22,7 +22,8 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val overrideClassification: FontClassification? = null,
         val isBold: Boolean? = null,
         val sizeMultiplier: Float = 1.0f,
-        val alignment: Paint.Align = Paint.Align.LEFT
+        val alignment: Paint.Align = Paint.Align.LEFT,
+        val availableWidth: Float? = null
     )
 
     data class TextRenderResult(
@@ -30,7 +31,10 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val isolatedTextLayer: Bitmap,
         val fittedFontSize: Float,
         val appliedLetterSpacing: Float,
-        val appliedScaleX: Float
+        val appliedScaleX: Float,
+        val renderedWidth: Float = 0f,
+        val renderedHeight: Float = 0f,
+        val renderedBounds: Rect = Rect()
     )
 
     fun render(
@@ -59,7 +63,8 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             targetBounds = params.targetBounds,
             paint = paint,
             originalText = params.originalText,
-            sizeMultiplier = params.sizeMultiplier
+            sizeMultiplier = params.sizeMultiplier,
+            availableWidth = params.availableWidth
         )
 
         val masterOutput = cleanedBackground.copy(Bitmap.Config.ARGB_8888, true)
@@ -130,12 +135,27 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         PaperTextureBlender.blendTextWithPaperTexture(masterCanvas, textLayer, params.targetBounds, paperStats)
         textLayer.recycle()
 
+        val maxMeasuredWidth = lines.maxOfOrNull { paint.measureText(it) } ?: paint.measureText(params.newText)
+        val renderedTotalHeight = (lines.size * lineHeight).coerceAtLeast(params.targetBounds.height().toFloat())
+        val renderedLeft = when (params.alignment) {
+            Paint.Align.RIGHT -> (params.targetBounds.right.toFloat() - maxMeasuredWidth).toInt().coerceAtLeast(0)
+            Paint.Align.CENTER -> (params.targetBounds.left.toFloat() + (params.targetBounds.width() - maxMeasuredWidth) / 2f).toInt()
+            else -> params.targetBounds.left
+        }
+        val renderedRight = (renderedLeft + maxMeasuredWidth.toInt()).coerceAtMost(cleanedBackground.width)
+        val renderedTop = params.targetBounds.top
+        val renderedBottom = (renderedTop + renderedTotalHeight.toInt()).coerceAtMost(cleanedBackground.height)
+        val renderedBounds = Rect(renderedLeft, renderedTop, renderedRight, renderedBottom)
+
         return TextRenderResult(
             outputBitmap = masterOutput,
             isolatedTextLayer = masterOutput,
             fittedFontSize = fitResult.fontSize,
             appliedLetterSpacing = fitResult.letterSpacingEm,
-            appliedScaleX = fitResult.scaleX
+            appliedScaleX = fitResult.scaleX,
+            renderedWidth = maxMeasuredWidth,
+            renderedHeight = renderedTotalHeight,
+            renderedBounds = renderedBounds
         )
     }
 

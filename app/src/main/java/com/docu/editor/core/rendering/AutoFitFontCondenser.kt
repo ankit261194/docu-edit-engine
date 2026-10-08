@@ -112,14 +112,17 @@ object AutoFitFontCondenser {
         targetBounds: Rect,
         paint: Paint,
         originalText: String = "",
-        sizeMultiplier: Float = 1.0f
+        sizeMultiplier: Float = 1.0f,
+        availableWidth: Float? = null
     ): AdjustedTypography {
         val targetWidth = max(16, targetBounds.width()).toFloat()
         val originalLines = if (originalText.isNotEmpty()) originalText.split("\n").size else 1
         val userWantsMultiLine = text.contains("\n") || originalLines > 1
 
+        val effectiveAllowedWidth = (availableWidth ?: (targetWidth * 1.5f)).coerceAtLeast(targetWidth)
+
         val effectiveText = if (userWantsMultiLine) {
-            autoWrapIfTooWide(text, targetWidth, paint)
+            autoWrapIfTooWide(text, effectiveAllowedWidth, paint)
         } else {
             text // Single-line document text must NEVER wrap onto a second line underneath
         }
@@ -164,16 +167,17 @@ object AutoFitFontCondenser {
         var scaleX = 1.0f
         var trackingEm = 0f
 
-        if (measuredWidth > targetWidth) {
-            val ratio = targetWidth / measuredWidth
+        // Only condense if the text exceeds the available width on the document line
+        if (measuredWidth > effectiveAllowedWidth) {
+            val ratio = effectiveAllowedWidth / measuredWidth
             when {
-                ratio >= 0.85f -> {
-                    scaleX = ratio.coerceIn(0.85f, 1.0f)
+                ratio >= 0.88f -> {
+                    scaleX = ratio.coerceIn(0.88f, 1.0f)
                     trackingEm = -0.012f
                 }
-                ratio >= 0.65f && ratio < 0.85f -> {
-                    scaleX = 0.85f
-                    trackingEm = -0.02f
+                ratio >= 0.72f && ratio < 0.88f -> {
+                    scaleX = 0.88f
+                    trackingEm = -0.018f
                     paint.textScaleX = scaleX
                     paint.letterSpacing = trackingEm
                     val remeasured = if (lineCount > 1) {
@@ -181,13 +185,13 @@ object AutoFitFontCondenser {
                     } else {
                         paint.measureText(effectiveText)
                     }
-                    if (remeasured > targetWidth) {
-                        fontSize *= (targetWidth / remeasured).coerceAtLeast(0.68f)
+                    if (remeasured > effectiveAllowedWidth) {
+                        fontSize *= (effectiveAllowedWidth / remeasured).coerceAtLeast(0.82f)
                     }
                 }
                 else -> {
-                    scaleX = 0.82f
-                    trackingEm = -0.025f
+                    scaleX = 0.85f
+                    trackingEm = -0.022f
                     paint.textScaleX = scaleX
                     paint.letterSpacing = trackingEm
                     val remeasured = if (lineCount > 1) {
@@ -195,8 +199,8 @@ object AutoFitFontCondenser {
                     } else {
                         paint.measureText(effectiveText)
                     }
-                    if (remeasured > targetWidth) {
-                        fontSize *= (targetWidth / remeasured).coerceAtLeast(0.50f)
+                    if (remeasured > effectiveAllowedWidth) {
+                        fontSize *= (effectiveAllowedWidth / remeasured).coerceAtLeast(0.75f)
                     }
                 }
             }

@@ -1360,7 +1360,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             }
 
             try {
-                val updatedBitmap = withContext(Dispatchers.Default) {
+                val (updatedBitmap, newBox, shiftedLineItems) = withContext(Dispatchers.Default) {
                     var effectiveBold = isBold
                     var effectiveInkColor = colorOverrideRgb ?: targetItem.inkColorRgb
 
@@ -1390,7 +1390,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                                         val patchT = max(0, targetItem.boundingBox.top - pad)
                                         canvas.drawBitmap(serverPatchBmp, patchL.toFloat(), patchT.toFloat(), null)
                                         serverPatchBmp.recycle()
-                                        return@withContext resultBmp
+                                        return@withContext Triple(resultBmp, targetItem.boundingBox, emptyList<DetectedTextItem>())
                                     }
                                 }
 
@@ -1411,27 +1411,87 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         }
                     }
 
-                    // #5 Word Overlap / Reflow Spacing Protection:
-                    // Check if an adjacent word exists to the right on the same line
-                    val nextAdjacentItem = _uiState.value.detectedItems.filter {
+                    // #5 High-Precision Word Reflow & Spacing Protection:
+                    val singleLineH = targetItem.boundingBox.height().toFloat().coerceAtLeast(16f)
+                    val sameLineItems = _uiState.value.detectedItems.filter {
                         it.id != targetItem.id &&
                         it.boundingBox.left >= targetItem.boundingBox.right - 4 &&
-                        kotlin.math.abs(it.boundingBox.centerY() - targetItem.boundingBox.centerY()) < targetItem.boundingBox.height() * 0.65f
-                    }.minByOrNull { it.boundingBox.left }
+                        kotlin.math.abs(it.boundingBox.centerY() - targetItem.boundingBox.centerY()) < singleLineH * 0.65f
+                    }.sortedBy { it.boundingBox.left }
 
-                    val effectiveTargetBounds = if (nextAdjacentItem != null) {
-                        val maxAllowedRight = nextAdjacentItem.boundingBox.left - 6
-                        if (maxAllowedRight > targetItem.boundingBox.left + 15) {
-                            Rect(targetItem.boundingBox.left, targetItem.boundingBox.top, maxAllowedRight, targetItem.boundingBox.bottom)
-                        } else {
-                            targetItem.boundingBox
-                        }
+                    val nextAdjacentItem = sameLineItems.firstOrNull()
+
+                    val effectiveFont = fontClassification ?: FontMatcher.classifyFromMetrics(
+                        text = targetItem.text,
+                        metrics = targetItem.typography,
+                        bounds = targetItem.boundingBox
+                    )
+
+                    // Measure unconstrained natural width of the new text at document line height
+                    val naturalFontSize = singleLineH * 0.85f * sizeMultiplier
+                    val testPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        typeface = fontMatcher.getDocumentTypeface(effectiveFont, effectiveBold ?: false)
+                        textSize = naturalFontSize
+                    }
+                    val naturalNewWidth = testPaint.measureText(newText)
+
+                    val maxAvailableWidth = if (nextAdjacentItem != null) {
+                        (nextAdjacentItem.boundingBox.left - targetItem.boundingBox.left - 6).toFloat().coerceAtLeast(16f)
                     } else {
-                        targetItem.boundingBox
+                        (currentBitmap.width - targetItem.boundingBox.left - 12).toFloat().coerceAtLeast(16f)
                     }
 
+                    val deltaX = (naturalNewWidth - targetItem.boundingBox.width()).toInt()
+                    val canReflow = nextAdjacentItem != null && deltaX > 0 &&
+                        sameLineItems.isNotEmpty() &&
+                        (sameLineItems.last().boundingBox.right + deltaX < currentBitmap.width - 12)
+
+                    var workingBitmap = currentBitmap
+                    val shiftedItems = if (canReflow) {
+                        val reflowBmp = workingBitmap.copy(Bitmap.Config.ARGB_8888, true)
+                        val c = Canvas(reflowBmp)
+                        for (item in sameLineItems) {
+                            val w = item.boundingBox.width()
+                            val h = item.boundingBox.height()
+                            if (w > 0 && h > 0 && item.boundingBox.right <= workingBitmap.width && item.boundingBox.bottom <= workingBitmap.height) {
+                                val cropped = Bitmap.createBitmap(workingBitmap, item.boundingBox.left, item.boundingBox.top, w, h)
+                                val erased = backgroundInpainter.inpaint(reflowBmp, item.boundingBox)
+                                c.drawBitmap(erased, 0f, 0f, null)
+                                erased.recycle()
+                                c.drawBitmap(cropped, (item.boundingBox.left + deltaX).toFloat(), item.boundingBox.top.toFloat(), null)
+                                cropped.recycle()
+                            }
+                        }
+                        workingBitmap = reflowBmp
+                        sameLineItems.map { item ->
+                            item.copy(
+                                boundingBox = Rect(
+                                    item.boundingBox.left + deltaX,
+                                    item.boundingBox.top,
+                                    item.boundingBox.right + deltaX,
+                                    item.boundingBox.bottom
+                                )
+                            )
+                        }
+                    } else {
+                        emptyList()
+                    }
+
+                    val inpaintRight = if (canReflow || nextAdjacentItem == null) {
+                        maxOf(targetItem.boundingBox.right, minOf(targetItem.boundingBox.left + naturalNewWidth.toInt() + 4, workingBitmap.width))
+                    } else {
+                        maxOf(targetItem.boundingBox.right, minOf(targetItem.boundingBox.left + naturalNewWidth.toInt() + 4, nextAdjacentItem.boundingBox.left - 2))
+                    }
+
+                    val effectiveTargetBounds = Rect(
+                        targetItem.boundingBox.left,
+                        targetItem.boundingBox.top,
+                        inpaintRight,
+                        targetItem.boundingBox.bottom
+                    )
+
                     val cleanedBackground = backgroundInpainter.inpaint(
-                        sourceBitmap = currentBitmap,
+                        sourceBitmap = workingBitmap,
                         targetBounds = effectiveTargetBounds
                     )
 
@@ -1440,77 +1500,32 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         params = TextRenderer.TextRenderParams(
                             newText = newText,
                             originalText = targetItem.text,
-                            targetBounds = effectiveTargetBounds,
+                            targetBounds = targetItem.boundingBox,
                             inkColorRgb = effectiveInkColor,
                             rotationAngle = targetItem.rotationAngle,
                             typographyMetrics = targetItem.typography,
-                            overrideClassification = fontClassification,
+                            overrideClassification = effectiveFont,
                             isBold = effectiveBold,
                             sizeMultiplier = sizeMultiplier,
-                            alignment = alignment
+                            alignment = alignment,
+                            availableWidth = if (canReflow) naturalNewWidth + 10f else maxAvailableWidth
                         )
                     )
 
                     cleanedBackground.recycle()
-                    renderResult.outputBitmap
+                    Triple(renderResult.outputBitmap, renderResult.renderedBounds, shiftedItems)
                 }
 
-                // Update bounding box dimensions to match new text reflow
-                val charW = (targetItem.boundingBox.height() * 0.52f) * sizeMultiplier
-                val newWidth = (newText.length * charW).toInt().coerceAtLeast(24)
-
-                val nextAdjacentItem = _uiState.value.detectedItems.filter {
-                    it.id != targetItem.id &&
-                    it.boundingBox.left >= targetItem.boundingBox.right - 4 &&
-                    kotlin.math.abs(it.boundingBox.centerY() - targetItem.boundingBox.centerY()) < targetItem.boundingBox.height() * 0.65f
-                }.minByOrNull { it.boundingBox.left }
-
-                val singleLineH = targetItem.boundingBox.height()
-                val targetW = if (nextAdjacentItem != null) {
-                    val maxAllowed = nextAdjacentItem.boundingBox.left - targetItem.boundingBox.left - 6
-                    if (maxAllowed > 20) maxAllowed.toFloat() else targetItem.boundingBox.width().toFloat()
-                } else {
-                    targetItem.boundingBox.width().toFloat().coerceAtLeast(newWidth.toFloat())
-                }
-
-                val isMultiLineInput = newText.contains("\n") || targetItem.text.contains("\n")
-                val totalLines = if (isMultiLineInput) {
-                    val wrappedLines = com.docu.editor.core.rendering.AutoFitFontCondenser.autoWrapIfTooWide(
-                        newText,
-                        targetW,
-                        Paint().apply { textSize = singleLineH * 0.85f * sizeMultiplier }
-                    ).split("\n")
-                    maxOf(1, wrappedLines.size)
-                } else {
-                    1
-                }
-                val finalBottom = (targetItem.boundingBox.top + totalLines * singleLineH).coerceAtMost(currentBitmap.height)
-
-                val finalRight = if (totalLines > 1) {
-                    minOf((targetItem.boundingBox.left + targetW).toInt(), currentBitmap.width)
-                } else if (nextAdjacentItem != null) {
-                    val maxAllowed = nextAdjacentItem.boundingBox.left - 6
-                    if (maxAllowed > targetItem.boundingBox.left + 15) {
-                        minOf(targetItem.boundingBox.left + newWidth, maxAllowed)
-                    } else {
-                        targetItem.boundingBox.left + newWidth
-                    }
-                } else {
-                    minOf(targetItem.boundingBox.left + newWidth, currentBitmap.width)
-                }
-
-                val newBox = Rect(
-                    targetItem.boundingBox.left,
-                    targetItem.boundingBox.top,
-                    finalRight,
-                    finalBottom
-                )
-
+                val shiftedMap = shiftedLineItems.associateBy { it.id }
                 val updatedItems = if (_uiState.value.isNewTextInsertion) {
                     _uiState.value.detectedItems + targetItem.copy(text = newText, boundingBox = newBox)
                 } else {
-                    _uiState.value.detectedItems.map {
-                        if (it.id == targetItem.id) it.copy(text = newText, boundingBox = newBox) else it
+                    _uiState.value.detectedItems.map { item ->
+                        when {
+                            item.id == targetItem.id -> item.copy(text = newText, boundingBox = newBox)
+                            shiftedMap.containsKey(item.id) -> shiftedMap[item.id]!!
+                            else -> item
+                        }
                     }
                 }
 

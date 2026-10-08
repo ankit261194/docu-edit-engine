@@ -1,12 +1,12 @@
 {
-  "versionCode": 43,
-  "versionName": "10.6.0",
+  "versionCode": 45,
+  "versionName": "10.7.0",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.6.0 (Strict <=50KB Solver, Word OCR Inpainting & Studio Passport)",
-  "changelog": "🚀 Major Pro Release v10.6.0:\n• Strict <=50KB File Size Solver: Guaranteed file size <= targetBytes (e.g. strict <=50 KB for UPSC/SSC portals) with raw MediaStore gallery stream (no re-compression bloat) and Exact/Decrease modes.\n• Word-Level OCR & In-Place Baseline Editing: Tapping a word selects only that word instead of the whole line. Replaced text stays on the exact same baseline with horizontal condensing (no multi-line wrap or ghost letter outlines).\n• Dedicated Home Action Shortcuts: 'Edit Photo/PDF Text', 'Whiteout & Eraser', 'DocuEdit Magic Color', 'Extract Text (OCR)', and 'Restore Photo' now open directly into their specialized active tool modes.\n• Pro Studio Passport Photo Maker: Full-resolution raw size neural mask with smooth Hermite S-curve edge feathering and realistic radial key lighting.\n• Studio Facial Sharpening & Lighting: LAB CLAHE lighting balance, bilateral skin smoothing, and unsharp mask for crystal-clear eyes, hair, and facial clarity.\n• Formal Attire & Suit Replacement: 1-click formal suits, blazers, and white collared shirts with collar height and shoulder width adjustment.\n• Custom Photo Borders & Cutting Guides: 0px, 1px, 2px, 4px border styles with Slate Gray, Black, and White color options.",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.6.0/DocuEdit-v10.6.0-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.6.0/DocuEdit-v10.6.0-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.6.0/DocuEdit-v10.6.0-arm64.apk",
-  "apkFileName": "DocuEdit-v10.6.0-arm64.apk",
-  "apkSizeMb": 85.7
+  "releaseTitle": "DocuEdit Pro v10.7.0 (Precision Text Replacement, Multi-Word OCR Tokenizer & Typography Matching)",
+  "changelog": "🚀 Major Pro Release v10.7.0:\n• Zero-Concatenation Text Input: Selection now automatically covers the entire word on tap, plus instant 1-tap Clear (✕) and quick case-change chips (UPPERCASE, lowercase, Capitalize, Reset).\n• Multi-Word OCR Tokenizer: Compound elements (e.g. [D WHOLE]) are now cleanly split into individual words with sub-bounding boxes for 1-tap single-word selection.\n• Document-Level Typography Matching: Diagnostic reports and formal documents automatically resolve to true Times New Roman (Serif) with realistic paper noise and toner blending.\n• Reflow & Exact Bounding Box: Replaced words no longer shrink to 50% or stretch the bounding box across the screen. Subsequent words push forward naturally with zero distortion.",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.7.0/DocuEdit-v10.7.0-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.7.0/DocuEdit-v10.7.0-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.7.0/DocuEdit-v10.7.0-arm64.apk",
+  "apkFileName": "DocuEdit-v10.7.0-arm64.apk",
+  "apkSizeMb": 85.8
 }

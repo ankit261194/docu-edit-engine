@@ -1544,6 +1544,7 @@ class MainActivity : ComponentActivity() {
                                 item = targetItem,
                                 sheetState = sheetState,
                                 onDismiss = { viewModel.selectTextItem(null) },
+                                allDetectedItems = uiState.detectedItems,
                                 onCopyText = { _ ->
                                     viewModel.quickCopyItemText(targetItem)
                                 },

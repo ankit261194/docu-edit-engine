@@ -61,6 +61,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.docu.editor.core.font.FontClassification
@@ -74,6 +78,7 @@ fun TextEditBottomSheet(
     item: DetectedTextItem,
     sheetState: SheetState,
     onDismiss: () -> Unit,
+    allDetectedItems: List<DetectedTextItem> = emptyList(),
     onCopyText: (String) -> Unit = {},
     onQuickErase: () -> Unit = {},
     onQuickHighlight: () -> Unit = {},
@@ -88,16 +93,38 @@ fun TextEditBottomSheet(
         useCloudAi: Boolean
     ) -> Unit
 ) {
-    // 100% Automatic Detection (Like CamScanner):
-    val autoDetectedClassification = remember(item.id) {
-        FontMatcher.classifyFromMetrics(item.text, item.typography, item.boundingBox)
+    // 100% Context-Aware Document & Line Typography Auto Detection:
+    val documentDominantFont = remember(allDetectedItems) {
+        if (allDetectedItems.isEmpty()) null
+        else {
+            val serifCount = allDetectedItems.count { it.typography.isSerif }
+            if (serifCount.toFloat() / allDetectedItems.size >= 0.16f) FontClassification.SERIF
+            else null
+        }
+    }
+
+    val autoDetectedClassification = remember(item.id, documentDominantFont) {
+        FontMatcher.classifyFromMetrics(
+            text = item.text,
+            metrics = item.typography,
+            bounds = item.boundingBox,
+            documentDominantFont = documentDominantFont
+        )
     }
     val autoDetectedBold = remember(item.id) {
         (item.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD)) &&
         item.typography.strokeWidthRatio >= 0.15f
     }
 
-    var editedText by remember(item.id) { mutableStateOf(item.text) }
+    // Full text selection on open: typing instantly replaces the original word cleanly
+    var editedText by remember(item.id) {
+        mutableStateOf(
+            TextFieldValue(
+                text = item.text,
+                selection = TextRange(0, item.text.length)
+            )
+        )
+    }
     var selectedFontType by remember(item.id) { mutableStateOf(autoDetectedClassification) }
     var isBold by remember(item.id) { mutableStateOf(autoDetectedBold) }
     var sizeMultiplier by remember(item.id) { mutableFloatStateOf(1.0f) }
@@ -242,6 +269,14 @@ fun TextEditBottomSheet(
                 value = editedText,
                 onValueChange = { editedText = it },
                 label = { Text("Replacement Text", color = Color(0xFF2563EB), fontWeight = FontWeight.SemiBold) },
+                placeholder = { Text("Type new word to replace '${item.text}'", color = textSecondary) },
+                trailingIcon = {
+                    if (editedText.text.isNotEmpty()) {
+                        IconButton(onClick = { editedText = TextFieldValue("") }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear", tint = textSecondary)
+                        }
+                    }
+                },
                 singleLine = false,
                 maxLines = 3,
                 colors = OutlinedTextFieldDefaults.colors(
@@ -255,6 +290,53 @@ fun TextEditBottomSheet(
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // 1-Tap Fast Text Utility Chips
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 1. Wipe / Clear Text
+                AssistChip(
+                    onClick = { editedText = TextFieldValue("") },
+                    label = { Text("✕ Clear Text", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        containerColor = if (editedText.text.isEmpty()) Color(0xFFEF4444).copy(alpha = 0.15f) else surfaceBg,
+                        labelColor = if (editedText.text.isEmpty()) Color(0xFFEF4444) else textPrimary
+                    )
+                )
+                // 2. Reset / Revert to original
+                AssistChip(
+                    onClick = { editedText = TextFieldValue(item.text, selection = TextRange(0, item.text.length)) },
+                    label = { Text("↺ Reset: \"${item.text}\"", fontSize = 11.sp) }
+                )
+                // 3. UPPERCASE
+                AssistChip(
+                    onClick = { editedText = editedText.copy(text = editedText.text.uppercase()) },
+                    label = { Text("AA UPPERCASE", fontSize = 11.sp) }
+                )
+                // 4. lowercase
+                AssistChip(
+                    onClick = { editedText = editedText.copy(text = editedText.text.lowercase()) },
+                    label = { Text("aa lowercase", fontSize = 11.sp) }
+                )
+                // 5. Title Case / Capitalize
+                AssistChip(
+                    onClick = {
+                        editedText = editedText.copy(
+                            text = editedText.text.split(" ").joinToString(" ") { word ->
+                                word.replaceFirstChar { if (it.isLowerCase()) it.titlecase(java.util.Locale.getDefault()) else it.toString() }
+                            }
+                        )
+                    },
+                    label = { Text("Aa Capitalize", fontSize = 11.sp) }
+                )
+            }
 
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -306,7 +388,7 @@ fun TextEditBottomSheet(
                                 fontWeight = FontWeight.Bold
                             )
                             Text(
-                                text = editedText.ifEmpty { "Sample" },
+                                text = editedText.text.ifEmpty { "Sample" },
                                 color = Color(selectedColorRgb),
                                 fontSize = (14 * sizeMultiplier).sp,
                                 fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
@@ -634,7 +716,7 @@ fun TextEditBottomSheet(
                 // Instant Local Apply (Default CamScanner Auto Mode)
                 Button(
                     onClick = {
-                        onApplyEdit(editedText, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, selectedAlignment, false)
+                        onApplyEdit(editedText.text, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, selectedAlignment, false)
                     },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
@@ -648,7 +730,7 @@ fun TextEditBottomSheet(
                 // Smart Cloud AI Apply
                 Button(
                     onClick = {
-                        onApplyEdit(editedText, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, selectedAlignment, true)
+                        onApplyEdit(editedText.text, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, selectedAlignment, true)
                     },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),

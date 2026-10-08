@@ -115,10 +115,44 @@ class OcrAnalyzer {
                         for (line in block.lines) {
                             for (element in line.elements) {
                                 val bounds = element.boundingBox ?: continue
-                                if (element.text.trim().isEmpty()) continue
+                                val trimmed = element.text.trim()
+                                if (trimmed.isEmpty()) continue
+
+                                if (trimmed.contains(" ")) {
+                                    val words = trimmed.split(Regex("\\s+")).filter { it.isNotEmpty() }
+                                    if (words.size > 1) {
+                                        val totalChars = words.sumOf { it.length } + (words.size - 1)
+                                        var currentX = bounds.left
+                                        val totalWidth = bounds.width()
+                                        for (wIdx in words.indices) {
+                                            val word = words[wIdx]
+                                            val isLast = wIdx == words.size - 1
+                                            val wordWidth = if (isLast) {
+                                                (bounds.right - currentX).coerceAtLeast(10)
+                                            } else {
+                                                (totalWidth.toFloat() * (word.length.toFloat() / totalChars)).toInt().coerceAtLeast(10)
+                                            }
+                                            val wordBounds = Rect(currentX, bounds.top, minOf(currentX + wordWidth, bounds.right), bounds.bottom)
+                                            val item = processRegion(
+                                                bitmap = bitmap,
+                                                rawText = word,
+                                                bounds = wordBounds,
+                                                cornerPoints = emptyList(),
+                                                angle = element.angle,
+                                                confidence = element.confidence ?: 1.0f,
+                                                level = TextHierarchyLevel.ELEMENT
+                                            )
+                                            results.add(item)
+                                            val spaceW = (totalWidth.toFloat() * (1f / totalChars)).toInt().coerceAtLeast(4)
+                                            currentX += wordWidth + spaceW
+                                        }
+                                        continue
+                                    }
+                                }
+
                                 val item = processRegion(
                                     bitmap = bitmap,
-                                    rawText = element.text,
+                                    rawText = trimmed,
                                     bounds = bounds,
                                     cornerPoints = element.cornerPoints?.toList() ?: emptyList(),
                                     angle = element.angle,

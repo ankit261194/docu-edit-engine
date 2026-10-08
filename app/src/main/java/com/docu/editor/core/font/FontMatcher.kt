@@ -163,7 +163,8 @@ class FontMatcher(private val context: Context) {
         fun classifyFromMetrics(
             text: String,
             metrics: TypographyMetrics,
-            bounds: Rect? = null
+            bounds: Rect? = null,
+            documentDominantFont: FontClassification? = null
         ): FontClassification {
             // 0. Devanagari Hindi Script Detection (Unicode \u0900..\u097F)
             if (text.any { it in '\u0900'..'\u097F' }) {
@@ -198,6 +199,30 @@ class FontMatcher(private val context: Context) {
                 return FontClassification.DOT_MATRIX
             }
 
+            // 2.5 Medical, ultrasound, lab, and formal legal document keywords (Universal Times New Roman)
+            val isFormalOrMedicalDocument = text.contains("USG", ignoreCase = true) ||
+                text.contains("ABDOMEN", ignoreCase = true) ||
+                text.contains("REPORT", ignoreCase = true) ||
+                text.contains("ECHO", ignoreCase = true) ||
+                text.contains("DOCTOR", ignoreCase = true) ||
+                text.contains("DR.", ignoreCase = true) ||
+                text.contains("HOSPITAL", ignoreCase = true) ||
+                text.contains("PATIENT", ignoreCase = true) ||
+                text.contains("CLINIC", ignoreCase = true) ||
+                text.contains("IMPRESSION", ignoreCase = true) ||
+                text.contains("SONOGRAPHY", ignoreCase = true) ||
+                text.contains("CERTIFICATE", ignoreCase = true) ||
+                text.contains("AGREEMENT", ignoreCase = true)
+
+            if (isFormalOrMedicalDocument && !isBillOrReceipt) {
+                return FontClassification.SERIF
+            }
+
+            // If the document has an established dominant font (e.g. Serif document), honor it
+            if (documentDominantFont != null && (metrics.isSerif || documentDominantFont == FontClassification.SERIF)) {
+                return documentDominantFont
+            }
+
             return when {
                 // 3. Serif: Times New Roman / Formal documents, legal certificates, agreements
                 metrics.isSerif -> {
@@ -214,7 +239,7 @@ class FontMatcher(private val context: Context) {
                 }
                 // 6. Sans-serif: standard Arial (default for business invoices, forms, and documents)
                 else -> {
-                    FontClassification.SANS_SERIF
+                    documentDominantFont ?: FontClassification.SANS_SERIF
                 }
             }
         }

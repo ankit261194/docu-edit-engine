@@ -28,7 +28,7 @@ object TypographyEstimator {
         )
         val strokeRatio = verticalStemWidth / height
         val strokeContrast = if (horizontalBarWidth > 0.5f) verticalStemWidth / horizontalBarWidth else 1.0f
-        val isSerif = strokeContrast >= 1.38f && charCount >= 3
+        val isSerif = (strokeContrast >= 1.18f && charCount >= 2) || (strokeContrast >= 1.14f && charCount >= 4)
 
         val density = foregroundResult.foregroundRatio
         val weight = when {
