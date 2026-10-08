@@ -524,7 +524,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
             setBackgroundColor(Color.argb(230, 15, 23, 42))
         }
         val filterTitle = TextView(this).apply {
-            text = "✨ DocuScan Pro Enhancement"
+            text = "✨ DocuEdit Pro Enhancement"
             setTextColor(Color.WHITE)
             textSize = 16f
             typeface = android.graphics.Typeface.DEFAULT_BOLD
@@ -605,23 +605,39 @@ class LiveCameraScannerActivity : ComponentActivity() {
         val filterActionRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(20, 10, 20, 0)
+            setPadding(16, 10, 16, 0)
         }
-        val backToCropBtn = TextView(this).apply {
-            text = "← Crop Again"
+        val retakeFilterBtn = TextView(this).apply {
+            text = "🔄 Retake"
             setTextColor(Color.WHITE)
-            textSize = 14f
+            textSize = 13f
             background = GradientDrawable().apply {
                 setColor(Color.argb(200, 51, 65, 85))
                 cornerRadius = 24f
             }
-            setPadding(36, 20, 36, 20)
+            setPadding(28, 18, 28, 18)
+            setOnClickListener { restartCameraScan() }
+        }
+        filterActionRow.addView(retakeFilterBtn)
+
+        val spacerActions1 = View(this).apply { layoutParams = LinearLayout.LayoutParams(16, 1) }
+        filterActionRow.addView(spacerActions1)
+
+        val backToCropBtn = TextView(this).apply {
+            text = "📐 Adjust Crop"
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            background = GradientDrawable().apply {
+                setColor(Color.argb(200, 51, 65, 85))
+                cornerRadius = 24f
+            }
+            setPadding(28, 18, 28, 18)
             setOnClickListener { returnToCropScreen() }
         }
         filterActionRow.addView(backToCropBtn)
 
-        val spacerActions = View(this).apply { layoutParams = LinearLayout.LayoutParams(40, 1) }
-        filterActionRow.addView(spacerActions)
+        val spacerActions2 = View(this).apply { layoutParams = LinearLayout.LayoutParams(24, 1) }
+        filterActionRow.addView(spacerActions2)
 
         val saveFinishBtn = TextView(this).apply {
             text = "✓ Open in Editor"
@@ -632,7 +648,7 @@ class LiveCameraScannerActivity : ComponentActivity() {
                 setColor(Color.rgb(0, 200, 83))
                 cornerRadius = 24f
             }
-            setPadding(44, 20, 44, 20)
+            setPadding(36, 18, 36, 18)
             setOnClickListener { saveFilteredDocumentAndFinish() }
         }
         filterActionRow.addView(saveFinishBtn)
@@ -930,26 +946,35 @@ class LiveCameraScannerActivity : ComponentActivity() {
         return BitmapFactory.decodeFile(filePath, decodeOptions)
     }
 
+    private fun clampCorners(corners: DocumentCorners, maxW: Int, maxH: Int): DocumentCorners {
+        val w = maxW.toFloat()
+        val h = maxH.toFloat()
+        return DocumentCorners(
+            topLeft = PointF(corners.topLeft.x.coerceIn(0f, w), corners.topLeft.y.coerceIn(0f, h)),
+            topRight = PointF(corners.topRight.x.coerceIn(0f, w), corners.topRight.y.coerceIn(0f, h)),
+            bottomRight = PointF(corners.bottomRight.x.coerceIn(0f, w), corners.bottomRight.y.coerceIn(0f, h)),
+            bottomLeft = PointF(corners.bottomLeft.x.coerceIn(0f, w), corners.bottomLeft.y.coerceIn(0f, h))
+        )
+    }
+
     private fun processCapturedPhotoAndReturn(photoFile: File, corners: DocumentCorners?) {
         CoroutineScope(Dispatchers.Default).launch {
             try {
-                val fullBitmap = com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(photoFile.absolutePath, 2880)
+                val fullBitmap = com.docu.editor.core.util.ExifBitmapUtil.decodeFileWithExif(photoFile.absolutePath, 4096)
                 photoFile.delete()
                 if (fullBitmap != null) {
-                    val directDetected = DocumentEdgeDetector.detectCornersOrNull(fullBitmap)
-                    val initialCorners = if (directDetected != null) {
-                        directDetected
-                    } else if (corners != null && analysisFrameW > 0 && analysisFrameH > 0) {
+                    val initialCorners: DocumentCorners = if (corners != null && analysisFrameW > 0 && analysisFrameH > 0) {
                         val scaleX = fullBitmap.width.toFloat() / analysisFrameW
                         val scaleY = fullBitmap.height.toFloat() / analysisFrameH
-                        DocumentCorners(
+                        val liveCorners = DocumentCorners(
                             topLeft = PointF(corners.topLeft.x * scaleX, corners.topLeft.y * scaleY),
                             topRight = PointF(corners.topRight.x * scaleX, corners.topRight.y * scaleY),
                             bottomRight = PointF(corners.bottomRight.x * scaleX, corners.bottomRight.y * scaleY),
                             bottomLeft = PointF(corners.bottomLeft.x * scaleX, corners.bottomLeft.y * scaleY)
                         )
+                        clampCorners(liveCorners, fullBitmap.width, fullBitmap.height)
                     } else {
-                        DocumentEdgeDetector.detectCorners(fullBitmap)
+                        DocumentEdgeDetector.detectCornersOrNull(fullBitmap) ?: DocumentEdgeDetector.detectCorners(fullBitmap)
                     }
 
                     if (scannerMode == ScannerMode.ID_CARD) {
@@ -1063,9 +1088,14 @@ class LiveCameraScannerActivity : ComponentActivity() {
                             vibrate()
                         }
                     } else {
-                        // ALWAYS show CamScanner 8-Point Loupe Crop Review screen!
+                        // 1-Click Pro Auto-Crop directly along the detected green line corners!
+                        val warped = PerspectiveTransformer.warpPerspective(fullBitmap, initialCorners)
+                        capturedBitmap = fullBitmap
+                        currentWarpedBitmap = warped
                         withContext(Dispatchers.Main) {
-                            showCropLoupeReview(fullBitmap, initialCorners)
+                            cropLoupeOverlayView.sourceBitmap = fullBitmap
+                            cropLoupeOverlayView.corners = initialCorners
+                            showFilterReviewScreen(warped)
                         }
                     }
                 }
@@ -1137,11 +1167,14 @@ class LiveCameraScannerActivity : ComponentActivity() {
     }
 
     private fun showFilterReviewScreen(warped: Bitmap) {
+        previewView.visibility = View.GONE
+        overlayView.visibility = View.GONE
+        bottomPanel.visibility = View.GONE
         cropLoupeOverlayView.visibility = View.GONE
         cropReviewPanel.visibility = View.GONE
         filterReviewPanel.visibility = View.VISIBLE
 
-        statusText.text = "✨ Select document filter"
+        statusText.text = "✨ DocuEdit Pro Enhancement"
         selectFilterPreset(com.docu.editor.core.scanner.DocumentFilters.FilterType.MAGIC_COLOR)
     }
 
@@ -1179,6 +1212,9 @@ class LiveCameraScannerActivity : ComponentActivity() {
 
     private fun returnToCropScreen() {
         filterReviewPanel.visibility = View.GONE
+        previewView.visibility = View.GONE
+        overlayView.visibility = View.GONE
+        bottomPanel.visibility = View.GONE
         cropLoupeOverlayView.visibility = View.VISIBLE
         cropReviewPanel.visibility = View.VISIBLE
         statusText.text = "🔍 Drag corners with loupe magnifier"

@@ -10,6 +10,7 @@ import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
 import com.docu.editor.core.pdf.PdfExportEngine
 import com.docu.editor.core.pdf.PdfPageLoader
+import com.docu.editor.core.util.DocuStorageUtil
 import com.docu.editor.core.util.ExifBitmapUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -539,22 +540,65 @@ object BatchTargetResizeConverterEngine {
     }
 
     /**
-     * Copies all converted files into a designated folder in Downloads.
+     * Saves a single processed file to the device Gallery if it is an image,
+     * or to public Downloads if it is a PDF.
+     */
+    fun saveSingleFileToGallery(context: Context, file: File): Uri? {
+        if (!file.exists() || file.length() == 0L) return null
+        val name = file.name.lowercase()
+        val isImage = name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png") || name.endsWith(".webp")
+        return if (isImage) {
+            val bmp = BitmapFactory.decodeFile(file.absolutePath)
+            if (bmp != null) {
+                val format = if (name.endsWith(".png")) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+                val uri = DocuStorageUtil.saveBitmapToGallery(context, bmp, file.nameWithoutExtension, format, 100)
+                bmp.recycle()
+                uri
+            } else {
+                DocuStorageUtil.saveFileToPublicDownloads(context, file, file.name, "image/jpeg")
+            }
+        } else {
+            DocuStorageUtil.saveFileToPublicDownloads(context, file, file.name, "application/pdf")
+        }
+    }
+
+    /**
+     * Saves all processed image files to the device Gallery (Pictures/DocuEdit),
+     * and any PDF files to public Downloads (Downloads/DocuEdit).
+     * Returns the count of successfully saved files.
+     */
+    suspend fun saveAllToGallery(context: Context, files: List<File>): Int = withContext(Dispatchers.IO) {
+        var count = 0
+        val validFiles = files.filter { it.exists() && it.length() > 0L }
+        for (file in validFiles) {
+            val uri = saveSingleFileToGallery(context, file)
+            if (uri != null) count++
+        }
+        count
+    }
+
+    /**
+     * Copies all converted files into public Downloads using Android Scoped Storage.
+     * Returns the count of successfully saved files.
      */
     suspend fun saveAllToDownloads(
         context: Context,
         files: List<File>,
         customFolderName: String = "DocuEdit_Batch_${System.currentTimeMillis()}"
-    ): File = withContext(Dispatchers.IO) {
-        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-        val targetFolder = File(downloadsDir, customFolderName).apply { mkdirs() }
-
+    ): Int = withContext(Dispatchers.IO) {
+        var count = 0
         val validFiles = files.filter { it.exists() && it.length() > 0L }
         for (file in validFiles) {
-            val dest = File(targetFolder, file.name)
-            file.copyTo(dest, overwrite = true)
+            val mime = when {
+                file.name.endsWith(".pdf", true) -> "application/pdf"
+                file.name.endsWith(".png", true) -> "image/png"
+                file.name.endsWith(".webp", true) -> "image/webp"
+                else -> "image/jpeg"
+            }
+            val uri = DocuStorageUtil.saveFileToPublicDownloads(context, file, file.name, mime)
+            if (uri != null) count++
         }
-        targetFolder
+        count
     }
 
     /**

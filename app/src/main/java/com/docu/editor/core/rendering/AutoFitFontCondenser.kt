@@ -132,17 +132,21 @@ object AutoFitFontCondenser {
         paint.textScaleX = 1.0f
 
         // 2. Measure actual standard reference glyph ink height using Paint.getTextBounds
-        // Standard typographical reference 'H' (or Devanagari 'क') guarantees identical font size
-        // regardless of whether user inputs lowercase, numbers, or symbols.
+        // Calibrate font size so cap-height matches original document characters exactly.
+        val origHasDescenders = originalText.any { it in "qypgj" }
         val refChar = if (effectiveText.any { it in '\u0900'..'\u097F' }) "क" else "H"
         val refBounds = Rect()
         paint.getTextBounds(refChar, 0, 1, refBounds)
         val measuredCapH = refBounds.height().toFloat()
 
         if (measuredCapH > 2f) {
-            val desiredCapH = targetHeight * 0.72f * sizeMultiplier
+            val desiredCapH = if (origHasDescenders) {
+                targetHeight * 0.80f * sizeMultiplier
+            } else {
+                targetHeight * 0.95f * sizeMultiplier
+            }
             val calibrationRatio = desiredCapH / measuredCapH
-            fontSize = (fontSize * calibrationRatio).coerceIn(6f, targetHeight * 1.6f)
+            fontSize = (fontSize * calibrationRatio).coerceIn(6f, targetHeight * 1.8f)
             paint.textSize = fontSize
         }
 
@@ -203,19 +207,19 @@ object AutoFitFontCondenser {
         paint.letterSpacing = trackingEm
         paint.textScaleX = scaleX
 
-        // 3. Pixel-perfect baseline alignment
+        // 3. Pixel-perfect document baseline alignment (zero vertical drift)
         val fontMetrics = paint.fontMetrics
         val lineHeight = fontMetrics.descent - fontMetrics.ascent + fontMetrics.leading
 
-        val totalBlockHeight = lineCount * lineHeight
         val baselineY = if (lineCount == 1 && originalLines == 1) {
-            val totalTextHeight = fontMetrics.descent - fontMetrics.ascent
-            val topY = targetBounds.centerY().toFloat() - totalTextHeight / 2f
-            topY - fontMetrics.ascent
-        } else if (targetBounds.height() > totalBlockHeight) {
-            val topPad = (targetBounds.height() - totalBlockHeight) / 2f
-            (targetBounds.top.toFloat() + topPad) - fontMetrics.ascent
+            // Anchor to authentic document baseline: bottom of OCR box minus descent
+            if (origHasDescenders) {
+                targetBounds.bottom.toFloat() - fontMetrics.descent
+            } else {
+                targetBounds.bottom.toFloat() - (fontMetrics.descent * 0.18f)
+            }
         } else {
+            // Multi-line block: anchor top line flush with top of target box
             targetBounds.top.toFloat() - fontMetrics.ascent
         }
 

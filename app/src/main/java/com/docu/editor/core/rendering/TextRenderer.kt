@@ -84,9 +84,13 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             paint.textSkewX = -0.10f
         }
 
+        // 1. Render pristine text onto transparent overlay
+        val textLayer = Bitmap.createBitmap(cleanedBackground.width, cleanedBackground.height, Bitmap.Config.ARGB_8888)
+        val textCanvas = Canvas(textLayer)
+
         if (abs(params.rotationAngle) > 0.5f) {
-            masterCanvas.save()
-            masterCanvas.rotate(params.rotationAngle, pivotX, pivotY)
+            textCanvas.save()
+            textCanvas.rotate(params.rotationAngle, pivotX, pivotY)
             for (i in lines.indices) {
                 val line = lines[i]
                 val lineWidth = paint.measureText(line)
@@ -97,12 +101,12 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
                 }
                 val lineY = fitResult.baselineY + (i * lineHeight)
                 if (isHandwritten && line.length > 1) {
-                    drawHandwrittenLineWithJitter(masterCanvas, line, lineStartX, lineY, paint, fitResult.fontSize)
+                    drawHandwrittenLineWithJitter(textCanvas, line, lineStartX, lineY, paint, fitResult.fontSize)
                 } else {
-                    masterCanvas.drawText(line, lineStartX, lineY, paint)
+                    textCanvas.drawText(line, lineStartX, lineY, paint)
                 }
             }
-            masterCanvas.restore()
+            textCanvas.restore()
         } else {
             for (i in lines.indices) {
                 val line = lines[i]
@@ -114,12 +118,17 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
                 }
                 val lineY = fitResult.baselineY + (i * lineHeight)
                 if (isHandwritten && line.length > 1) {
-                    drawHandwrittenLineWithJitter(masterCanvas, line, lineStartX, lineY, paint, fitResult.fontSize)
+                    drawHandwrittenLineWithJitter(textCanvas, line, lineStartX, lineY, paint, fitResult.fontSize)
                 } else {
-                    masterCanvas.drawText(line, lineStartX, lineY, paint)
+                    textCanvas.drawText(line, lineStartX, lineY, paint)
                 }
             }
         }
+
+        // 2. Analyze paper background texture & apply authentic toner micro-grain & edge bleed
+        val paperStats = PaperTextureBlender.analyzeLocalPaperBackground(cleanedBackground, params.targetBounds)
+        PaperTextureBlender.blendTextWithPaperTexture(masterCanvas, textLayer, params.targetBounds, paperStats)
+        textLayer.recycle()
 
         return TextRenderResult(
             outputBitmap = masterOutput,

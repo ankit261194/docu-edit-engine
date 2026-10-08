@@ -130,7 +130,7 @@ fun CamScannerToolsTab(
         ToolGridItem("count", "CountCam", Icons.Default.Numbers, Color(0xFF0284C7), Color(0xFFE0F2FE), onClick = onCountCam),
         ToolGridItem("pdf_img", "PDF to Images", Icons.Default.PhotoLibrary, Color(0xFF0D9488), Color(0xFFCCFBF1), onClick = onPdfToImages),
         ToolGridItem("pdf_long", "PDF to Long Image", Icons.Default.ViewDay, Color(0xFF0284C7), Color(0xFFE0F2FE), onClick = onPdfToLongImage),
-        ToolGridItem("cs_ai", "DocuScan AI", Icons.Default.AutoAwesome, Color(0xFF059669), Color(0xFFD1FAE5), onClick = onCamScannerAi)
+        ToolGridItem("cs_ai", "DocuEdit AI", Icons.Default.AutoAwesome, Color(0xFF059669), Color(0xFFD1FAE5), onClick = onCamScannerAi)
     )
 
     val importItems = listOf(

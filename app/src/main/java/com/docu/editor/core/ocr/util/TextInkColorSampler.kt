@@ -62,32 +62,35 @@ object TextInkColorSampler {
         }
 
         val dominantColor = if (foregroundColors.isNotEmpty()) {
-            // Check if there are chromatic (colored ink) pixels (blue ballpoint pen, red stamp, green ink, etc.)
+            // Check if there are authentic chromatic (colored ink) pixels (blue ballpoint pen, red stamp, green ink, etc.)
             val chromaticPixels = foregroundColors.filter { c ->
                 val r = (c shr 16) and 0xFF
                 val g = (c shr 8) and 0xFF
                 val b = c and 0xFF
                 val chroma = maxOf(r, g, b) - minOf(r, g, b)
-                chroma > 18
+                val isDistinctColor = (b > r + 20 && b > g + 15) || // Blue ink
+                                      (r > g + 25 && r > b + 25) || // Red stamp
+                                      (g > r + 20 && g > b + 20)    // Green ink
+                chroma > 28 || (chroma > 20 && isDistinctColor)
             }
 
-            val targetSamples = if (chromaticPixels.size >= maxOf(3, (foregroundColors.size * 0.06f).toInt())) {
-                // Dominant colored ink: sort chromatic pixels by saturation/chroma and take the top 60%
+            val targetSamples = if (chromaticPixels.size >= maxOf(4, (foregroundColors.size * 0.12f).toInt())) {
+                // Dominant colored ink: sort chromatic pixels by saturation/chroma and take the top 40%
                 chromaticPixels.sortedByDescending { c ->
                     val r = (c shr 16) and 0xFF
                     val g = (c shr 8) and 0xFF
                     val b = c and 0xFF
                     maxOf(r, g, b) - minOf(r, g, b)
-                }.take(maxOf(1, (chromaticPixels.size * 0.60f).toInt()))
+                }.take(maxOf(1, (chromaticPixels.size * 0.40f).toInt()))
             } else {
-                // Monochrome/grayscale ink (black, charcoal, pencil): sort by luminance and take core dark pixels
+                // Monochrome/grayscale ink (black, charcoal, pencil): sort by luminance and take purest 15% dark core pixels
                 val sortedByLuma = foregroundColors.sortedBy { c ->
                     val r = (c shr 16) and 0xFF
                     val g = (c shr 8) and 0xFF
                     val b = c and 0xFF
                     (0.299 * r + 0.587 * g + 0.114 * b).toInt()
                 }
-                val coreCount = (sortedByLuma.size * 0.40f).toInt().coerceAtLeast(1)
+                val coreCount = (sortedByLuma.size * 0.15f).toInt().coerceAtLeast(1)
                 sortedByLuma.take(coreCount)
             }
 

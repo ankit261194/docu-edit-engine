@@ -19,6 +19,12 @@ enum class FontClassification(
     SERIF("times", "Times New Roman / Formal", "Basic"),
     MONOSPACE("cour", "Courier / Receipt", "Basic"),
     DEVANAGARI("mangal", "Mangal / Hindi", "Hindi"),
+    NIRMALA("nirmala", "Nirmala / Hindi Govt", "Hindi"),
+    TYPEWRITER("typewriter", "Typewriter / Stamp Paper", "Mechanical"),
+    DOT_MATRIX("dotmatrix", "Dot-Matrix / Cash Bill", "Mechanical"),
+    CONSOLAS("consolas", "Consolas / Numbers", "Mechanical"),
+    OCR_B("ocrb", "OCR-B / Bank Cheque", "Mechanical"),
+    GEORGIA("georgia", "Georgia / Certificate", "Classic Serif"),
 
     // Cloud Hosted on shribalajikripadham.online (On-demand cached)
     ROBOTO("roboto", "Roboto / Android", "Clean Sans"),
@@ -94,9 +100,16 @@ class FontMatcher(private val context: Context) {
                     val assetName = if (isBold) "fonts/timesbd.ttf" else "fonts/times.ttf"
                     Typeface.createFromAsset(context.assets, assetName)
                 }
-                FontClassification.MONOSPACE -> {
+                FontClassification.MONOSPACE, FontClassification.TYPEWRITER -> {
                     val assetName = if (isBold) "fonts/courbd.ttf" else "fonts/cour.ttf"
                     Typeface.createFromAsset(context.assets, assetName)
+                }
+                FontClassification.DOT_MATRIX, FontClassification.OCR_B, FontClassification.CONSOLAS -> {
+                    Typeface.create(Typeface.MONOSPACE, if (isBold) Typeface.BOLD else Typeface.NORMAL)
+                }
+                FontClassification.GEORGIA -> {
+                    val base = Typeface.createFromAsset(context.assets, if (isBold) "fonts/timesbd.ttf" else "fonts/times.ttf")
+                    Typeface.create(base, if (isBold) Typeface.BOLD else Typeface.NORMAL)
                 }
                 FontClassification.DEVANAGARI -> {
                     val assetName = if (isBold) "fonts/mangalb.ttf" else "fonts/mangal.ttf"
@@ -106,6 +119,10 @@ class FontMatcher(private val context: Context) {
                         val nirmalaAsset = if (isBold) "fonts/nirmalab.ttf" else "fonts/nirmala.ttf"
                         Typeface.createFromAsset(context.assets, nirmalaAsset)
                     }
+                }
+                FontClassification.NIRMALA -> {
+                    val assetName = if (isBold) "fonts/nirmalab.ttf" else "fonts/nirmala.ttf"
+                    Typeface.createFromAsset(context.assets, assetName)
                 }
                 else -> {
                     // Check local disk cache on phone first
@@ -121,6 +138,7 @@ class FontMatcher(private val context: Context) {
                         when (classification.category) {
                             "Classic Serif" -> getDocumentTypeface(FontClassification.SERIF, isBold)
                             "Hindi" -> getDocumentTypeface(FontClassification.DEVANAGARI, isBold)
+                            "Mechanical" -> getDocumentTypeface(FontClassification.MONOSPACE, isBold)
                             "Basic" -> getDocumentTypeface(FontClassification.MONOSPACE, isBold)
                             else -> getDocumentTypeface(FontClassification.SANS_SERIF, isBold)
                         }
@@ -130,8 +148,8 @@ class FontMatcher(private val context: Context) {
         } catch (_: Exception) {
             // Graceful fallback to Android system fonts if asset is missing
             val sysFamily = when (classification) {
-                FontClassification.SERIF, FontClassification.MERRIWEATHER, FontClassification.PLAYFAIR, FontClassification.LORA -> Typeface.SERIF
-                FontClassification.MONOSPACE, FontClassification.INCONSOLATA -> Typeface.MONOSPACE
+                FontClassification.SERIF, FontClassification.MERRIWEATHER, FontClassification.PLAYFAIR, FontClassification.LORA, FontClassification.GEORGIA -> Typeface.SERIF
+                FontClassification.MONOSPACE, FontClassification.INCONSOLATA, FontClassification.TYPEWRITER, FontClassification.DOT_MATRIX, FontClassification.OCR_B, FontClassification.CONSOLAS -> Typeface.MONOSPACE
                 else -> Typeface.SANS_SERIF
             }
             Typeface.create(sysFamily, if (isBold) Typeface.BOLD else Typeface.NORMAL)
@@ -152,6 +170,14 @@ class FontMatcher(private val context: Context) {
                 return FontClassification.DEVANAGARI
             }
 
+            // 1. Bank Cheque / IFSC / MICR Code / Passport MRZ detection
+            if (text.matches(Regex("^[A-Z]{4}0[A-Z0-9]{6}$")) ||
+                text.matches(Regex("^[0-9]{9,16}$")) ||
+                text.contains("<<<")
+            ) {
+                return FontClassification.OCR_B
+            }
+
             val avgCharWidth = if (bounds != null && bounds.width() > 0) {
                 bounds.width().toFloat() / max(1, text.length)
             } else {
@@ -160,21 +186,33 @@ class FontMatcher(private val context: Context) {
             val height = if (bounds != null && bounds.height() > 0) bounds.height().toFloat() else metrics.estimatedFontSizePx
             val charAspectRatio = avgCharWidth / max(1f, height)
 
+            // 2. Dot-Matrix / Receipt / Cash Bill numbers (fixed-pitch monospace numbers)
+            val isBillOrReceipt = text.contains("TOTAL", ignoreCase = true) ||
+                text.contains("TAX", ignoreCase = true) ||
+                text.contains("BILL", ignoreCase = true) ||
+                text.contains("INV-", ignoreCase = true) ||
+                text.contains("CHALLAN", ignoreCase = true) ||
+                (text.all { it.isDigit() || it in "₹$.,-/#: " } && text.length >= 4 && charAspectRatio > 0.54f)
+
+            if (isBillOrReceipt) {
+                return FontClassification.DOT_MATRIX
+            }
+
             return when {
-                // 1. Serif: Times New Roman / Formal documents, legal certificates, agreements
+                // 3. Serif: Times New Roman / Formal documents, legal certificates, agreements
                 metrics.isSerif -> {
                     FontClassification.SERIF
                 }
-                // 2. Monospace: fixed pitch typewriter numbers/code
+                // 4. Typewriter: fixed pitch typewriter numbers/code
                 (metrics.strokeWidthRatio < 0.10f && metrics.letterSpacingEm > 0.14f) ||
                 (text.all { it.isDigit() || it == '-' || it == '/' || it == '.' } && charAspectRatio > 0.58f) -> {
-                    FontClassification.MONOSPACE
+                    FontClassification.TYPEWRITER
                 }
-                // 3. Calibri: compact modern office font (narrower proportions)
+                // 5. Calibri: compact modern office font (narrower proportions)
                 charAspectRatio < 0.44f -> {
                     FontClassification.CALIBRI
                 }
-                // 4. Sans-serif: standard Arial (default for business invoices, forms, and documents)
+                // 6. Sans-serif: standard Arial (default for business invoices, forms, and documents)
                 else -> {
                     FontClassification.SANS_SERIF
                 }

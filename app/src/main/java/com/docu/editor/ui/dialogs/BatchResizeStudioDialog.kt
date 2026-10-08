@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
@@ -248,11 +249,26 @@ fun BatchResizeStudioDialog(
                     BatchResultsView(
                         result = res,
                         zipFile = zipFileResult,
-                        onSaveAll = {
+                        onSaveAllToGallery = {
                             scope.launch {
                                 val validFiles = res.results.filter { it.isSuccess }.map { it.outputFile }
-                                val outFolder = BatchTargetResizeConverterEngine.saveAllToDownloads(context, validFiles)
-                                Toast.makeText(context, "✅ ${validFiles.size} files saved to ${outFolder.name} in Downloads!", Toast.LENGTH_LONG).show()
+                                val savedCount = BatchTargetResizeConverterEngine.saveAllToGallery(context, validFiles)
+                                Toast.makeText(context, "$savedCount files saved to Gallery (DocuEdit album)", Toast.LENGTH_LONG).show()
+                            }
+                        },
+                        onSaveAllToDownloads = {
+                            scope.launch {
+                                val validFiles = res.results.filter { it.isSuccess }.map { it.outputFile }
+                                val savedCount = BatchTargetResizeConverterEngine.saveAllToDownloads(context, validFiles)
+                                Toast.makeText(context, "$savedCount files saved to Downloads (DocuEdit)", Toast.LENGTH_LONG).show()
+                            }
+                        },
+                        onSaveSingleToGallery = { file ->
+                            val uri = BatchTargetResizeConverterEngine.saveSingleFileToGallery(context, file)
+                            if (uri != null) {
+                                Toast.makeText(context, "${file.name} saved to Gallery / Downloads", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Failed to save ${file.name}", Toast.LENGTH_SHORT).show()
                             }
                         },
                         onCreateZip = {
@@ -261,7 +277,7 @@ fun BatchResizeStudioDialog(
                                 val zipOutFile = File(context.cacheDir, "DocuEdit_Batch_${System.currentTimeMillis()}.zip")
                                 val zip = BatchTargetResizeConverterEngine.createZipArchive(validFiles, zipOutFile)
                                 zipFileResult = zip
-                                Toast.makeText(context, "📦 ZIP created: ${zip.name}", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "ZIP archive created: ${zip.name}", Toast.LENGTH_LONG).show()
                             }
                         },
                         onShareAll = {
@@ -432,7 +448,7 @@ fun BatchResizeStudioDialog(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "🎯 Set Target File Size",
+                                            text = "Target File Size",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp,
                                             color = Color(0xFF0F172A)
@@ -446,7 +462,7 @@ fun BatchResizeStudioDialog(
                                                 modifier = Modifier.clickable { selectedAdjustMode = BatchAdjustMode.DECREASE_TO_MAX }
                                             ) {
                                                 Text(
-                                                    text = "🔻 Max Limit (<=)",
+                                                    text = "Max Limit (≤)",
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = if (selectedAdjustMode == BatchAdjustMode.DECREASE_TO_MAX) Color.White else Color(0xFF334155),
@@ -460,7 +476,7 @@ fun BatchResizeStudioDialog(
                                                 modifier = Modifier.clickable { selectedAdjustMode = BatchAdjustMode.INCREASE_TO_MIN }
                                             ) {
                                                 Text(
-                                                    text = "🔺 Min Limit (>=)",
+                                                    text = "Min Limit (≥)",
                                                     fontSize = 11.sp,
                                                     fontWeight = FontWeight.Bold,
                                                     color = if (selectedAdjustMode == BatchAdjustMode.INCREASE_TO_MIN) Color.White else Color(0xFF334155),
@@ -534,7 +550,7 @@ fun BatchResizeStudioDialog(
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
                                     Text(
-                                        text = "🔄 Convert Format (Optional)",
+                                        text = "Output Format (Optional)",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 14.sp,
                                         color = Color(0xFF0F172A)
@@ -594,7 +610,7 @@ fun BatchResizeStudioDialog(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(
-                                            text = "📐 DPI Resolution Compliance",
+                                            text = "DPI Resolution Compliance",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 14.sp,
                                             color = Color(0xFF0F172A)
@@ -703,7 +719,7 @@ fun BatchResizeStudioDialog(
                         Icon(Icons.Default.Compress, contentDescription = null, modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Start Batch Processing (${inputQueue.size} Files ➔ ${targetKbInt} KB)",
+                            text = "Start Batch Processing (${inputQueue.size} Files • ${targetKbInt} KB)",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -776,7 +792,9 @@ private fun BatchProcessingView(
 private fun BatchResultsView(
     result: BatchOverallResult,
     zipFile: File?,
-    onSaveAll: () -> Unit,
+    onSaveAllToGallery: () -> Unit,
+    onSaveAllToDownloads: () -> Unit,
+    onSaveSingleToGallery: (File) -> Unit,
     onCreateZip: () -> Unit,
     onShareAll: () -> Unit,
     onReset: () -> Unit,
@@ -882,6 +900,20 @@ private fun BatchResultsView(
                                 )
                             }
                         }
+
+                        if (single.isSuccess) {
+                            IconButton(
+                                onClick = { onSaveSingleToGallery(single.outputFile) },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PhotoLibrary,
+                                    contentDescription = "Save to Gallery",
+                                    tint = Color(0xFF7C3AED),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -889,49 +921,62 @@ private fun BatchResultsView(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // 3 Action Buttons Strip
+        // Action Buttons Strip: Gallery, Downloads, ZIP & Share
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Row 1: Save All to Gallery (PRO PRIMARY)
+            Button(
+                onClick = onSaveAllToGallery,
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7C3AED)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+            ) {
+                Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(19.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Save All to Gallery (Photos)", fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+            }
+
+            // Row 2: Save to Downloads & ZIP Archive
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // 1. Save All to Downloads
                 Button(
-                    onClick = onSaveAll,
+                    onClick = onSaveAllToDownloads,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
                     modifier = Modifier
                         .weight(1f)
-                        .height(48.dp)
+                        .height(46.dp)
                 ) {
-                    Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(17.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Save All", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text("Downloads", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                 }
 
-                // 2. Download ZIP Archive
                 Button(
                     onClick = onCreateZip,
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
                     modifier = Modifier
                         .weight(1f)
-                        .height(48.dp)
+                        .height(46.dp)
                 ) {
-                    Icon(Icons.Default.Archive, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Archive, contentDescription = null, modifier = Modifier.size(17.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(if (zipFile != null) "ZIP Ready!" else "Download ZIP", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(if (zipFile != null) "ZIP Ready!" else "ZIP Archive", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                 }
             }
 
+            // Row 3: Share All & Batch Again
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // 3. Share All
                 OutlinedButton(
                     onClick = onShareAll,
                     shape = RoundedCornerShape(12.dp),
@@ -941,10 +986,9 @@ private fun BatchResultsView(
                 ) {
                     Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Share All", fontSize = 13.sp)
+                    Text("Share All", fontSize = 12.5.sp)
                 }
 
-                // 4. Convert More / Done
                 OutlinedButton(
                     onClick = onReset,
                     shape = RoundedCornerShape(12.dp),
@@ -952,7 +996,7 @@ private fun BatchResultsView(
                         .weight(1f)
                         .height(44.dp)
                 ) {
-                    Text("Batch Again", fontSize = 13.sp)
+                    Text("Batch Again", fontSize = 12.5.sp)
                 }
             }
         }

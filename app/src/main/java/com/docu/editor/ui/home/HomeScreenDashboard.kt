@@ -57,7 +57,10 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -356,13 +359,24 @@ fun HomeScreenDashboard(
                                             .clip(RoundedCornerShape(4.dp))
                                             .clickable { onCheckUpdateClicked() }
                                     ) {
-                                        Text(
-                                            text = "v${com.docu.editor.BuildConfig.VERSION_NAME} 🔄",
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                        )
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "v${com.docu.editor.BuildConfig.VERSION_NAME}",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Icon(
+                                                imageVector = Icons.Default.Refresh,
+                                                contentDescription = "Check Update",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(10.dp)
+                                            )
+                                        }
                                     }
                                 }
 
@@ -470,12 +484,11 @@ fun HomeScreenDashboard(
                         // 1. Hero Flagship Banner: Govt Exam Batch Resizer Studio (20KB / 50KB / 100KB)
                         item(span = { GridItemSpan(2) }) {
                             HeroMasterBanner(
-                                title = "Batch Resizer & Format Converter",
-                                badge = "GOVT EXAM SPECIAL",
-                                description = "Upload 20+ Photos & PDFs at once • Compress to 20KB, 50KB, 100KB • 1-Click ZIP Download & WhatsApp Share",
+                                title = "Batch Processing & Format Studio",
+                                badge = "GOVT EXAM SPECIAL • 20+ FILES",
+                                description = "Upload 20+ Photos & PDFs at once • Target 20KB, 50KB, 100KB • 1-Click ZIP Download & WhatsApp Share",
                                 buttonText = "Open Batch Studio",
                                 icon = Icons.Default.Compress,
-                                gradient = listOf(Color(0xFF1E40AF), Color(0xFF3B82F6)),
                                 onClick = onBatchResizeClicked
                             )
                         }
@@ -483,7 +496,8 @@ fun HomeScreenDashboard(
                         // 2. Clear Visual Hubs (All options front & center!)
                         item(span = { GridItemSpan(2) }) {
                             QuickHubCard(
-                                category = "🎯 Govt Exam & Job Form Uploads",
+                                category = "Govt Exam & Job Portals",
+                                categoryIcon = Icons.Default.Badge,
                                 accentColor = Color(0xFF2563EB),
                                 items = listOf(
                                     Triple("Batch Resizer (20/50KB)", Icons.Default.Compress, onBatchResizeClicked),
@@ -496,12 +510,13 @@ fun HomeScreenDashboard(
 
                         item(span = { GridItemSpan(2) }) {
                             QuickHubCard(
-                                category = "✍️ Document Edit & Magic Eraser",
+                                category = "Document Editing & AI Clean",
+                                categoryIcon = Icons.Default.AutoFixHigh,
                                 accentColor = Color(0xFF059669),
                                 items = listOf(
                                     Triple("Edit Photo/PDF Text", Icons.Default.Edit, onOpenFileClicked),
                                     Triple("Whiteout & Eraser", Icons.Default.AutoFixHigh, onSmartErase),
-                                    Triple("CamScanner Magic Color", Icons.Default.AutoAwesome, onEnhanceDocuments),
+                                    Triple("DocuEdit Magic Color", Icons.Default.AutoAwesome, onEnhanceDocuments),
                                     Triple("Extract Text (OCR)", Icons.Default.Description, onExtractText)
                                 )
                             )
@@ -509,7 +524,8 @@ fun HomeScreenDashboard(
 
                         item(span = { GridItemSpan(2) }) {
                             QuickHubCard(
-                                category = "📄 PDF & Office Suite",
+                                category = "PDF Suite & Format Conversion",
+                                categoryIcon = Icons.Default.PictureAsPdf,
                                 accentColor = Color(0xFFD97706),
                                 items = listOf(
                                     Triple("Merge / Split PDF", Icons.Default.PictureAsPdf, onPdfToolsClicked),
@@ -522,7 +538,8 @@ fun HomeScreenDashboard(
 
                         item(span = { GridItemSpan(2) }) {
                             QuickHubCard(
-                                category = "🖋️ Official Sign & Stamp Studio",
+                                category = "Signatures, Stamps & Security",
+                                categoryIcon = Icons.Default.Security,
                                 accentColor = Color(0xFFDC2626),
                                 items = listOf(
                                     Triple("Add Signature", Icons.Default.Draw, onSignatureClicked),
@@ -1092,6 +1109,9 @@ private fun BottomNavItem(
 /**
  * Prominent High-Visibility Hero Banner for Critical Flagship Features.
  */
+/**
+ * Enterprise Flagship Hero Banner for Batch Resizer & Converter.
+ */
 @Composable
 private fun HeroMasterBanner(
     title: String,
@@ -1099,13 +1119,13 @@ private fun HeroMasterBanner(
     description: String,
     buttonText: String,
     icon: ImageVector,
-    gradient: List<Color>,
     onClick: () -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+        border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f)),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
@@ -1113,84 +1133,117 @@ private fun HeroMasterBanner(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Brush.linearGradient(gradient))
-                .padding(18.dp)
+                .background(
+                    Brush.horizontalGradient(
+                        listOf(Color(0xFF0F172A), Color(0xFF1E3A8A), Color(0xFF1E40AF))
+                    )
+                )
+                .padding(20.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = Color.White.copy(alpha = 0.25f)
-                        ) {
-                            Text(
-                                text = badge,
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Black,
-                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = Color(0xFF38BDF8).copy(alpha = 0.2f),
+                        border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.6f))
+                    ) {
                         Text(
-                            text = title,
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
+                            text = badge,
+                            color = Color(0xFF38BDF8),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = description,
-                        color = Color.White.copy(alpha = 0.92f),
-                        fontSize = 12.sp,
-                        lineHeight = 16.sp
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color.White,
-                        modifier = Modifier.clickable { onClick() }
+
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = title,
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.ExtraBold
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = description,
+                    color = Color(0xFFCBD5E1),
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Format & Target Presets Preview Strip
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    listOf("JPG", "PNG", "PDF", "20KB - 500KB").forEach { chip ->
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color.White.copy(alpha = 0.12f)
                         ) {
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = null,
-                                tint = gradient.first(),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = buttonText,
-                                color = gradient.first(),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
+                                text = chip,
+                                color = Color(0xFFE2E8F0),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.width(12.dp))
-                Box(
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.20f)),
-                    contentAlignment = Alignment.Center
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color.White,
+                    shadowElevation = 4.dp,
+                    modifier = Modifier.clickable { onClick() }
                 ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(30.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = buttonText,
+                            color = Color(0xFF1E3A8A),
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Default.ArrowForward,
+                            contentDescription = null,
+                            tint = Color(0xFF1E3A8A),
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
                 }
             }
         }
@@ -1198,16 +1251,17 @@ private fun HeroMasterBanner(
 }
 
 /**
- * High-Visibility Grouped Feature Hub Card.
+ * High-Visibility Grouped Feature Hub Card with Dedicated Category Vector Icon.
  */
 @Composable
 private fun QuickHubCard(
     category: String,
+    categoryIcon: ImageVector,
     accentColor: Color,
     items: List<Triple<String, ImageVector, () -> Unit>>
 ) {
     Card(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
@@ -1217,15 +1271,24 @@ private fun QuickHubCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(accentColor)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+                        .size(26.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(accentColor.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = categoryIcon,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
                 Text(
-                    text = category,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
+                    text = category.uppercase(),
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 11.5.sp,
+                    letterSpacing = 0.5.sp,
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }

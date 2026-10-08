@@ -16,7 +16,7 @@ import kotlin.math.max
  */
 object ExifBitmapUtil {
 
-    fun decodeFileWithExif(filePath: String, maxDim: Int = 2880): Bitmap? {
+    fun decodeFileWithExif(filePath: String, maxDim: Int = 4096): Bitmap? {
         val file = File(filePath)
         if (!file.exists() || file.length() == 0L) return null
 
@@ -50,7 +50,7 @@ object ExifBitmapUtil {
         return rotateBitmapByExif(rawBitmap, orientation)
     }
 
-    fun decodeUriWithExif(context: Context, uri: Uri, maxDim: Int = 2880): Bitmap? {
+    fun decodeUriWithExif(context: Context, uri: Uri, maxDim: Int = 4096): Bitmap? {
         val orientation = try {
             context.contentResolver.openInputStream(uri)?.use { stream ->
                 val exif = ExifInterface(stream)

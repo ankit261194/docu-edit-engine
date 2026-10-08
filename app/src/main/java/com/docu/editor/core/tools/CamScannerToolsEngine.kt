@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
@@ -387,34 +388,104 @@ object CamScannerToolsEngine {
         return output
     }
 
+    enum class PrintSheetType(
+        val displayName: String,
+        val paperWidthPx: Int,
+        val paperHeightPx: Int,
+        val maxCopies: Int
+    ) {
+        SINGLE("Single Photo", 600, 750, 1),
+        PHOTO_PAPER_4X6("4×6\" Photo Paper (8 Copies)", 1200, 1800, 8),
+        A4_SHEET("A4 Full Sheet (32 Copies)", 2480, 3508, 32),
+        CUSTOM("Custom Copies", 1200, 1800, 32)
+    }
+
     /**
-     * Generates a 4x6 inch printable sheet containing 6 or 8 copies of the ID photo.
+     * Generates a 4x6 inch or A4 printable sheet with custom copy count
+     * and precision dashed cutting guidelines for clean scissor cuts.
      */
-    fun createPrintableSheet(singlePhoto: Bitmap, copies: Int = 6): Bitmap {
-        // Standard 4x6 inch at 300 DPI is 1200 x 1800 px
-        val sheetW = 1200
-        val sheetH = 1800
+    fun createPrintableSheet(
+        singlePhoto: Bitmap,
+        sheetType: PrintSheetType = PrintSheetType.PHOTO_PAPER_4X6,
+        copies: Int = 8,
+        drawCutGuides: Boolean = true
+    ): Bitmap {
+        if (sheetType == PrintSheetType.SINGLE) {
+            return singlePhoto.copy(singlePhoto.config ?: Bitmap.Config.ARGB_8888, true)
+        }
+
+        val isA4 = sheetType == PrintSheetType.A4_SHEET || copies > 8
+        val sheetW = if (isA4) 2480 else 1200
+        val sheetH = if (isA4) 3508 else 1800
+
         val sheet = Bitmap.createBitmap(sheetW, sheetH, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(sheet)
         canvas.drawColor(Color.WHITE)
 
-        val cols = if (copies <= 6) 2 else 2
-        val rows = if (copies <= 6) 3 else 4
+        val (cols, rows) = if (isA4) {
+            Pair(4, 8) // Up to 32 photos on A4
+        } else {
+            if (copies <= 6) Pair(2, 3) else Pair(2, 4) // Up to 8 photos on 4x6"
+        }
 
-        val photoW = (sheetW * 0.42f).toInt()
-        val photoH = (singlePhoto.height * (photoW.toFloat() / singlePhoto.width)).toInt()
+        val totalSlots = cols * rows
+        val effectiveCopies = copies.coerceIn(1, totalSlots)
+
+        val marginX = (sheetW * 0.05f).toInt()
+        val marginY = (sheetH * 0.04f).toInt()
+        val availableW = sheetW - (2 * marginX)
+        val availableH = sheetH - (2 * marginY)
+
+        val maxCellW = availableW / cols
+        val maxCellH = availableH / rows
+
+        val aspect = singlePhoto.width.toFloat() / singlePhoto.height.toFloat()
+        var photoW = (maxCellW * 0.88f).toInt()
+        var photoH = (photoW / aspect).toInt()
+
+        if (photoH > maxCellH * 0.90f) {
+            photoH = (maxCellH * 0.90f).toInt()
+            photoW = (photoH * aspect).toInt()
+        }
+
         val scaled = Bitmap.createScaledBitmap(singlePhoto, photoW, photoH, true)
 
-        val hSpacing = (sheetW - (cols * photoW)) / (cols + 1)
-        val vSpacing = (sheetH - (rows * photoH)) / (rows + 1)
+        val hSpacing = (availableW - (cols * photoW)) / (cols + 1)
+        val vSpacing = (availableH - (rows * photoH)) / (rows + 1)
+
+        val dashPaint = Paint().apply {
+            color = Color.parseColor("#94A3B8")
+            strokeWidth = if (isA4) 3f else 2f
+            style = Paint.Style.STROKE
+            pathEffect = DashPathEffect(floatArrayOf(12f, 8f), 0f)
+        }
+
+        val borderPaint = Paint().apply {
+            color = Color.parseColor("#CBD5E1")
+            strokeWidth = 1.5f
+            style = Paint.Style.STROKE
+        }
 
         var count = 0
         for (r in 0 until rows) {
             for (c in 0 until cols) {
-                if (count < copies) {
-                    val x = hSpacing + c * (photoW + hSpacing)
-                    val y = vSpacing + r * (photoH + vSpacing)
+                if (count < effectiveCopies) {
+                    val x = marginX + hSpacing + c * (photoW + hSpacing)
+                    val y = marginY + vSpacing + r * (photoH + vSpacing)
+
                     canvas.drawBitmap(scaled, x.toFloat(), y.toFloat(), null)
+                    canvas.drawRect(x.toFloat(), y.toFloat(), (x + photoW).toFloat(), (y + photoH).toFloat(), borderPaint)
+
+                    if (drawCutGuides) {
+                        val pad = if (isA4) 10f else 6f
+                        canvas.drawRect(
+                            x - pad,
+                            y - pad,
+                            x + photoW + pad,
+                            y + photoH + pad,
+                            dashPaint
+                        )
+                    }
                     count++
                 }
             }

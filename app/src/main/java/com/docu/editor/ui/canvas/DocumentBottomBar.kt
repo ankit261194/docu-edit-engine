@@ -254,19 +254,19 @@ fun DocumentBottomBar(
                                 },
                                 label = {
                                     val chipText = when (filter) {
-                                        DocumentFilterMode.ORIGINAL -> "🖼️ Original"
-                                        DocumentFilterMode.MAGIC_COLOR -> "✨ Magic Color"
-                                        DocumentFilterMode.SHADOW_REMOVER -> "🌤️ Remove Shadow"
-                                        DocumentFilterMode.WATERMARK_REMOVER -> "🧹 Erase Watermark"
-                                        DocumentFilterMode.FINGER_REMOVER -> "🖐️ Remove Fingers"
-                                        DocumentFilterMode.BOOK_DEWARP -> "📖 Flatten Page"
-                                        DocumentFilterMode.CLEAN_BW -> "📄 Clean B&W"
-                                        DocumentFilterMode.GRAYSCALE -> "🔘 Grayscale"
-                                        DocumentFilterMode.VIVID_DOC -> "🎨 Vivid Doc"
-                                        DocumentFilterMode.STUDIO_WHITE -> "💡 Studio White"
-                                        DocumentFilterMode.BLUEPRINT -> "📐 Blueprint"
-                                        DocumentFilterMode.SEPIA -> "📜 Vintage Sepia"
-                                        DocumentFilterMode.INK_SHARPENER -> "🖋️ Ink Anti-Smudge"
+                                        DocumentFilterMode.ORIGINAL -> "Original"
+                                        DocumentFilterMode.MAGIC_COLOR -> "Magic Color"
+                                        DocumentFilterMode.SHADOW_REMOVER -> "Remove Shadow"
+                                        DocumentFilterMode.WATERMARK_REMOVER -> "Erase Watermark"
+                                        DocumentFilterMode.FINGER_REMOVER -> "Remove Fingers"
+                                        DocumentFilterMode.BOOK_DEWARP -> "Flatten Page"
+                                        DocumentFilterMode.CLEAN_BW -> "Clean B&W"
+                                        DocumentFilterMode.GRAYSCALE -> "Grayscale"
+                                        DocumentFilterMode.VIVID_DOC -> "Vivid Doc"
+                                        DocumentFilterMode.STUDIO_WHITE -> "Studio White"
+                                        DocumentFilterMode.BLUEPRINT -> "Blueprint"
+                                        DocumentFilterMode.SEPIA -> "Vintage Sepia"
+                                        DocumentFilterMode.INK_SHARPENER -> "Ink Anti-Smudge"
                                     }
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
@@ -282,9 +282,11 @@ fun DocumentBottomBar(
                                                 shape = RoundedCornerShape(3.dp)
                                             ) {
                                                 Text(
-                                                    text = "👑",
+                                                    text = "PRO",
                                                     fontSize = 8.sp,
-                                                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 0.5.dp)
+                                                    fontWeight = FontWeight.Black,
+                                                    color = Color.White,
+                                                    modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp)
                                                 )
                                             }
                                         }
@@ -973,17 +975,17 @@ private fun ToolDockButton(
                 Surface(
                     color = Color(0xFFF59E0B),
                     shape = RoundedCornerShape(4.dp),
-                    shadowElevation = 3.dp,
+                    shadowElevation = 2.dp,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .offset(x = 4.dp, y = (-2).dp)
                 ) {
                     Text(
-                        text = "👑 PRO",
-                        color = Color(0xFF1E1B4B),
+                        text = "PRO",
+                        color = Color.White,
                         fontSize = 8.sp,
                         fontWeight = FontWeight.Black,
-                        modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp)
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                     )
                 }
             }

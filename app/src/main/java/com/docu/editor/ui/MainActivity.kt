@@ -91,6 +91,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import com.docu.editor.core.util.DocuStorageUtil
 import com.docu.editor.core.update.ApkDownloadInstaller
 import com.docu.editor.core.update.AutoUpdateManager
 import com.docu.editor.core.update.UpdateInfo
@@ -281,9 +282,18 @@ class MainActivity : ComponentActivity() {
                         lifecycleScope.launch {
                             try {
                                 Toast.makeText(this@MainActivity, "Merging ${uris.size} files...", Toast.LENGTH_SHORT).show()
-                                val outFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Merged_Doc_${System.currentTimeMillis()}.pdf")
-                                PdfToolbox(applicationContext).mergeFiles(uris, outFile)
-                                Toast.makeText(this@MainActivity, "Merged successfully: ${outFile.name}", Toast.LENGTH_LONG).show()
+                                val fileName = "Merged_Doc_${System.currentTimeMillis()}.pdf"
+                                val outFile = File(cacheDir, fileName)
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    PdfToolbox(applicationContext).mergeFiles(uris, outFile)
+                                }
+                                DocuStorageUtil.saveFileToPublicDownloads(
+                                    this@MainActivity,
+                                    outFile,
+                                    fileName,
+                                    "application/pdf"
+                                )
+                                Toast.makeText(this@MainActivity, "Merged successfully: $fileName (Saved to Downloads)", Toast.LENGTH_LONG).show()
                                 viewModel.loadScannedDocument(outFile.absolutePath)
                             } catch (e: Exception) {
                                 Toast.makeText(this@MainActivity, "Merge failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
@@ -301,9 +311,20 @@ class MainActivity : ComponentActivity() {
                         lifecycleScope.launch {
                             try {
                                 Toast.makeText(this@MainActivity, "Extracting pages to images...", Toast.LENGTH_SHORT).show()
-                                val outDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                                val images = PdfToolbox(applicationContext).extractPagesAsImages(it, outDir)
-                                Toast.makeText(this@MainActivity, "Extracted ${images.size} JPEG images to Downloads!", Toast.LENGTH_LONG).show()
+                                val outDir = File(cacheDir, "extracted_${System.currentTimeMillis()}").apply { mkdirs() }
+                                val images = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    PdfToolbox(applicationContext).extractPagesAsImages(it, outDir)
+                                }
+                                var savedCount = 0
+                                for (imgFile in images) {
+                                    val bmp = BitmapFactory.decodeFile(imgFile.absolutePath)
+                                    if (bmp != null) {
+                                        DocuStorageUtil.saveBitmapToGallery(this@MainActivity, bmp, imgFile.nameWithoutExtension)
+                                        bmp.recycle()
+                                        savedCount++
+                                    }
+                                }
+                                Toast.makeText(this@MainActivity, "Extracted $savedCount pages saved to Gallery!", Toast.LENGTH_LONG).show()
                             } catch (e: Exception) {
                                 Toast.makeText(this@MainActivity, "Extraction failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                             }
@@ -318,9 +339,18 @@ class MainActivity : ComponentActivity() {
                         lifecycleScope.launch {
                             try {
                                 Toast.makeText(this@MainActivity, "Stitching pages to long image...", Toast.LENGTH_SHORT).show()
-                                val outFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Long_Image_${System.currentTimeMillis()}.jpg")
-                                CamScannerToolsEngine.stitchPdfToLongImage(applicationContext, it, outFile)
-                                Toast.makeText(this@MainActivity, "Saved: ${outFile.name}", Toast.LENGTH_LONG).show()
+                                val fileName = "Long_Image_${System.currentTimeMillis()}.jpg"
+                                val outFile = File(cacheDir, fileName)
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    CamScannerToolsEngine.stitchPdfToLongImage(applicationContext, it, outFile)
+                                }
+                                val bmp = BitmapFactory.decodeFile(outFile.absolutePath)
+                                if (bmp != null) {
+                                    DocuStorageUtil.saveBitmapToGallery(this@MainActivity, bmp, "Long_Image_${System.currentTimeMillis()}")
+                                    bmp.recycle()
+                                }
+                                DocuStorageUtil.saveFileToPublicDownloads(this@MainActivity, outFile, fileName, "image/jpeg")
+                                Toast.makeText(this@MainActivity, "Saved to Gallery & Downloads: $fileName", Toast.LENGTH_LONG).show()
                                 viewModel.loadScannedDocument(outFile.absolutePath)
                             } catch (e: Exception) {
                                 Toast.makeText(this@MainActivity, "Stitching failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
@@ -336,14 +366,120 @@ class MainActivity : ComponentActivity() {
                         lifecycleScope.launch {
                             try {
                                 Toast.makeText(this@MainActivity, "Exporting slides to PPT...", Toast.LENGTH_SHORT).show()
-                                val outFile = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Presentation_${System.currentTimeMillis()}.pptx")
+                                val fileName = "Presentation_${System.currentTimeMillis()}.pptx"
+                                val outFile = File(cacheDir, fileName)
                                 val bmp = loadBitmapDirect(it)
                                 if (bmp != null) {
-                                    CamScannerToolsEngine.exportPagesToPptx(listOf(bmp), outFile)
-                                    Toast.makeText(this@MainActivity, "Saved: ${outFile.name}", Toast.LENGTH_LONG).show()
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        CamScannerToolsEngine.exportPagesToPptx(listOf(bmp), outFile)
+                                    }
+                                    val pubUri = DocuStorageUtil.saveFileToPublicDownloads(
+                                        this@MainActivity,
+                                        outFile,
+                                        fileName,
+                                        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                                    )
+                                    Toast.makeText(this@MainActivity, "PowerPoint deck saved: $fileName", Toast.LENGTH_LONG).show()
+                                    if (pubUri != null) {
+                                        DocuStorageUtil.openFileWithExternalApp(
+                                            this@MainActivity,
+                                            pubUri,
+                                            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                                            "Open PowerPoint Presentation"
+                                        )
+                                    }
                                 }
                             } catch (e: Exception) {
                                 Toast.makeText(this@MainActivity, "PPT export failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }
+
+                // Direct 1-Click Document to Word (.docx) Converter Launcher
+                val directWordPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    uri?.let {
+                        lifecycleScope.launch {
+                            try {
+                                Toast.makeText(this@MainActivity, "Converting document to Word (.docx)...", Toast.LENGTH_SHORT).show()
+                                val bmp = loadBitmapDirect(it)
+                                if (bmp != null) {
+                                    val ocrAnalyzer = com.docu.editor.core.ocr.OcrAnalyzer()
+                                    val items = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE)
+                                    }
+                                    val fileName = "DocuEdit_Word_${System.currentTimeMillis()}.docx"
+                                    val tempOut = File(cacheDir, fileName)
+                                    val docText = com.docu.editor.core.export.DocxExportEngine.formatItemsToStructuredDocument(items).ifBlank { "Scanned Document Text" }
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        com.docu.editor.core.export.DocxExportEngine.generateDocx("Converted Document", docText, tempOut)
+                                    }
+                                    val publicUri = DocuStorageUtil.saveFileToPublicDownloads(
+                                        this@MainActivity,
+                                        tempOut,
+                                        fileName,
+                                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                                    )
+                                    Toast.makeText(this@MainActivity, "Word document saved: $fileName", Toast.LENGTH_LONG).show()
+                                    if (publicUri != null) {
+                                        DocuStorageUtil.openFileWithExternalApp(
+                                            this@MainActivity,
+                                            publicUri,
+                                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                            "Open Word Document"
+                                        )
+                                    }
+                                } else {
+                                    Toast.makeText(this@MainActivity, "Unable to read document file", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(this@MainActivity, "Word conversion failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }
+
+                // Direct 1-Click Document to Excel (.xlsx) Converter Launcher
+                val directExcelPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri ->
+                    uri?.let {
+                        lifecycleScope.launch {
+                            try {
+                                Toast.makeText(this@MainActivity, "Converting document to Excel (.xlsx)...", Toast.LENGTH_SHORT).show()
+                                val bmp = loadBitmapDirect(it)
+                                if (bmp != null) {
+                                    val ocrAnalyzer = com.docu.editor.core.ocr.OcrAnalyzer()
+                                    val items = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE)
+                                    }
+                                    val fileName = "DocuEdit_Excel_${System.currentTimeMillis()}.xlsx"
+                                    val tempOut = File(cacheDir, fileName)
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                        com.docu.editor.core.export.SpreadsheetExportEngine.exportToXlsx(mapOf(0 to items), tempOut)
+                                    }
+                                    val publicUri = DocuStorageUtil.saveFileToPublicDownloads(
+                                        this@MainActivity,
+                                        tempOut,
+                                        fileName,
+                                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                    )
+                                    Toast.makeText(this@MainActivity, "Excel spreadsheet saved: $fileName", Toast.LENGTH_LONG).show()
+                                    if (publicUri != null) {
+                                        DocuStorageUtil.openFileWithExternalApp(
+                                            this@MainActivity,
+                                            publicUri,
+                                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                            "Open Excel Spreadsheet"
+                                        )
+                                    }
+                                } else {
+                                    Toast.makeText(this@MainActivity, "Unable to read document file", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(this@MainActivity, "Excel conversion failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
@@ -356,6 +492,16 @@ class MainActivity : ComponentActivity() {
                     uri?.let {
                         viewModel.loadDocumentUri(it)
                         viewModel.showPdfToolboxDialog(true)
+                    }
+                }
+
+                // Dedicated 1-Click Book Dewarp Image Picker
+                val directBookDewarpPickerLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.OpenDocument()
+                ) { uri: Uri? ->
+                    uri?.let {
+                        viewModel.loadDocumentUri(it)
+                        viewModel.showBookDewarpDialog(true)
                     }
                 }
 
@@ -1058,7 +1204,7 @@ class MainActivity : ComponentActivity() {
                                             modifier = Modifier.size(15.dp)
                                         )
                                         Text(
-                                            text = "✨ ${uiState.detectedItems.size} lines auto-fetched • Tap any line to edit",
+                                            text = "Live Text: ${uiState.detectedItems.size} lines detected • Tap to edit",
                                             color = Color.White,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.SemiBold
@@ -1161,16 +1307,16 @@ class MainActivity : ComponentActivity() {
                                 hasGeminiApiKey = viewModel.getGeminiApiKey().isNotBlank(),
                                 onConvertToWord = {
                                     if (uiState.currentBitmap != null) {
-                                        viewModel.exportDocxFile(uiState.detectedItems.joinToString("\n") { it.text })
+                                        viewModel.exportCurrentDocument("DOCX")
                                     } else {
-                                        filePickerLauncher.launch(arrayOf("image/*", "application/pdf"))
+                                        directWordPickerLauncher.launch(arrayOf("image/*", "application/pdf"))
                                     }
                                 },
                                 onConvertToExcel = {
                                     if (uiState.currentBitmap != null) {
                                         viewModel.exportCurrentDocument("XLSX")
                                     } else {
-                                        filePickerLauncher.launch(arrayOf("image/*", "application/pdf"))
+                                        directExcelPickerLauncher.launch(arrayOf("image/*", "application/pdf"))
                                     }
                                 },
                                 onConvertToPpt = {
@@ -1290,7 +1436,7 @@ class MainActivity : ComponentActivity() {
                                     if (uiState.currentBitmap != null) {
                                         viewModel.exportCurrentDocument("XLSX")
                                     } else {
-                                        filePickerLauncher.launch(arrayOf("image/*", "application/pdf"))
+                                        directExcelPickerLauncher.launch(arrayOf("image/*", "application/pdf"))
                                     }
                                 },
                                 onFormulaOcr = {
@@ -1302,7 +1448,7 @@ class MainActivity : ComponentActivity() {
                                     if (uiState.currentBitmap != null) {
                                         viewModel.showBookDewarpDialog(true)
                                     } else {
-                                        filePickerLauncher.launch(arrayOf("image/*"))
+                                        directBookDewarpPickerLauncher.launch(arrayOf("image/*"))
                                     }
                                 },
                                 onSlidesScan = {
@@ -1902,7 +2048,7 @@ class MainActivity : ComponentActivity() {
                                 onRestoreBackup = { item ->
                                     viewModel.restoreCloudDocumentToLibrary(this@MainActivity, item) { success, err ->
                                         if (success) {
-                                            Toast.makeText(this@MainActivity, "📥 '${item.title}' restored to Library!", Toast.LENGTH_LONG).show()
+                                            Toast.makeText(this@MainActivity, "'${item.title}' restored to Library", Toast.LENGTH_LONG).show()
                                         } else {
                                             Toast.makeText(this@MainActivity, "Restore failed: $err", Toast.LENGTH_SHORT).show()
                                         }
@@ -2139,22 +2285,63 @@ class MainActivity : ComponentActivity() {
                             )
                         }
 
-                        // CamScanner ID Photo Maker Dialog
+                        // Passport & ID Photo Maker Dialog
                         if (showIdPhotoMakerDialog) {
                             com.docu.editor.ui.dialogs.IdPhotoMakerDialog(
                                 initialBitmap = idPhotoBitmap ?: uiState.currentBitmap,
                                 onPickPhotoClicked = {
                                     idPhotoPickerLauncher.launch(arrayOf("image/*"))
                                 },
-                                onSaveSinglePhoto = { singleBmp ->
-                                    viewModel.setEditedBitmap(singleBmp)
-                                    showIdPhotoMakerDialog = false
-                                    Toast.makeText(this@MainActivity, "ID Photo loaded into editor", Toast.LENGTH_SHORT).show()
+                                onSaveToGallery = { bmp, prefix ->
+                                    val time = System.currentTimeMillis()
+                                    val uri = DocuStorageUtil.saveBitmapToGallery(this@MainActivity, bmp, "${prefix}_$time")
+                                    if (uri != null) {
+                                        Toast.makeText(this@MainActivity, "Saved to Gallery (DocuEdit album)!", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        Toast.makeText(this@MainActivity, "Failed to save photo to Gallery", Toast.LENGTH_SHORT).show()
+                                    }
                                 },
-                                onSavePrintSheet = { sheetBmp ->
-                                    viewModel.setEditedBitmap(sheetBmp)
-                                    showIdPhotoMakerDialog = false
-                                    Toast.makeText(this@MainActivity, "Printable 6x ID Sheet loaded into editor", Toast.LENGTH_SHORT).show()
+                                onExportPdf = { bmp, prefix ->
+                                    lifecycleScope.launch {
+                                        try {
+                                            val time = System.currentTimeMillis()
+                                            val tempPdf = File(cacheDir, "${prefix}_$time.pdf")
+                                            com.docu.editor.core.pdf.PdfExportEngine.exportBitmapToPdf(
+                                                bitmap = bmp,
+                                                outputFile = tempPdf,
+                                                fitToA4 = true
+                                            )
+                                            val uri = DocuStorageUtil.saveFileToPublicDownloads(
+                                                this@MainActivity,
+                                                tempPdf,
+                                                "${prefix}_$time.pdf",
+                                                "application/pdf"
+                                            )
+                                            if (uri != null) {
+                                                Toast.makeText(this@MainActivity, "Printable PDF saved to Downloads!", Toast.LENGTH_LONG).show()
+                                            } else {
+                                                Toast.makeText(this@MainActivity, "Failed to export PDF", Toast.LENGTH_SHORT).show()
+                                            }
+                                        } catch (e: Exception) {
+                                            Toast.makeText(this@MainActivity, "PDF Export error: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                onSharePrint = { bmp ->
+                                    lifecycleScope.launch {
+                                        try {
+                                            val tempFile = File(cacheDir, "passport_share_${System.currentTimeMillis()}.jpg")
+                                            tempFile.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 98, it) }
+                                            val shareUri = DocuStorageUtil.getShareableUriForFile(this@MainActivity, tempFile)
+                                            DocuStorageUtil.shareFile(this@MainActivity, shareUri, "image/jpeg", "Print / Share Passport Photo")
+                                        } catch (e: Exception) {
+                                            Toast.makeText(this@MainActivity, "Share failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                onEditInCanvas = { bmp ->
+                                    viewModel.setEditedBitmap(bmp)
+                                    Toast.makeText(this@MainActivity, "Loaded into editor canvas", Toast.LENGTH_SHORT).show()
                                 },
                                 onDismiss = {
                                     showIdPhotoMakerDialog = false

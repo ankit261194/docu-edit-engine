@@ -12,8 +12,8 @@ android {
         applicationId = "com.docu.editor"
         minSdk = 26
         targetSdk = 34
-        versionCode = 40
-        versionName = "10.4.0"
+        versionCode = 41
+        versionName = "10.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -94,6 +94,7 @@ dependencies {
     // Computer Vision & ML
     implementation(libs.mlkit.text.recognition)
     implementation(libs.mlkit.text.recognition.devanagari)
+    implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
     implementation(libs.opencv.android)
     implementation(libs.pdfbox.android)
     implementation(libs.coil.compose)

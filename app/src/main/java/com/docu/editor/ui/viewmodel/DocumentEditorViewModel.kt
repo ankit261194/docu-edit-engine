@@ -63,6 +63,7 @@ import com.docu.editor.core.watermark.WatermarkEngine
 import com.docu.editor.core.dewarp.BookCurveDewarper
 import com.docu.editor.core.dewarp.BookSplitEngine
 import com.docu.editor.core.cv.EraseMarksEngine
+import com.docu.editor.core.util.DocuStorageUtil
 import com.docu.editor.core.signature.SignatureExtractor
 import com.docu.editor.core.signature.StampExtractor
 import com.docu.editor.core.signature.StampStudioEngine
@@ -2085,7 +2086,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             try {
                 val context = getApplication<Application>()
                 val file = withContext(Dispatchers.IO) {
-                    val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                    val targetDir = context.cacheDir
                     val time = System.currentTimeMillis()
                     val rawName = if (customFileName.isNotBlank()) {
                         customFileName.trim().replace(Regex("[^a-zA-Z0-9._-]"), "_")
@@ -2101,7 +2102,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     when (format.uppercase()) {
                         "PDF" -> {
                             val cleanName = if (rawName.endsWith(".pdf", ignoreCase = true)) rawName else "$rawName.pdf"
-                            val outFile = File(downloadsDir, cleanName)
+                            val outFile = File(targetDir, cleanName)
 
                             if (state.activePdfUri != null && state.pdfPageCount > 1 && pageIndices == null && editedPagesMap.size < state.pdfPageCount) {
                                 // Hybrid Vector Preservation: Untouched pages retain 100% original vector typography & links!
@@ -2156,7 +2157,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
                             // AES-128 Password Protection
                             if (password.isNotBlank()) {
-                                val unencrypted = File(downloadsDir, "raw_${System.currentTimeMillis()}_$cleanName")
+                                val unencrypted = File(targetDir, "raw_${System.currentTimeMillis()}_$cleanName")
                                 if (outFile.renameTo(unencrypted)) {
                                     PdfExportEngine.encryptPdfWithPassword(
                                         inputFile = unencrypted,
@@ -2171,7 +2172,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         }
                         "PNG" -> {
                             val cleanName = if (rawName.endsWith(".png", ignoreCase = true)) rawName else "$rawName.png"
-                            val outFile = File(downloadsDir, cleanName)
+                            val outFile = File(targetDir, cleanName)
                             FileOutputStream(outFile).use { out ->
                                 current.compress(Bitmap.CompressFormat.PNG, 100, out)
                             }
@@ -2179,7 +2180,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         }
                         "DOCX" -> {
                             val cleanName = if (rawName.endsWith(".docx", ignoreCase = true)) rawName else "$rawName.docx"
-                            val outFile = File(downloadsDir, cleanName)
+                            val outFile = File(targetDir, cleanName)
                             val sb = StringBuilder()
                             if (effectivePages.size > 1 || (state.pdfPageCount > 1 && effectivePages.size == 1)) {
                                 for (pIdx in effectivePages) {
@@ -2196,14 +2197,14 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         }
                         "XLSX" -> {
                             val cleanName = if (rawName.endsWith(".xlsx", ignoreCase = true)) rawName else "$rawName.xlsx"
-                            val outFile = File(downloadsDir, cleanName)
+                            val outFile = File(targetDir, cleanName)
                             val pagesMap = resolvePagesDetectedItems(effectivePages, state, current, context)
                             SpreadsheetExportEngine.exportToXlsx(pagesMap, outFile)
                             outFile
                         }
                         "PPTX", "PPT" -> {
                             val cleanName = if (rawName.endsWith(".pptx", ignoreCase = true)) rawName else "$rawName.pptx"
-                            val outFile = File(downloadsDir, cleanName)
+                            val outFile = File(targetDir, cleanName)
                             val pagesList = mutableListOf<Bitmap>()
                             if (effectivePages.size > 1 || (state.pdfPageCount > 1 && effectivePages.size == 1)) {
                                 for (pIdx in effectivePages) {
@@ -2227,14 +2228,14 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         }
                         "CSV", "XLS" -> {
                             val cleanName = if (rawName.endsWith(".csv", ignoreCase = true)) rawName else "$rawName.csv"
-                            val outFile = File(downloadsDir, cleanName)
+                            val outFile = File(targetDir, cleanName)
                             val pagesMap = resolvePagesDetectedItems(effectivePages, state, current, context)
                             SpreadsheetExportEngine.exportToCsv(pagesMap, outFile)
                             outFile
                         }
                         else -> {
                             val cleanName = if (rawName.endsWith(".jpg", ignoreCase = true) || rawName.endsWith(".jpeg", ignoreCase = true)) rawName else "$rawName.jpg"
-                            val outFile = File(downloadsDir, cleanName)
+                            val outFile = File(targetDir, cleanName)
                             FileOutputStream(outFile).use { out ->
                                 current.compress(Bitmap.CompressFormat.JPEG, 94, out)
                             }
@@ -2243,6 +2244,23 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     }
                 }
 
+                // Save to Scoped Storage (Downloads / Gallery)
+                val mimeType = when (format.uppercase()) {
+                    "PDF" -> "application/pdf"
+                    "PNG" -> "image/png"
+                    "DOCX" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    "XLSX" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    "PPTX", "PPT" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                    "CSV", "XLS" -> "text/csv"
+                    else -> "image/jpeg"
+                }
+
+                if (format.uppercase() in listOf("JPG", "JPEG", "PNG")) {
+                    val compressFmt = if (format.uppercase() == "PNG") Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
+                    DocuStorageUtil.saveBitmapToGallery(context, current, file.nameWithoutExtension, compressFmt)
+                }
+                DocuStorageUtil.saveFileToPublicDownloads(context, file, file.name, mimeType)
+
                 _uiState.update {
                     it.copy(
                         isApplyingEdit = false,
@@ -2250,7 +2268,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         showExportDialog = false,
                         exportUri = file.absolutePath,
                         hasUnsavedChanges = false,
-                        successMessage = "Saved to Downloads: ${file.name}"
+                        successMessage = if (format.uppercase() in listOf("JPG", "JPEG", "PNG"))
+                            "Saved to Gallery & Downloads: ${file.name}"
+                        else
+                            "Saved to Downloads: ${file.name}"
                     )
                 }
             } catch (e: Exception) {
@@ -3929,64 +3950,72 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 )
             }
             try {
-                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                val context = getApplication<Application>()
+                val cacheDir = context.cacheDir
                 val time = System.currentTimeMillis()
 
                 if (format.equals("PDF", ignoreCase = true)) {
                     val tempPdf = getOrGenerateConsolidatedPdf() ?: throw IllegalStateException("Failed to generate document PDF")
-                    val outFile = File(downloadsDir, "DocuEdit_Target_${targetKb}KB_${time}.pdf")
+                    val fileName = "DocuEdit_Target_${targetKb}KB_${time}.pdf"
+                    val tempOut = File(cacheDir, fileName)
                     val result = if (mode == SizeAdjustMode.DECREASE) {
                         TargetFileSizeEngine.compressPdfToTargetKb(
-                            context = getApplication(),
+                            context = context,
                             sourceUri = Uri.fromFile(tempPdf),
                             targetKb = targetKb,
-                            outputFile = outFile
+                            outputFile = tempOut
                         )
                     } else {
                         TargetFileSizeEngine.increasePdfToTargetKb(
-                            context = getApplication(),
+                            context = context,
                             sourceUri = Uri.fromFile(tempPdf),
                             targetKb = targetKb,
-                            outputFile = outFile
+                            outputFile = tempOut
                         )
                     }
                     tempPdf.delete()
                     val actualKb = result.finalBytes / 1024
+                    DocuStorageUtil.saveFileToPublicDownloads(context, tempOut, fileName, "application/pdf")
                     _uiState.update {
                         it.copy(
                             isApplyingEdit = false,
                             processingMessage = null,
-                            successMessage = "Target size ready: ${outFile.name} (${actualKb} KB)"
+                            successMessage = "Target size ready: $fileName (${actualKb} KB) saved to Downloads"
                         )
                     }
                 } else {
                     val currentBmp = _uiState.value.currentBitmap ?: throw IllegalStateException("No active document loaded")
-                    val outFile = File(downloadsDir, "DocuEdit_Target_${targetKb}KB_${time}.jpg")
+                    val fileName = "DocuEdit_Target_${targetKb}KB_${time}.jpg"
+                    val tempOut = File(cacheDir, fileName)
                     val result = if (mode == SizeAdjustMode.DECREASE) {
                         TargetFileSizeEngine.compressBitmapToTargetKb(
                             bitmap = currentBmp,
                             targetKb = targetKb,
-                            outputFile = outFile
+                            outputFile = tempOut
                         )
                     } else {
-                        val tempJpg = File.createTempFile("temp_adjust_", ".jpg", getApplication<Application>().cacheDir)
+                        val tempJpg = File.createTempFile("temp_adjust_", ".jpg", cacheDir)
                         withContext(Dispatchers.IO) {
                             FileOutputStream(tempJpg).use { currentBmp.compress(Bitmap.CompressFormat.JPEG, 95, it) }
                         }
                         val res = TargetFileSizeEngine.increaseJpegToTargetKb(
                             inputJpegFile = tempJpg,
                             targetKb = targetKb,
-                            outputFile = outFile
+                            outputFile = tempOut
                         )
                         tempJpg.delete()
                         res
                     }
                     val actualKb = result.finalBytes / 1024
+                    // Save to Gallery so user finds it in Photos app immediately!
+                    val finalBmp = BitmapFactory.decodeFile(tempOut.absolutePath) ?: currentBmp
+                    DocuStorageUtil.saveBitmapToGallery(context, finalBmp, "DocuEdit_Target_${targetKb}KB_${time}")
+                    DocuStorageUtil.saveFileToPublicDownloads(context, tempOut, fileName, "image/jpeg")
                     _uiState.update {
                         it.copy(
                             isApplyingEdit = false,
                             processingMessage = null,
-                            successMessage = "Target size ready: ${outFile.name} (${actualKb} KB)"
+                            successMessage = "Saved to Gallery & Downloads: (${actualKb} KB)"
                         )
                     }
                 }
@@ -4321,7 +4350,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         if (show) {
             val current = _uiState.value.currentBitmap ?: return
             viewModelScope.launch {
-                _uiState.update { it.copy(isScanning = true, processingMessage = "Extracting text with DocuScan AI OCR...") }
+                _uiState.update { it.copy(isScanning = true, processingMessage = "Extracting text with DocuEdit AI OCR...") }
                 try {
                     val items = withContext(Dispatchers.Default) {
                         ocrAnalyzer.detectTextBlocks(current, TextHierarchyLevel.LINE)

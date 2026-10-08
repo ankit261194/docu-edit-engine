@@ -1,12 +1,12 @@
 {
-  "versionCode": 38,
-  "versionName": "10.2.0",
+  "versionCode": 41,
+  "versionName": "10.5.0",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.2.0 (CamScanner-Grade Full Pro Suite)",
-  "changelog": "🚀 Flagship Master Release v10.2.0:\n• In-Place Text Editor Pro: Exact stroke contrast Serif/Sans font classifier, 5x5 zero-halo inpainting, and true chromatic ink autofetch.\n• Govt Exam Batch Studio: Strict 20/50/100KB target resizing, authentic JFIF & Exif 200/300 DPI metadata injection, CR80 duplex ID alignment, and UIDAI legal Aadhaar/PAN auto-redaction.\n• Real Office OpenXML Export: Fully editable PowerPoint text shapes (<p:sp>), structured Word tables, and typed Excel cells.\n• Official Signature & Rubber Stamp Studio: LAB color vector ink extraction with notebook ruled-line suppression, circular double-ring seals with arc text, and legal PKI X.509 cryptographic PDF signing.\n• On-Device Local AI CountCam: Offline Euclidean Distance Transform peak segmentation separating touching pipes/rebar/pills/coins with zero cloud API keys needed.\n• Master UI Overhaul: Clean 2x2 grid quick-hubs where all tools are 100% visible at one glance with zero hidden scrolling.",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.2.0/DocuEdit-v10.2.0-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.2.0/DocuEdit-v10.2.0-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.2.0/DocuEdit-v10.2.0-arm64.apk",
-  "apkFileName": "DocuEdit-v10.2.0-arm64.apk",
-  "apkSizeMb": 60.8
+  "releaseTitle": "DocuEdit Pro v10.5.0 (Flagship Camera & Filter Overhaul)",
+  "changelog": "🚀 Flagship Pro Release v10.5.0:\n• 1-Click Auto-Crop Green Line: Camera now locks vibrant emerald green border, animated laser sweep, and automatically rectifies document directly into clean page on snap!\n• Multi-Scale Document Filters: Resolution-independent illumination division erases shadows, halos, and makes paper 100% studio white with razor-sharp black text.\n• 12MP Crystal Camera Clarity: Full sensor resolution preserved with 4096px decoding and 96% JPEG compression quality.\n• AI Neural Passport Studio: On-device ML Kit selfie background replacement (White, Light Blue, Deep Blue, Red, Gray).\n• Micro-Toner Paper Texture Blending: In-place text editor blends toner grain and edge bleed for 100% printed paper realism.\n• Advanced Typography: Dedicated Typewriter, Dot-Matrix, Consolas, and Devanagari Hindi support.\n• OpenXML Excel Engine: Multi-cell merges and complex table header support.\n• 3D Book Dewarping: Binding gutter leveling and curvature flattening.\n• Direct Gallery Save: Batch resizer and converters save directly to device gallery.",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.5.0/DocuEdit-v10.5.0-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.5.0/DocuEdit-v10.5.0-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.5.0/DocuEdit-v10.5.0-arm64.apk",
+  "apkFileName": "DocuEdit-v10.5.0-arm64.apk",
+  "apkSizeMb": 85.7
 }

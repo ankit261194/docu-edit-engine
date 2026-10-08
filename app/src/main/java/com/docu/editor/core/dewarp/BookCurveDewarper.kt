@@ -142,11 +142,46 @@ object BookCurveDewarper {
         val dstMat = Mat()
         Imgproc.remap(srcMat, dstMat, mapX, mapY, Imgproc.INTER_CUBIC, Core.BORDER_REPLICATE)
 
+        // Gutter Spine Shadow Eradication (Morphological Illumination Division)
+        val gray = Mat()
+        Imgproc.cvtColor(dstMat, gray, Imgproc.COLOR_RGBA2GRAY)
+
+        val kernelDim = ((width.coerceAtMost(height) / 20).coerceAtLeast(15) or 1).toDouble()
+        val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(kernelDim, kernelDim))
+        val bgShade = Mat()
+        Imgproc.morphologyEx(gray, bgShade, Imgproc.MORPH_CLOSE, kernel)
+
+        val bgFloat = Mat()
+        bgShade.convertTo(bgFloat, CvType.CV_32FC1)
+        Core.add(bgFloat, org.opencv.core.Scalar(1.0), bgFloat)
+
+        val channels = ArrayList<Mat>()
+        Core.split(dstMat, channels)
+
+        for (c in 0 until 3) {
+            val chFloat = Mat()
+            channels[c].convertTo(chFloat, CvType.CV_32FC1)
+            Core.divide(chFloat, bgFloat, chFloat)
+            Core.multiply(chFloat, org.opencv.core.Scalar(255.0), chFloat)
+            chFloat.convertTo(channels[c], CvType.CV_8UC1)
+            chFloat.release()
+        }
+
+        val leveledMat = Mat()
+        Core.merge(channels, leveledMat)
+
+        for (c in channels) c.release()
+        gray.release()
+        kernel.release()
+        bgShade.release()
+        bgFloat.release()
+        dstMat.release()
+
         val resultBitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        Utils.matToBitmap(dstMat, resultBitmap)
+        Utils.matToBitmap(leveledMat, resultBitmap)
 
         srcMat.release()
-        dstMat.release()
+        leveledMat.release()
         mapX.release()
         mapY.release()
 

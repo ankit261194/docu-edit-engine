@@ -213,19 +213,15 @@ class ScannerOverlayView @JvmOverloads constructor(
             return
         }
 
-        // 3. LIVE DOCUMENT AUTO-EDGE TRACKING
-        val strokeColor = if (isStable) Color.rgb(56, 189, 248) else Color.rgb(255, 255, 255) // Clean Sky Cyan or Crisp White
-        val bracketPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 6.5f
-            strokeCap = Paint.Cap.ROUND
+        // 3. LIVE DOCUMENT AUTO-EDGE TRACKING (CamScanner Flagship Green Line & Tint)
+        val strokeColor = if (isStable) Color.rgb(0, 230, 118) else Color.rgb(52, 211, 153) // Vivid Emerald Green
+        polygonPaint.apply {
             color = strokeColor
+            strokeWidth = if (isStable) 7f else 5.5f
+            pathEffect = CornerPathEffect(20f)
         }
-        val guideLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = 2.5f
-            color = Color.argb(120, 56, 189, 248)
-            pathEffect = DashPathEffect(floatArrayOf(14f, 14f), 0f)
+        fillPaint.apply {
+            color = if (isStable) Color.argb(45, 0, 230, 118) else Color.argb(25, 0, 230, 118)
         }
 
         val pts = rawCorners
@@ -278,33 +274,58 @@ class ScannerOverlayView @JvmOverloads constructor(
         val p3 = smoothP3!!
         val p4 = smoothP4!!
 
-        // 1. Subtle, clean perimeter dashed guideline (NO shaking solid green box)
         path.reset()
         path.moveTo(p1.x, p1.y)
         path.lineTo(p2.x, p2.y)
         path.lineTo(p3.x, p3.y)
         path.lineTo(p4.x, p4.y)
         path.close()
-        canvas.drawPath(path, guideLinePaint)
 
-        // 2. High-precision corner alignment brackets (┌ ┐ └ ┘)
-        val bracketLen = 52f
-        drawCornerBracket(canvas, p1.x, p1.y, bracketLen, 1f, 1f, bracketPaint)
-        drawCornerBracket(canvas, p2.x, p2.y, bracketLen, -1f, 1f, bracketPaint)
-        drawCornerBracket(canvas, p3.x, p3.y, bracketLen, -1f, -1f, bracketPaint)
-        drawCornerBracket(canvas, p4.x, p4.y, bracketLen, 1f, -1f, bracketPaint)
+        // 1. Translucent Green Document Highlighting Tint
+        canvas.drawPath(path, fillPaint)
 
-        // 3. Subtle corner dots
-        val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        // 2. Crisp Solid Green Perimeter Line (The iconic CamScanner border)
+        canvas.drawPath(path, polygonPaint)
+
+        // 3. Precision Corner Reticles (White ring with green center)
+        val outerCornerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 3f
+            color = Color.WHITE
+        }
+        val innerCornerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.FILL
             color = strokeColor
         }
-        canvas.drawCircle(p1.x, p1.y, 6f, dotPaint)
-        canvas.drawCircle(p2.x, p2.y, 6f, dotPaint)
-        canvas.drawCircle(p3.x, p3.y, 6f, dotPaint)
-        canvas.drawCircle(p4.x, p4.y, 6f, dotPaint)
+        for (corner in listOf(p1, p2, p3, p4)) {
+            canvas.drawCircle(corner.x, corner.y, 10f, innerCornerPaint)
+            canvas.drawCircle(corner.x, corner.y, 10f, outerCornerPaint)
+        }
 
-        // 4. Auto-Snap countdown progress ring ONLY when explicitly in Auto-Snap mode and stable
+        // 4. Dynamic Laser Scan Beam animation across the document
+        scanAnimProgress += scanAnimDirection
+        if (scanAnimProgress >= 1f) {
+            scanAnimProgress = 1f
+            scanAnimDirection = -0.03f
+        } else if (scanAnimProgress <= 0f) {
+            scanAnimProgress = 0f
+            scanAnimDirection = 0.03f
+        }
+
+        val lx1 = p1.x * (1f - scanAnimProgress) + p4.x * scanAnimProgress
+        val ly1 = p1.y * (1f - scanAnimProgress) + p4.y * scanAnimProgress
+        val lx2 = p2.x * (1f - scanAnimProgress) + p3.x * scanAnimProgress
+        val ly2 = p2.y * (1f - scanAnimProgress) + p3.y * scanAnimProgress
+
+        laserBeamPaint.shader = LinearGradient(
+            lx1, ly1, lx2, ly2,
+            intArrayOf(Color.TRANSPARENT, Color.rgb(0, 230, 118), Color.TRANSPARENT),
+            floatArrayOf(0f, 0.5f, 1f),
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawLine(lx1, ly1, lx2, ly2, laserBeamPaint)
+
+        // 5. Auto-Snap countdown progress ring ONLY when explicitly in Auto-Snap mode and stable
         if (autoSnapEnabled && isStable && autoSnapProgress > 0f) {
             val docCenterX = (p1.x + p2.x + p3.x + p4.x) / 4f
             val docCenterY = (p1.y + p2.y + p3.y + p4.y) / 4f

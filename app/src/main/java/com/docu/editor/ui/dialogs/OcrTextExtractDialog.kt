@@ -159,7 +159,7 @@ fun OcrTextExtractDialog(
                                     color = Color(0xFFDCFCE7)
                                 ) {
                                     Text(
-                                        text = "DOCUSCAN AI OCR",
+                                        text = "DOCUEDIT AI OCR",
                                         color = Color(0xFF15803D),
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.ExtraBold,

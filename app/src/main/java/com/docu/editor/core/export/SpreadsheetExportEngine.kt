@@ -90,11 +90,25 @@ object SpreadsheetExportEngine {
         }
     }
 
+    data class TableExtractionResult(
+        val rows: List<List<String>>,
+        val mergedCellRefs: List<String> = emptyList()
+    )
+
     /**
      * Clusters OCR text items into geometrically aligned table rows and columns with automatic document deskewing.
      */
     fun extractTableRows(items: List<DetectedTextItem>): List<List<String>> {
-        if (items.isEmpty()) return emptyList()
+        return extractTableWithMergedCells(items).rows
+    }
+
+    /**
+     * Enhanced Enterprise Table Extraction with Merged Cell & Span Detection.
+     * Identifies multi-column spanning headers (e.g. "TAX INVOICE DETAILS", "PARTICULARS"),
+     * sub-headers, and multi-line cell wraps.
+     */
+    fun extractTableWithMergedCells(items: List<DetectedTextItem>): TableExtractionResult {
+        if (items.isEmpty()) return TableExtractionResult(emptyList())
 
         // Auto-deskew bounding boxes to true 0.0° if document is tilted
         val skewAngle = estimateDocumentSkewAngle(items)
@@ -112,7 +126,7 @@ object SpreadsheetExportEngine {
             }.filter { row -> row.any { it.isNotBlank() } }
 
             if (extracted.isNotEmpty()) {
-                return normalizeTableColumns(extracted)
+                return TableExtractionResult(normalizeTableColumns(extracted))
             }
         }
 
@@ -139,16 +153,17 @@ object SpreadsheetExportEngine {
         // Discover horizontal column anchors across multi-item rows
         val multiItemRows = rowClusters.filter { it.size >= 2 }
         if (multiItemRows.isEmpty()) {
-            return rowClusters.map { row ->
+            val simpleRows = rowClusters.map { row ->
                 listOf(row.joinToString(" ") { it.text.trim() })
             }.filter { it.first().isNotBlank() }
+            return TableExtractionResult(simpleRows)
         }
 
         val columnAnchors = mutableListOf<Double>()
         for (row in multiItemRows) {
             for (item in row) {
                 val left = item.boundingBox.left.toDouble()
-                val matched = columnAnchors.indexOfFirst { abs(it - left) <= 40.0 }
+                val matched = columnAnchors.indexOfFirst { abs(it - left) <= 45.0 }
                 if (matched >= 0) {
                     columnAnchors[matched] = (columnAnchors[matched] + left) / 2.0
                 } else {
@@ -160,31 +175,58 @@ object SpreadsheetExportEngine {
 
         val numCols = max(2, columnAnchors.size)
         val resultRows = mutableListOf<List<String>>()
+        val mergedRefs = mutableListOf<String>()
 
-        for (row in rowClusters) {
+        for (rIdx in rowClusters.indices) {
+            val row = rowClusters[rIdx]
+            val rowNumber = rIdx + 1
             val cells = MutableList(numCols) { mutableListOf<String>() }
+
             for (item in row) {
-                val cx = item.boundingBox.centerX().toDouble()
-                var closestCol = 0
-                var minDist = Double.MAX_VALUE
-                for (cIdx in 0 until numCols) {
-                    val anchor = columnAnchors[cIdx]
-                    val dist = abs(cx - anchor)
-                    if (dist < minDist) {
-                        minDist = dist
-                        closestCol = cIdx
+                val itemLeft = item.boundingBox.left.toDouble()
+                val itemRight = item.boundingBox.right.toDouble()
+                val itemWidth = item.boundingBox.width().toDouble()
+
+                // Find closest start column anchor
+                var startCol = 0
+                var minStartDist = Double.MAX_VALUE
+                for (c in 0 until numCols) {
+                    val dist = abs(itemLeft - columnAnchors[c])
+                    if (dist < minStartDist) {
+                        minStartDist = dist
+                        startCol = c
                     }
                 }
-                cells[closestCol].add(item.text.trim())
+
+                // Check if cell spans across subsequent columns (merged cell)
+                var endCol = startCol
+                for (c in (startCol + 1) until numCols) {
+                    if (itemRight > (columnAnchors[c] + 15.0)) {
+                        endCol = c
+                    }
+                }
+
+                if (endCol > startCol && itemWidth > 75.0) {
+                    val startLetter = getColumnLetter(startCol)
+                    val endLetter = getColumnLetter(endCol)
+                    mergedRefs.add("$startLetter$rowNumber:$endLetter$rowNumber")
+                    cells[startCol].add(item.text.trim())
+                } else {
+                    cells[startCol].add(item.text.trim())
+                }
             }
 
-            val rowStrings = cells.map { it.joinToString(" ").trim() }
+            // Multi-line cell support: join items inside the same cell column
+            val rowStrings = cells.map { it.joinToString("\n").trim() }
             if (rowStrings.any { it.isNotBlank() }) {
                 resultRows.add(rowStrings)
             }
         }
 
-        return normalizeTableColumns(resultRows)
+        return TableExtractionResult(
+            rows = normalizeTableColumns(resultRows),
+            mergedCellRefs = mergedRefs
+        )
     }
 
     /**
@@ -342,10 +384,14 @@ object SpreadsheetExportEngine {
                 for ((idx, pageKey) in sortedPageKeys.withIndex()) {
                     val sheetNum = idx + 1
                     val items = pagesItems[pageKey] ?: emptyList()
-                    val rows = extractTableRows(items)
+                    val extraction = extractTableWithMergedCells(items)
 
                     zip.putNextEntry(ZipEntry("xl/worksheets/sheet$sheetNum.xml"))
-                    val sheetXml = generateWorksheetXml(rows, isFirstSheet = (sheetNum == 1))
+                    val sheetXml = generateWorksheetXml(
+                        rows = extraction.rows,
+                        isFirstSheet = (sheetNum == 1),
+                        mergedCellRefs = extraction.mergedCellRefs
+                    )
                     zip.write(sheetXml.toByteArray(StandardCharsets.UTF_8))
                     zip.closeEntry()
                 }
@@ -471,7 +517,11 @@ object SpreadsheetExportEngine {
      * Builds individual worksheet XML following exact OpenXML schema:
      * <dimension> -> <sheetViews> -> <sheetFormatPr> -> <cols> -> <sheetData> -> <pageMargins>
      */
-    private fun generateWorksheetXml(rows: List<List<String>>, isFirstSheet: Boolean): String {
+    private fun generateWorksheetXml(
+        rows: List<List<String>>,
+        isFirstSheet: Boolean,
+        mergedCellRefs: List<String> = emptyList()
+    ): String {
         val totalRows = rows.size
         val totalCols = if (rows.isNotEmpty()) rows.maxOf { it.size } else 1
 
@@ -523,7 +573,7 @@ object SpreadsheetExportEngine {
 
                     if (isHeaderRow) {
                         val escaped = sanitizeForXml(cellText)
-                        sb.append("""<c r="$cellRef" t="inlineStr" s="1"><is><t>$escaped</t></is></c>""")
+                        sb.append("""<c r="$cellRef" t="inlineStr" s="1"><is><t xml:space="preserve">$escaped</t></is></c>""")
                     } else {
                         val parsed = parseCellContent(cellText, isTotalRow)
                         when (parsed) {
@@ -532,7 +582,7 @@ object SpreadsheetExportEngine {
                             }
                             is CellValue.Text -> {
                                 val escaped = sanitizeForXml(parsed.text)
-                                sb.append("""<c r="$cellRef" t="inlineStr" s="${parsed.styleId}"><is><t>$escaped</t></is></c>""")
+                                sb.append("""<c r="$cellRef" t="inlineStr" s="${parsed.styleId}"><is><t xml:space="preserve">$escaped</t></is></c>""")
                             }
                         }
                     }
@@ -541,6 +591,15 @@ object SpreadsheetExportEngine {
             sb.append("""</row>""")
         }
         sb.append("""</sheetData>""")
+
+        // OpenXML Genuine Merged Cells
+        if (mergedCellRefs.isNotEmpty()) {
+            sb.append("""<mergeCells count="${mergedCellRefs.size}">""")
+            for (mRef in mergedCellRefs) {
+                sb.append("""<mergeCell ref="$mRef"/>""")
+            }
+            sb.append("""</mergeCells>""")
+        }
 
         sb.append("""<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>""")
         sb.append("""</worksheet>""")
