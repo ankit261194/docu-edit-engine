@@ -24,6 +24,7 @@ class ApkDownloadInstaller(private val context: Context) {
     private val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
     private var downloadId: Long = -1L
     private var receiverRegistered = false
+    private val updatePrefs by lazy { context.getSharedPreferences("docu_update_installer", Context.MODE_PRIVATE) }
 
     suspend fun downloadInAppStream(
         apkUrl: String,
@@ -34,6 +35,21 @@ class ApkDownloadInstaller(private val context: Context) {
             context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.cacheDir,
             fileName
         )
+
+        // 1. Instant Cache Check: If valid, complete APK is already downloaded, reuse it immediately!
+        if (destFile.exists() && destFile.length() > 10 * 1024 * 1024L) {
+            try {
+                val archiveInfo = context.packageManager.getPackageArchiveInfo(destFile.absolutePath, 0)
+                if (archiveInfo != null) {
+                    val fileMb = destFile.length() / (1024f * 1024f)
+                    withContext(Dispatchers.Main) {
+                        onProgress(1f, fileMb, fileMb)
+                    }
+                    return@withContext destFile
+                }
+            } catch (_: Exception) {}
+        }
+
         if (destFile.exists()) destFile.delete()
 
         val url = URL(apkUrl)
@@ -141,11 +157,54 @@ class ApkDownloadInstaller(private val context: Context) {
         receiverRegistered = true
     }
 
+    /**
+     * Checks if a pending APK install was waiting for the user to grant
+     * 'Install Unknown Apps' permission, and resumes installation automatically.
+     */
+    fun checkAndResumePendingInstall() {
+        val pendingPath = updatePrefs.getString("pending_install_path", null) ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (context.packageManager.canRequestPackageInstalls()) {
+                updatePrefs.edit().remove("pending_install_path").apply()
+                val pendingFile = File(pendingPath)
+                if (pendingFile.exists()) {
+                    installApk(pendingFile)
+                }
+            }
+        } else {
+            updatePrefs.edit().remove("pending_install_path").apply()
+            val pendingFile = File(pendingPath)
+            if (pendingFile.exists()) {
+                installApk(pendingFile)
+            }
+        }
+    }
+
     fun installApk(apkFile: File) {
         if (!apkFile.exists()) {
             Toast.makeText(context, "Downloaded update file not found", Toast.LENGTH_SHORT).show()
             return
         }
+
+        // 1. Android 8.0+ Unknown App Sources Permission Check
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!context.packageManager.canRequestPackageInstalls()) {
+                updatePrefs.edit().putString("pending_install_path", apkFile.absolutePath).apply()
+                val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                try {
+                    context.startActivity(intent)
+                    Toast.makeText(context, "Please allow 'Install unknown apps' to complete the update", Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Unable to open install settings: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                }
+                return
+            }
+        }
+
+        updatePrefs.edit().remove("pending_install_path").apply()
 
         val apkUri: Uri = FileProvider.getUriForFile(
             context,
@@ -157,7 +216,6 @@ class ApkDownloadInstaller(private val context: Context) {
             setDataAndType(apkUri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
         }
 
         try {

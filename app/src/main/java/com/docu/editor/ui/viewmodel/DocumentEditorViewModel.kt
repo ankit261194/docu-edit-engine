@@ -1177,7 +1177,12 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     // --- Text Selection & Inpainting Replacement ---
 
     fun selectTextItem(item: DetectedTextItem?) {
-        _uiState.update { it.copy(selectedItem = item) }
+        _uiState.update {
+            it.copy(
+                selectedItem = item,
+                activeToolMode = if (item != null) EditorToolMode.TEXT_EDIT else it.activeToolMode
+            )
+        }
     }
 
     fun updateSelectedItemBounds(item: DetectedTextItem, newBounds: Rect) {
@@ -1509,7 +1514,18 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     )
 
                     // Measure unconstrained natural width of the new text at document line height
-                    val naturalFontSize = singleLineH * 0.85f * sizeMultiplier
+                    val targetHasCapOrAsc = targetItem.text.any { it.isUpperCase() || it in "bdfhklt1234567890$€₹£" }
+                    val targetHasDesc = targetItem.text.any { it in "gjpqy" }
+                    val normalizedLineH = if (allSameLineItems.isNotEmpty()) {
+                        allSameLineItems.maxOf { it.boundingBox.height().toFloat() }.coerceAtLeast(
+                            if (!targetHasCapOrAsc && !targetHasDesc) singleLineH * 1.40f else singleLineH
+                        )
+                    } else if (!targetHasCapOrAsc && !targetHasDesc) {
+                        singleLineH * 1.40f
+                    } else {
+                        singleLineH
+                    }
+                    val naturalFontSize = normalizedLineH * 0.85f * sizeMultiplier
                     val testPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                         typeface = fontMatcher.getDocumentTypeface(effectiveFont, effectiveBold ?: false)
                         textSize = naturalFontSize

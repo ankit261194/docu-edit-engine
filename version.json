@@ -1,12 +1,12 @@
 {
-  "versionCode": 47,
-  "versionName": "10.8.1",
+  "versionCode": 48,
+  "versionName": "10.8.2",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.8.1 (Forensic Camera Photo Text Editor & Engine Perfection)",
-  "changelog": "🚀 Major Flagship Release v10.8.1 — Forensic Realism & Real-World Engine Perfection:\n• Forensic Camera Text Editor: Line-level neighboring ink sampling & luminance matching (zero jet-black stickers).\n• Seamless Stroke Inpainting: Alpha-channeled inpainting preserving authentic camera paper grain (zero rectangular white patches).\n• Optical Camera Blur (PSF): 2-pass alpha-weighted Gaussian convolution eliminates dark halos & matches lens softness.\n• Typography Consensus: Terminal flare ratio & line consensus prevents Times New Roman / Serif from mutating to Arial.\n• Spine Shadow Remover: Chromaticity-preserving proportional illumination for book pages.\n• Micro-Tuning Realism Controls: Live sliders for Camera Blur, Baseline Nudge, Paper Blending, and Ink Tone in Text Edit dialog.\n• Engine Hardening: 58 unit tests passing across Devanagari OCR, Receipt GST, Vault AES-256-GCM, and Expiry Watchdog.",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.1/DocuEdit-v10.8.1-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.1/DocuEdit-v10.8.1-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.1/DocuEdit-v10.8.1-arm64.apk",
-  "apkFileName": "DocuEdit-v10.8.1-arm64.apk",
+  "releaseTitle": "DocuEdit Pro v10.8.2 (Seamless 1-Click Update & Forensic Perfection)",
+  "changelog": "⚡ Seamless 1-Click AutoUpdate & Forensic Camera Engine Perfection:\n• Complete Underlying Text Erasure: Dual-engine Navier-Stokes & Telea full-box inpainting obliterates original text with zero ghosting or double text.\n• 100% Reliable Word Tap & Autofetch: Micro-pan tap tolerance and high-precision word hit-testing instantly loads text into edit sheet.\n• Font Size & Baseline Alignment: CapHeight normalization for lowercase words ('are', 'on') and line-level median baseline lock.\n• AutoUpdate Loop Solved: Strict semantic version verification permanently eliminates repeat update prompts post-installation.\n• Permission Auto-Resume: Seamlessly resumes APK installation upon returning from Android Unknown Apps settings.",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.2/DocuEdit-v10.8.2-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.2/DocuEdit-v10.8.2-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.2/DocuEdit-v10.8.2-arm64.apk",
+  "apkFileName": "DocuEdit-v10.8.2-arm64.apk",
   "apkSizeMb": 105.4
 }

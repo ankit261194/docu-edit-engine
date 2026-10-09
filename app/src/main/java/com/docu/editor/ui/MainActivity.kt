@@ -162,11 +162,10 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
     private val apkInstaller by lazy { ApkDownloadInstaller(this) }
 
     private var tempCameraUri: Uri? = null
-    private val updateCheckTrigger = mutableIntStateOf(0)
 
     override fun onResume() {
         super.onResume()
-        updateCheckTrigger.intValue++
+        apkInstaller.checkAndResumePendingInstall()
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -225,6 +224,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 val snackbarHostState = remember { SnackbarHostState() }
                 val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
                 var pendingUpdate by remember { mutableStateOf<UpdateInfo?>(null) }
+                var hasDismissedUpdateInSession by remember { mutableStateOf(false) }
                 var showFiltersRow by remember { mutableStateOf(false) }
                 var currentSignSourceBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
                 var showCountCamDialog by remember { mutableStateOf(false) }
@@ -256,9 +256,9 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                     }
                 }
 
-                LaunchedEffect(updateCheckTrigger.intValue) {
-                    val info = updateManager.checkForUpdates()
-                    if (info.hasUpdate) {
+                LaunchedEffect(Unit) {
+                    val info = updateManager.checkForUpdates(forceCheck = false)
+                    if (info.hasUpdate && !hasDismissedUpdateInSession) {
                         pendingUpdate = info
                     }
                 }
@@ -1063,7 +1063,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                     onCheckUpdateClicked = {
                                         lifecycleScope.launch {
                                             Toast.makeText(this@MainActivity, "Checking for latest updates...", Toast.LENGTH_SHORT).show()
-                                            val info = updateManager.checkForUpdates()
+                                            val info = updateManager.checkForUpdates(forceCheck = true)
                                             if (info.hasUpdate) {
                                                 pendingUpdate = info
                                             } else {
@@ -1380,7 +1380,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                 onCheckUpdateClicked = {
                                     lifecycleScope.launch {
                                         Toast.makeText(this@MainActivity, "Checking for latest updates...", Toast.LENGTH_SHORT).show()
-                                        val info = updateManager.checkForUpdates()
+                                        val info = updateManager.checkForUpdates(forceCheck = true)
                                         if (info.hasUpdate) {
                                             pendingUpdate = info
                                         } else {
@@ -2194,8 +2194,12 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                         pendingUpdate?.let { updateInfo ->
                             UpdateDialog(
                                 updateInfo = updateInfo,
-                                onDismiss = { pendingUpdate = null },
+                                onDismiss = {
+                                    pendingUpdate = null
+                                    hasDismissedUpdateInSession = true
+                                },
                                 onInstallLocalApk = { file ->
+                                    pendingUpdate = null
                                     apkInstaller.installApk(file)
                                 },
                                 onDownloadInApp = { url, name, onProg ->

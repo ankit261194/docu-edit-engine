@@ -879,7 +879,7 @@ fun DocumentInteractiveCanvas(
                                     }
                                 }
                                 liveTextDragBounds = null
-                                val isTap = !isDrag || (chosenHandle == CanvasHandleType.NONE && totalPan.getDistance() < 28.dp.toPx())
+                                val isTap = totalPan.getDistance() < 24.dp.toPx()
                                 if (isTap) {
                                     val now = System.currentTimeMillis()
                                     if (now - lastTapTime < 320L && kotlin.math.hypot((startOffset.x - lastTapPosition.x).toDouble(), (startOffset.y - lastTapPosition.y).toDouble()) < 48.0) {
@@ -943,12 +943,17 @@ fun DocumentInteractiveCanvas(
                                         }
 
                                         if (!handledBySearch) {
-                                            if (activeMode == EditorToolMode.TEXT_EDIT) {
-                                                // 100% Guaranteed High-Precision Text Selection & Auto-fetch
-                                                var hitItem = currentDetectedItems.firstOrNull { item ->
-                                                    item.boundingBox.contains(docX.toInt(), docY.toInt())
+                                            // 100% Guaranteed High-Precision Word Hit-Testing & Auto-Selection
+                                            var hitItem: DetectedTextItem? = null
+                                            if (currentDetectedItems.isNotEmpty()) {
+                                                // 1. Direct containment: pick the one with the smallest bounding box (most specific word)
+                                                val containingItems = currentDetectedItems.filter { it.boundingBox.contains(docX.toInt(), docY.toInt()) }
+                                                if (containingItems.isNotEmpty()) {
+                                                    hitItem = containingItems.minByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                                                 }
-                                                if (hitItem == null && currentDetectedItems.isNotEmpty()) {
+
+                                                // 2. Proximity snap: If not directly contained, find closest item within snap radius
+                                                if (hitItem == null) {
                                                     val snapRadiusPx = 36.dp.toPx() / effectiveScale
                                                     var closestDistance = Float.MAX_VALUE
                                                     for (item in currentDetectedItems) {
@@ -963,36 +968,29 @@ fun DocumentInteractiveCanvas(
                                                             docY > b.bottom -> docY - b.bottom
                                                             else -> 0f
                                                         }
-                                                        val dist = kotlin.math.hypot(ddx, ddy)
+                                                        val dist = kotlin.math.hypot(ddx.toDouble(), ddy.toDouble()).toFloat()
                                                         if (dist <= snapRadiusPx && dist < closestDistance) {
                                                             closestDistance = dist
                                                             hitItem = item
                                                         }
                                                     }
                                                 }
-                                                if (hitItem != null) {
-                                                    if (currentSelectedLayerId != null) {
-                                                        currentOnSelectLayer(null)
-                                                    }
-                                                    currentOnTextItemTapped(hitItem)
-                                                } else {
-                                                    if (currentSelectedLayerId != null) {
-                                                        currentOnSelectLayer(null)
-                                                    } else {
-                                                        currentOnTextItemTapped(null)
-                                                    }
-                                                }
-                                            } else if (chosenHandle == CanvasHandleType.NONE) {
+                                            }
+
+                                            if (hitItem != null) {
                                                 if (currentSelectedLayerId != null) {
                                                     currentOnSelectLayer(null)
-                                                } else {
-                                                    if (activeMode == EditorToolMode.ADD_TEXT) {
-                                                        if (docX in 0f..bitmap.width.toFloat() && docY in 0f..bitmap.height.toFloat()) {
-                                                            currentOnInsertTextTouch(docX, docY)
-                                                        }
-                                                    } else {
-                                                        currentOnTextItemTapped(null)
+                                                }
+                                                currentOnTextItemTapped(hitItem)
+                                            } else {
+                                                if (currentSelectedLayerId != null) {
+                                                    currentOnSelectLayer(null)
+                                                } else if (activeMode == EditorToolMode.ADD_TEXT) {
+                                                    if (docX in 0f..bitmap.width.toFloat() && docY in 0f..bitmap.height.toFloat()) {
+                                                        currentOnInsertTextTouch(docX, docY)
                                                     }
+                                                } else if (activeMode == EditorToolMode.TEXT_EDIT) {
+                                                    currentOnTextItemTapped(null)
                                                 }
                                             }
                                         }

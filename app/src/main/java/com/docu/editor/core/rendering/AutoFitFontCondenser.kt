@@ -144,19 +144,35 @@ object AutoFitFontCondenser {
         // 2. Measure actual standard reference glyph ink height using Paint.getTextBounds
         // Calibrate font size so cap-height matches original document characters exactly.
         val origHasDescenders = originalText.any { it in "qypgj" }
+        val origHasCapOrAscender = originalText.any { it.isUpperCase() || it in "bdfhklt1234567890$€₹£" }
         val refChar = if (effectiveText.any { it in '\u0900'..'\u097F' }) "क" else "H"
         val refBounds = Rect()
         paint.getTextBounds(refChar, 0, 1, refBounds)
         val measuredCapH = refBounds.height().toFloat()
 
         if (measuredCapH > 2f) {
-            val desiredCapH = if (origHasDescenders) {
-                targetHeight * 0.80f * sizeMultiplier
-            } else {
-                targetHeight * 0.95f * sizeMultiplier
+            val desiredCapH = when {
+                !origHasCapOrAscender && !origHasDescenders -> {
+                    // Original word was short lowercase x-height only (e.g. "are", "on", "was", "seen", "or", "me").
+                    // In Latin typography, x-height is ~50% of EM, and CapHeight is ~72% of EM.
+                    // Scale desired CapHeight up by 1.40x so capitalized or taller replacement words don't shrink to 50% size!
+                    (targetHeight * 1.40f) * sizeMultiplier
+                }
+                !origHasCapOrAscender && origHasDescenders -> {
+                    // Lowercase with descenders (e.g. "my", "you", "go", "eye")
+                    (targetHeight * 0.98f) * sizeMultiplier
+                }
+                origHasDescenders -> {
+                    // Cap/Ascender + Descender (e.g. "Page", "Help", "Typing")
+                    targetHeight * 0.78f * sizeMultiplier
+                }
+                else -> {
+                    // Cap/Ascender without descenders (e.g. "Doctor", "Invoice", "Total")
+                    targetHeight * 0.95f * sizeMultiplier
+                }
             }
             val calibrationRatio = desiredCapH / measuredCapH
-            fontSize = (fontSize * calibrationRatio).coerceIn(6f, targetHeight * 1.8f)
+            fontSize = (fontSize * calibrationRatio).coerceIn(6f, targetHeight * 2.2f)
             paint.textSize = fontSize
         }
 

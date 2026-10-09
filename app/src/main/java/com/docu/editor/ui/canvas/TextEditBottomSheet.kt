@@ -49,6 +49,7 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -162,6 +163,19 @@ fun TextEditBottomSheet(
     var selectedAlignment by remember(item.id) { mutableStateOf(android.graphics.Paint.Align.LEFT) }
     var showCustomColorPicker by remember(item.id) { mutableStateOf(false) }
     var customHue by remember(item.id) { mutableFloatStateOf(0f) }
+
+    // Guaranteed Autofetch Synchronization: Whenever the tapped item changes,
+    // immediately re-populate the text, font, weight, and ink color.
+    LaunchedEffect(item.id, item.text) {
+        editedText = TextFieldValue(
+            text = item.text,
+            selection = TextRange(0, item.text.length)
+        )
+        selectedFontType = autoDetectedClassification
+        isBold = autoDetectedBold
+        selectedColorRgb = item.inkColorRgb
+        sizeMultiplier = 1.0f
+    }
 
     // Pro Realism & Camera Photo Tuning States:
     var cameraBlurSigma by remember(item.id) { mutableFloatStateOf(1.2f) }

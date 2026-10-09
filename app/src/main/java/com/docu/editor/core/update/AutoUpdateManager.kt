@@ -32,12 +32,23 @@ class AutoUpdateManager(
 
         // 0. 6-Hour Cache Validation to protect GitHub API rate-limits
         if (!forceCheck && (now - lastCheckTime) < sixHoursMs) {
-            val cachedHasUpdate = prefs.getBoolean("cached_has_update", false)
             val cachedVer = prefs.getString("cached_latest_version", null)
-            val cachedUrl = prefs.getString("cached_apk_url", null)
             if (cachedVer != null) {
+                val hasActualUpdate = prefs.getBoolean("cached_has_update", false) && isSemanticVersionNewer(currentVersion, cachedVer)
+                if (!hasActualUpdate) {
+                    return@withContext UpdateInfo(
+                        hasUpdate = false,
+                        currentVersion = currentVersion,
+                        latestVersion = currentVersion,
+                        releaseTitle = "",
+                        changelog = "",
+                        apkDownloadUrl = null,
+                        apkFileName = null
+                    )
+                }
+                val cachedUrl = prefs.getString("cached_apk_url", null)
                 return@withContext UpdateInfo(
-                    hasUpdate = cachedHasUpdate,
+                    hasUpdate = true,
                     currentVersion = currentVersion,
                     latestVersion = cachedVer,
                     releaseTitle = prefs.getString("cached_title", "") ?: "",
@@ -264,47 +275,54 @@ class AutoUpdateManager(
      */
     fun checkLocalDownloadsForUpdate(currentVersion: String, currentVersionCode: Long): UpdateInfo? {
         try {
-            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            if (!downloadsDir.exists() || !downloadsDir.isDirectory) return null
-
-            val apkFiles = downloadsDir.listFiles { file ->
-                file.isFile && file.name.endsWith(".apk", ignoreCase = true) &&
-                        (file.name.contains("DocuEdit", ignoreCase = true) || file.name.contains("app-", ignoreCase = true))
-            } ?: return null
+            val candidateDirs = listOfNotNull(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
+                File(context.cacheDir, "updates")
+            ).filter { it.exists() && it.isDirectory }
 
             var newestApk: File? = null
             var newestCode = currentVersionCode
             var newestName = currentVersion
 
-            for (apk in apkFiles) {
-                try {
-                    val archiveInfo = context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
-                    if (archiveInfo != null) {
-                        val apkCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            archiveInfo.longVersionCode
-                        } else {
-                            @Suppress("DEPRECATION")
-                            archiveInfo.versionCode.toLong()
-                        }
-                        val apkVersionName = archiveInfo.versionName ?: "1.0.0"
+            for (dir in candidateDirs) {
+                val apkFiles = dir.listFiles { file ->
+                    file.isFile && file.name.endsWith(".apk", ignoreCase = true) &&
+                            (file.name.contains("DocuEdit", ignoreCase = true) || file.name.contains("app-", ignoreCase = true))
+                } ?: continue
 
-                        if (apkCode > newestCode || isSemanticVersionNewer(newestName, apkVersionName)) {
-                            newestCode = apkCode
-                            newestName = apkVersionName
-                            newestApk = apk
+                for (apk in apkFiles) {
+                    try {
+                        val archiveInfo = context.packageManager.getPackageArchiveInfo(apk.absolutePath, 0)
+                        if (archiveInfo != null) {
+                            val apkCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                archiveInfo.longVersionCode
+                            } else {
+                                @Suppress("DEPRECATION")
+                                archiveInfo.versionCode.toLong()
+                            }
+                            val apkVersionName = archiveInfo.versionName ?: "1.0.0"
+
+                            // Must be strictly newer than installed version
+                            val isNewer = apkCode > currentVersionCode || isSemanticVersionNewer(currentVersion, apkVersionName)
+                            if (isNewer && (apkCode > newestCode || isSemanticVersionNewer(newestName, apkVersionName))) {
+                                newestCode = apkCode
+                                newestName = apkVersionName
+                                newestApk = apk
+                            }
                         }
-                    }
-                } catch (_: Exception) {}
+                    } catch (_: Exception) {}
+                }
             }
 
-            if (newestApk != null) {
+            if (newestApk != null && (newestCode > currentVersionCode || isSemanticVersionNewer(currentVersion, newestName))) {
                 val sizeMb = newestApk.length() / (1024f * 1024f)
                 return UpdateInfo(
                     hasUpdate = true,
                     currentVersion = currentVersion,
                     latestVersion = newestName,
                     releaseTitle = "🎉 New Update Ready (v$newestName)",
-                    changelog = "A new update file (${newestApk.name}) was detected in your Downloads folder. Tap below to install it immediately!",
+                    changelog = "A new update file (${newestApk.name}) was detected on your device. Tap below to install it immediately!",
                     apkDownloadUrl = null,
                     apkFileName = newestApk.name,
                     apkSizeMb = sizeMb,
@@ -348,9 +366,11 @@ class AutoUpdateManager(
         }
     }
 
-    private fun isSemanticVersionNewer(current: String, candidate: String): Boolean {
-        val currParts = current.split(".").map { it.toIntOrNull() ?: 0 }
-        val candParts = candidate.split(".").map { it.toIntOrNull() ?: 0 }
+    fun isSemanticVersionNewer(current: String, candidate: String): Boolean {
+        val currClean = current.trim().removePrefix("v").removePrefix("V")
+        val candClean = candidate.trim().removePrefix("v").removePrefix("V")
+        val currParts = currClean.split(".").map { it.toIntOrNull() ?: 0 }
+        val candParts = candClean.split(".").map { it.toIntOrNull() ?: 0 }
         val maxLen = maxOf(currParts.size, candParts.size)
 
         for (i in 0 until maxLen) {

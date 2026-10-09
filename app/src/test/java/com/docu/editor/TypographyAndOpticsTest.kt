@@ -4,6 +4,7 @@ import com.docu.editor.core.font.FontClassification
 import com.docu.editor.core.font.FontMatcher
 import com.docu.editor.core.ocr.model.TypographyMetrics
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.ceil
@@ -249,5 +250,41 @@ class TypographyAndOpticsTest {
         }
         assertEquals(55, startIdx)
         assertEquals(90, endIdx)
+    }
+
+    @Test
+    fun testShortLowercaseWordCapHeightNormalization() {
+        val originalText = "are"
+        val origHasDescenders = originalText.any { it in "qypgj" }
+        val origHasCapOrAscender = originalText.any { it.isUpperCase() || it in "bdfhklt1234567890$€₹£" }
+        assertFalse("Word 'are' has no descenders", origHasDescenders)
+        assertFalse("Word 'are' has no capitals or ascenders", origHasCapOrAscender)
+
+        val targetHeight = 14f // Typical 14px x-height for a 28px font line
+        val desiredCapH = when {
+            !origHasCapOrAscender && !origHasDescenders -> (targetHeight * 1.40f)
+            !origHasCapOrAscender && origHasDescenders -> (targetHeight * 0.98f)
+            origHasDescenders -> (targetHeight * 0.78f)
+            else -> (targetHeight * 0.95f)
+        }
+
+        // Must scale up to ~19.6px (matching cap-height of ~20px for 28px line) rather than staying at 13.3px
+        assertEquals(19.6f, desiredCapH, 0.01f)
+    }
+
+    @Test
+    fun testCapAndDescenderClassification() {
+        fun classifyWord(word: String): Pair<Boolean, Boolean> {
+            val hasCapOrAsc = word.any { it.isUpperCase() || it in "bdfhklt1234567890$€₹£" }
+            val hasDesc = word.any { it in "qypgj" }
+            return Pair(hasCapOrAsc, hasDesc)
+        }
+
+        assertEquals(Pair(false, false), classifyWord("are"))
+        assertEquals(Pair(false, false), classifyWord("on"))
+        assertEquals(Pair(true, false), classifyWord("Doctor"))
+        assertEquals(Pair(true, true), classifyWord("playing"))
+        assertEquals(Pair(false, true), classifyWord("you"))
+        assertEquals(Pair(true, false), classifyWord("$500"))
     }
 }

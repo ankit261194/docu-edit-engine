@@ -175,27 +175,31 @@ class BackgroundInpainter {
     private fun inpaintWithOpenCv(
         source: Bitmap,
         target: Rect,
-        padding: Int = 14
+        padding: Int = 18
     ): Bitmap? {
         val width = source.width
         val height = source.height
-        val cropLeft = max(0, target.left - padding)
-        val cropTop = max(0, target.top - padding)
-        val cropRight = min(width, target.right + padding)
-        val cropBottom = min(height, target.bottom + padding)
+        val dynamicPadding = (target.height() * 0.45f).toInt().coerceIn(16, 44)
+        val pad = max(padding, dynamicPadding)
+        val cropLeft = max(0, target.left - pad)
+        val cropTop = max(0, target.top - pad)
+        val cropRight = min(width, target.right + pad)
+        val cropBottom = min(height, target.bottom + pad)
         val cropW = cropRight - cropLeft
         val cropH = cropBottom - cropTop
-        if (cropW <= 2 || cropH <= 2) return null
+        if (cropW <= 4 || cropH <= 4) return null
 
         val cropBitmap = Bitmap.createBitmap(source, cropLeft, cropTop, cropW, cropH)
         val srcMat = Mat()
         val rgbMat = Mat()
         val grayMat = Mat()
-        val maskMat = Mat()
+        val inpaintMask = Mat()
         val teleaMat = Mat()
         val nsMat = Mat()
         val inpaintMat = Mat()
         val restoredCrop = Mat()
+        val ringMat = Mat()
+        val blendAlpha = Mat()
 
         return try {
             Utils.bitmapToMat(cropBitmap, srcMat)
@@ -204,75 +208,61 @@ class BackgroundInpainter {
 
             val paperLuma = estimateLocalPaperLuma(grayMat)
 
-            // 1. Build shadow-free and line-preserving text mask using PrecisionMaskBuilder
+            // 1. Calculate relative target bounds inside crop
             val relTarget = Rect(
                 max(0, target.left - cropLeft),
                 max(0, target.top - cropTop),
                 min(cropW, target.right - cropLeft),
                 min(cropH, target.bottom - cropTop)
             )
-            PrecisionMaskBuilder.buildShadowFreeMask(rgbMat, relTarget, maskMat)
 
-            // If precision mask produced very few pixels (e.g. low contrast), fallback to adaptive ink threshold
-            if (org.opencv.core.Core.countNonZero(maskMat) < 10) {
-                val inkThreshold = (paperLuma - 20.0).coerceIn(40.0, 215.0)
-                Imgproc.threshold(grayMat, maskMat, inkThreshold, 255.0, Imgproc.THRESH_BINARY_INV)
+            // Define complete erase rectangle with safety margin (3-7px)
+            // This guarantees 100% complete eradication of old letters, ascenders, descenders, and antialiased fringes.
+            val safetyPadX = (target.height() * 0.08f).toInt().coerceIn(3, 7)
+            val safetyPadY = (target.height() * 0.06f).toInt().coerceIn(2, 6)
+            val eraseLeft = max(1, relTarget.left - safetyPadX)
+            val eraseTop = max(1, relTarget.top - safetyPadY)
+            val eraseRight = min(cropW - 2, relTarget.right + safetyPadX)
+            val eraseBottom = min(cropH - 2, relTarget.bottom + safetyPadY)
 
-                val maskPad = (target.height() * 0.12f).toInt().coerceIn(3, 8)
-                val relLeft = max(0, target.left - cropLeft - maskPad)
-                val relTop = max(0, target.top - cropTop - (maskPad / 2))
-                val relRight = min(maskMat.cols(), target.right - cropLeft + maskPad)
-                val relBottom = min(maskMat.rows(), target.bottom - cropTop + (maskPad / 2))
+            // Build solid inpaint mask over the entire erase area
+            Mat.zeros(cropH, cropW, CvType.CV_8UC1).copyTo(inpaintMask)
+            Imgproc.rectangle(
+                inpaintMask,
+                org.opencv.core.Point(eraseLeft.toDouble(), eraseTop.toDouble()),
+                org.opencv.core.Point(eraseRight.toDouble(), eraseBottom.toDouble()),
+                Scalar(255.0),
+                -1 // FILLED
+            )
 
-                for (r in 0 until maskMat.rows()) {
-                    if (r < relTop || r >= relBottom) {
-                        val row = maskMat.row(r)
-                        row.setTo(Scalar(0.0))
-                        row.release()
-                    }
-                }
-                for (c in 0 until maskMat.cols()) {
-                    if (c < relLeft || c >= relRight) {
-                        val col = maskMat.col(c)
-                        col.setTo(Scalar(0.0))
-                        col.release()
-                    }
-                }
-                val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(5.0, 5.0))
-                Imgproc.dilate(maskMat, maskMat, kernel)
-                kernel.release()
-            }
+            // 2. Dual-Engine Navier-Stokes + Fast Marching Telea Inpainting:
+            // Reconstructs clean paper background across the entire erase rectangle from perimeter paper
+            val inpaintRad = (target.height() * 0.12).coerceIn(3.0, 9.0)
+            Photo.inpaint(rgbMat, inpaintMask, nsMat, inpaintRad + 1.0, Photo.INPAINT_NS)
+            Photo.inpaint(rgbMat, inpaintMask, teleaMat, inpaintRad, Photo.INPAINT_TELEA)
+            org.opencv.core.Core.addWeighted(nsMat, 0.60, teleaMat, 0.40, 0.0, inpaintMat)
 
-            // 2. Dual-Engine Navier-Stokes + Telea Inpainting:
-            // Adapt inpaint radius dynamically to character height
-            val inpaintRad = (target.height() * 0.08).coerceIn(2.5, 7.5)
-            Photo.inpaint(rgbMat, maskMat, nsMat, inpaintRad + 0.5, Photo.INPAINT_NS)
-            Photo.inpaint(rgbMat, maskMat, teleaMat, inpaintRad, Photo.INPAINT_TELEA)
-            org.opencv.core.Core.addWeighted(nsMat, 0.65, teleaMat, 0.35, 0.0, inpaintMat)
-
-            // 3. Inject matching local micro paper noise
-            val ringMat = Mat()
+            // 3. Inject authentic matching local micro paper noise
             val ringKernel = Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(13.0, 13.0))
-            Imgproc.dilate(maskMat, ringMat, ringKernel)
+            Imgproc.dilate(inpaintMask, ringMat, ringKernel)
             ringKernel.release()
-            org.opencv.core.Core.subtract(ringMat, maskMat, ringMat)
+            org.opencv.core.Core.subtract(ringMat, inpaintMask, ringMat)
 
             val meanMat = org.opencv.core.MatOfDouble()
             val stddevMat = org.opencv.core.MatOfDouble()
             org.opencv.core.Core.meanStdDev(rgbMat, meanMat, stddevMat, ringMat)
-            ringMat.release()
             val stdArr = stddevMat.toArray()
             val grainSigma = if (stdArr.isNotEmpty()) stdArr[0].coerceIn(0.5, 6.0) else 1.5
             meanMat.release()
             stddevMat.release()
 
-            if (grainSigma > 1.2) {
+            if (grainSigma > 1.0) {
                 val floatDst = Mat()
                 inpaintMat.convertTo(floatDst, CvType.CV_32FC3)
                 val noiseMat = Mat(inpaintMat.size(), CvType.CV_32FC3)
-                org.opencv.core.Core.randn(noiseMat, 0.0, grainSigma * 0.55)
+                org.opencv.core.Core.randn(noiseMat, 0.0, grainSigma * 0.50)
                 val floatMask = Mat()
-                maskMat.convertTo(floatMask, CvType.CV_32FC1, 1.0 / 255.0)
+                inpaintMask.convertTo(floatMask, CvType.CV_32FC1, 1.0 / 255.0)
                 val chs = mutableListOf<Mat>()
                 org.opencv.core.Core.split(noiseMat, chs)
                 for (ch in chs) org.opencv.core.Core.multiply(ch, floatMask, ch)
@@ -285,19 +275,32 @@ class BackgroundInpainter {
                 floatDst.release()
             }
 
-            // 4. Seamless Stroke-Only Blending:
-            // Feather the stroke mask by 0.8px so edges transition invisibly into genuine camera paper
-            val featheredMask = Mat()
-            Imgproc.GaussianBlur(maskMat, featheredMask, Size(3.0, 3.0), 0.8)
+            // 4. Seamless Boundary Feathering:
+            // Inside relTarget: 100% Opaque (Alpha = 255) so the old text is completely obliterated!
+            // Outside relTarget up to eraseRect margin: Smooth 3-5px Gaussian falloff into genuine paper.
+            Mat.zeros(cropH, cropW, CvType.CV_8UC1).copyTo(blendAlpha)
+            Imgproc.rectangle(
+                blendAlpha,
+                org.opencv.core.Point(eraseLeft.toDouble(), eraseTop.toDouble()),
+                org.opencv.core.Point(eraseRight.toDouble(), eraseBottom.toDouble()),
+                Scalar(255.0),
+                -1
+            )
+            Imgproc.GaussianBlur(blendAlpha, blendAlpha, Size(7.0, 7.0), 1.8)
 
-            // Compose RGBA with inpaintMat (RGB) and featheredMask (Alpha):
-            // Outside the stroke mask, Alpha = 0, so canvas.drawBitmap leaves original camera paper 100% pristine!
+            // Ensure inner target box is 100% solid 255 (zero bleed-through of underlying text)
+            if (relTarget.bottom > relTarget.top && relTarget.right > relTarget.left) {
+                val innerSub = blendAlpha.submat(relTarget.top, relTarget.bottom, relTarget.left, relTarget.right)
+                innerSub.setTo(Scalar(255.0))
+                innerSub.release()
+            }
+
+            // Compose RGBA with inpaintMat (RGB) and blendAlpha (Alpha)
             val rgbChs = mutableListOf<Mat>()
             org.opencv.core.Core.split(inpaintMat, rgbChs)
-            rgbChs.add(featheredMask)
+            rgbChs.add(blendAlpha)
             org.opencv.core.Core.merge(rgbChs, restoredCrop)
             rgbChs.forEach { it.release() }
-            featheredMask.release()
 
             val outCropBitmap = Bitmap.createBitmap(cropW, cropH, Bitmap.Config.ARGB_8888)
             Utils.matToBitmap(restoredCrop, outCropBitmap)
@@ -306,6 +309,7 @@ class BackgroundInpainter {
             val canvas = Canvas(output)
             canvas.drawBitmap(outCropBitmap, cropLeft.toFloat(), cropTop.toFloat(), null)
 
+            // Reconstruct crossing grid/notebook lines
             val hLines = detectHorizontalCrossingLines(source, target, paperLuma.toInt())
             val vLines = detectVerticalCrossingLines(source, target, paperLuma.toInt())
             for (line in hLines) {
@@ -343,11 +347,13 @@ class BackgroundInpainter {
             srcMat.release()
             rgbMat.release()
             grayMat.release()
-            maskMat.release()
+            inpaintMask.release()
             teleaMat.release()
             nsMat.release()
             inpaintMat.release()
             restoredCrop.release()
+            ringMat.release()
+            blendAlpha.release()
         }
     }
 
