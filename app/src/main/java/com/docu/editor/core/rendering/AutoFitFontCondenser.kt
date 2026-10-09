@@ -113,7 +113,9 @@ object AutoFitFontCondenser {
         paint: Paint,
         originalText: String = "",
         sizeMultiplier: Float = 1.0f,
-        availableWidth: Float? = null
+        availableWidth: Float? = null,
+        baselineNudgePx: Float = 0f,
+        lockedBaselineY: Float? = null
     ): AdjustedTypography {
         val targetWidth = max(16, targetBounds.width()).toFloat()
         val originalLines = if (originalText.isNotEmpty()) originalText.split("\n").size else 1
@@ -221,19 +223,24 @@ object AutoFitFontCondenser {
         val lineHeight = fontMetrics.descent - fontMetrics.ascent + fontMetrics.leading
 
         val hasDevanagari = effectiveText.any { it.code in 0x0900..0x097F }
-        val baselineY = if (lineCount == 1 && originalLines == 1) {
+        val rawBaselineY = if (lockedBaselineY != null) {
+            lockedBaselineY
+        } else if (lineCount == 1 && originalLines == 1) {
             if (hasDevanagari) {
                 // Devanagari Shirorekha hanging top-line alignment
                 targetBounds.top.toFloat() - fontMetrics.ascent
             } else if (origHasDescenders) {
+                // Word had descenders ('p', 'q', 'y', 'g', 'j') so bottom of box is descender line
                 targetBounds.bottom.toFloat() - fontMetrics.descent
             } else {
-                targetBounds.bottom.toFloat() - (fontMetrics.descent * 0.18f)
+                // Word had no descenders, so bottom of bounding box IS the microscopic baseline!
+                targetBounds.bottom.toFloat()
             }
         } else {
             // Multi-line block: anchor top line flush with top of target box
             targetBounds.top.toFloat() - fontMetrics.ascent
         }
+        val baselineY = rawBaselineY + baselineNudgePx
 
         return AdjustedTypography(
             fontSize = fontSize,

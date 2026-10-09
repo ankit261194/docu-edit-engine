@@ -54,7 +54,7 @@ object DevanagariPostProcessor {
 
         // 4. Fix Pre-base Chhoti 'i' matra (\u093F) placed before consonant
         // e.g. "ि क" -> "कि"
-        text = text.replace(Regex("(\\u093F)\\s*([\\u0915-\\u0939])"), "$2$1")
+        text = text.replace(Regex("(?<![\\u0915-\\u0939])(\\u093F)\\s*([\\u0915-\\u0939])"), "$2$1")
 
         // 5. Reconnect Halant Conjuncts (Sanyuktakshar)
         // e.g. "क् य" -> "क्य", "न् य" -> "न्य", "त् व" -> "त्व"
@@ -69,11 +69,9 @@ object DevanagariPostProcessor {
         text = text.replace(Regex("([\\u0915-\\u0939])\\s+(\\u093C)"), "$1$2")
 
         // 8. Dictionary Heuristic Post-Processing for Government / Official Documents
-        val tokens = text.split(" ")
-        val correctedTokens = tokens.map { token ->
-            COMMON_GOVT_CORRECTIONS[token] ?: token
+        for ((wrong, correct) in COMMON_GOVT_CORRECTIONS) {
+            text = text.replace(wrong, correct)
         }
-        text = correctedTokens.joinToString(" ")
 
         // 9. Remove invisible Zero-Width joiners that are malformed
         text = text.replace("\u200B", "") // zero-width space

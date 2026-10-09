@@ -164,7 +164,8 @@ class FontMatcher(private val context: Context) {
             text: String,
             metrics: TypographyMetrics,
             bounds: Rect? = null,
-            documentDominantFont: FontClassification? = null
+            documentDominantFont: FontClassification? = null,
+            lineDominantFont: FontClassification? = null
         ): FontClassification {
             // 0. Devanagari Hindi Script Detection (Unicode \u0900..\u097F)
             if (text.any { it in '\u0900'..'\u097F' }) {
@@ -233,14 +234,23 @@ class FontMatcher(private val context: Context) {
                 return FontClassification.SERIF
             }
 
-            // If the document has an established dominant font (e.g. Serif document), honor it
-            if (documentDominantFont != null && (metrics.isSerif || documentDominantFont == FontClassification.SERIF)) {
+            // Line-Level Consensus: if immediate neighbors on the same line are Serif, preserve Serif
+            if (lineDominantFont == FontClassification.SERIF ||
+                (lineDominantFont != null && (metrics.isSerif || metrics.terminalFlareRatio >= 1.11f))
+            ) {
+                return lineDominantFont
+            }
+
+            // Document-Level Consensus: if the document is established Serif, honor it
+            if (documentDominantFont == FontClassification.SERIF) {
+                return FontClassification.SERIF
+            } else if (documentDominantFont != null && metrics.isSerif) {
                 return documentDominantFont
             }
 
             return when {
                 // 3. Serif: Times New Roman / Formal documents, legal certificates, agreements
-                metrics.isSerif -> {
+                metrics.isSerif || metrics.terminalFlareRatio >= 1.13f -> {
                     FontClassification.SERIF
                 }
                 // 4. Typewriter: fixed pitch typewriter numbers/code

@@ -12,8 +12,8 @@ android {
         applicationId = "com.docu.editor"
         minSdk = 26
         targetSdk = 34
-        versionCode = 46
-        versionName = "10.8.0"
+        versionCode = 47
+        versionName = "10.8.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -61,6 +61,10 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 
     packaging {
@@ -118,4 +122,7 @@ dependencies {
 
     // Android BiometricPrompt Framework (Fingerprint, Face, Hardware Device Credential)
     implementation("androidx.biometric:biometric:1.2.0-alpha05")
+
+    // Unit Testing
+    testImplementation("junit:junit:4.13.2")
 }

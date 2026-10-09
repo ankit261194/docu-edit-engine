@@ -1625,7 +1625,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                 onQuickBlackout = {
                                     viewModel.quickBlackoutItem(targetItem)
                                 },
-                                onApplyEdit = { newText, fontClassification, isBold, sizeMultiplier, colorRgb, alignment, useCloudAi ->
+                                onApplyEdit = { newText, fontClassification, isBold, sizeMultiplier, colorRgb, alignment, useCloudAi, cameraBlurSigma, paperBlendStrength, baselineNudgePx, inkToneDarkness ->
                                     viewModel.applyTextReplacement(
                                         targetItem = targetItem,
                                         newText = newText,
@@ -1634,7 +1634,11 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                         sizeMultiplier = sizeMultiplier,
                                         colorOverrideRgb = colorRgb,
                                         alignment = alignment,
-                                        useCloudAi = useCloudAi
+                                        useCloudAi = useCloudAi,
+                                        cameraBlurSigma = cameraBlurSigma,
+                                        paperBlendStrength = paperBlendStrength,
+                                        baselineNudgePx = baselineNudgePx,
+                                        inkToneDarkness = inkToneDarkness
                                     )
                                 }
                             )

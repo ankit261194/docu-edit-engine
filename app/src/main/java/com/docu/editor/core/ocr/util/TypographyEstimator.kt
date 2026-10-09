@@ -5,12 +5,27 @@ import com.docu.editor.core.ocr.model.FontWeightEstimate
 import com.docu.editor.core.ocr.model.TypographyMetrics
 import kotlin.math.max
 
+/**
+ * Enterprise Camera-Resilient Typography Estimation Engine.
+ *
+ * Reliably classifies font weight, tracking, and Serif vs Sans-Serif
+ * even on camera photos where lens Point Spread Function (PSF) and optical
+ * softness smooth out fine serifs.
+ *
+ * Uses multi-zone vertical stem terminal flare analysis:
+ * In Serif fonts (Times New Roman, Georgia), baseline feet and head serifs
+ * flare out horizontally at stroke terminals (top and bottom) compared to
+ * the narrow stem center, whereas Sans-Serif fonts (Arial, Calibri) maintain
+ * uniform straight stems.
+ */
 object TypographyEstimator {
 
     fun estimateMetrics(
         text: String,
         bounds: Rect,
-        foregroundResult: TextInkColorSampler.InkSampleResult
+        foregroundResult: TextInkColorSampler.InkSampleResult,
+        documentDominantSerif: Boolean = false,
+        lineDominantSerif: Boolean = false
     ): TypographyMetrics {
         val height = max(1, bounds.height()).toFloat()
         val width = max(1, bounds.width()).toFloat()
@@ -26,9 +41,23 @@ object TypographyEstimator {
             foregroundResult.cropWidth,
             foregroundResult.cropHeight
         )
+
+        // Terminal flare analysis: measures horizontal stroke width at top 15%, mid 50%, and bottom 15%
+        val flareRatio = estimateTerminalFlare(
+            foregroundResult.foregroundMask,
+            foregroundResult.cropWidth,
+            foregroundResult.cropHeight
+        )
+
         val strokeRatio = verticalStemWidth / height
         val strokeContrast = if (horizontalBarWidth > 0.5f) verticalStemWidth / horizontalBarWidth else 1.0f
-        val isSerif = (strokeContrast >= 1.18f && charCount >= 2) || (strokeContrast >= 1.14f && charCount >= 4)
+
+        // Camera photos soften horizontal bars. Multi-signal serif detector:
+        val isSerif = documentDominantSerif ||
+            lineDominantSerif ||
+            (strokeContrast >= 1.12f && charCount >= 2) ||
+            (flareRatio >= 1.13f && charCount >= 2) ||
+            (strokeContrast >= 1.07f && flareRatio >= 1.09f)
 
         val density = foregroundResult.foregroundRatio
         val weight = when {
@@ -69,8 +98,80 @@ object TypographyEstimator {
             estimatedFontSizePx = height * 0.82f,
             isSerif = isSerif,
             strokeThicknessPx = verticalStemWidth,
-            numericFontWeight = numericWeight
+            numericFontWeight = numericWeight,
+            terminalFlareRatio = flareRatio
         )
+    }
+
+    private fun estimateTerminalFlare(
+        mask: BooleanArray,
+        width: Int,
+        height: Int
+    ): Float {
+        if (width <= 4 || height <= 6 || mask.isEmpty()) return 1.0f
+
+        val topRuns = mutableListOf<Int>()
+        val midRuns = mutableListOf<Int>()
+        val botRuns = mutableListOf<Int>()
+
+        val yTop1 = (height * 0.10f).toInt().coerceIn(0, height - 1)
+        val yTop2 = (height * 0.22f).toInt().coerceIn(yTop1, height - 1)
+
+        val yMid1 = (height * 0.42f).toInt().coerceIn(0, height - 1)
+        val yMid2 = (height * 0.58f).toInt().coerceIn(yMid1, height - 1)
+
+        val yBot1 = (height * 0.78f).toInt().coerceIn(0, height - 1)
+        val yBot2 = (height * 0.90f).toInt().coerceIn(yBot1, height - 1)
+
+        collectHorizontalRuns(mask, width, yTop1..yTop2, topRuns)
+        collectHorizontalRuns(mask, width, yMid1..yMid2, midRuns)
+        collectHorizontalRuns(mask, width, yBot1..yBot2, botRuns)
+
+        if (midRuns.isEmpty()) return 1.0f
+        midRuns.sort()
+        val medianMid = midRuns[midRuns.size / 2].toFloat()
+        if (medianMid < 1.0f) return 1.0f
+
+        val medianTop = if (topRuns.isNotEmpty()) {
+            topRuns.sort()
+            topRuns[topRuns.size / 2].toFloat()
+        } else medianMid
+
+        val medianBot = if (botRuns.isNotEmpty()) {
+            botRuns.sort()
+            botRuns[botRuns.size / 2].toFloat()
+        } else medianMid
+
+        val topRatio = medianTop / medianMid
+        val botRatio = medianBot / medianMid
+
+        return max(topRatio, botRatio).coerceIn(0.8f, 2.0f)
+    }
+
+    private fun collectHorizontalRuns(
+        mask: BooleanArray,
+        width: Int,
+        yRange: IntRange,
+        outputRuns: MutableList<Int>
+    ) {
+        val maxAllowed = width * 0.45f
+        for (y in yRange) {
+            var run = 0
+            val rowOffset = y * width
+            for (x in 0 until width) {
+                if (mask[rowOffset + x]) {
+                    run++
+                } else if (run > 0) {
+                    if (run in 2..maxAllowed.toInt()) {
+                        outputRuns.add(run)
+                    }
+                    run = 0
+                }
+            }
+            if (run in 2..maxAllowed.toInt()) {
+                outputRuns.add(run)
+            }
+        }
     }
 
     private fun estimateHorizontalStrokeWidth(

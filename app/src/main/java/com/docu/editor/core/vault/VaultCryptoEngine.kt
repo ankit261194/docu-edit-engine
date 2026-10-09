@@ -2,7 +2,7 @@ package com.docu.editor.core.vault
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import android.util.Base64
+import java.util.Base64
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -152,7 +152,7 @@ object VaultCryptoEngine {
         val md = MessageDigest.getInstance("SHA-256")
         md.update(salt.toByteArray(Charsets.UTF_8))
         val digest = md.digest(pin.toByteArray(Charsets.UTF_8))
-        return Base64.encodeToString(digest, Base64.NO_WRAP)
+        return Base64.getEncoder().encodeToString(digest)
     }
 
     /**
@@ -161,6 +161,6 @@ object VaultCryptoEngine {
     fun generateSalt(): String {
         val saltBytes = ByteArray(16)
         SecureRandom().nextBytes(saltBytes)
-        return Base64.encodeToString(saltBytes, Base64.NO_WRAP)
+        return Base64.getEncoder().encodeToString(saltBytes)
     }
 }

@@ -51,6 +51,7 @@ import android.graphics.Point
 import android.graphics.PointF
 import com.docu.editor.core.ocr.model.FontWeightEstimate
 import com.docu.editor.core.ocr.model.TypographyMetrics
+import com.docu.editor.core.ocr.util.TextInkColorSampler
 import com.docu.editor.core.pdf.PdfCompressionEngine
 import com.docu.editor.core.pdf.PdfExportEngine
 import com.docu.editor.core.pdf.PdfPageLoader
@@ -1346,7 +1347,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         sizeMultiplier: Float = 1.0f,
         colorOverrideRgb: Int? = null,
         alignment: Paint.Align = Paint.Align.LEFT,
-        useCloudAi: Boolean = false
+        useCloudAi: Boolean = false,
+        cameraBlurSigma: Float = 1.2f,
+        paperBlendStrength: Float = 1.0f,
+        baselineNudgePx: Float = 0f,
+        inkToneDarkness: Float = 1.0f
     ) {
         if (useCloudAi && !isNetworkConnected()) {
             _uiState.update {
@@ -1442,18 +1447,65 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
                     // #5 High-Precision Word Reflow & Spacing Protection:
                     val singleLineH = targetItem.boundingBox.height().toFloat().coerceAtLeast(16f)
-                    val sameLineItems = _uiState.value.detectedItems.filter {
-                        it.id != targetItem.id &&
-                        it.boundingBox.left >= targetItem.boundingBox.right - 4 &&
-                        kotlin.math.abs(it.boundingBox.centerY() - targetItem.boundingBox.centerY()) < singleLineH * 0.65f
-                    }.sortedBy { it.boundingBox.left }
+                    val isRotated = kotlin.math.abs(targetItem.rotationAngle) > 0.5f
+                    val rad = Math.toRadians(targetItem.rotationAngle.toDouble())
+                    val cosA = kotlin.math.cos(rad).toFloat()
+                    val sinA = kotlin.math.sin(rad).toFloat()
+                    val targetCenterX = targetItem.boundingBox.exactCenterX()
+                    val targetCenterY = targetItem.boundingBox.exactCenterY()
+
+                    val allSameLineItems = _uiState.value.detectedItems.filter { item ->
+                        if (item.id == targetItem.id) return@filter false
+                        val dx = item.boundingBox.exactCenterX() - targetCenterX
+                        val dy = item.boundingBox.exactCenterY() - targetCenterY
+                        val perpDist = kotlin.math.abs(-dx * sinA + dy * cosA)
+                        perpDist < singleLineH * 0.70f
+                    }.sortedBy { item ->
+                        val dx = item.boundingBox.exactCenterX() - targetCenterX
+                        val dy = item.boundingBox.exactCenterY() - targetCenterY
+                        dx * cosA + dy * sinA
+                    }
+
+                    val sameLineItems = allSameLineItems.filter {
+                        it.boundingBox.left >= targetItem.boundingBox.right - 4
+                    }
+
+                    if (colorOverrideRgb == null) {
+                        val lineInk = TextInkColorSampler.sampleLineInk(
+                            source = currentBitmap,
+                            targetBounds = targetItem.boundingBox,
+                            neighborBounds = allSameLineItems.map { it.boundingBox }
+                        )
+                        effectiveInkColor = lineInk.dominantRgb
+                    }
 
                     val nextAdjacentItem = sameLineItems.firstOrNull()
+
+                    val documentDominantFont = run {
+                        val items = _uiState.value.detectedItems
+                        if (items.isEmpty()) null
+                        else {
+                            val serifCount = items.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.13f }
+                            if (serifCount.toFloat() / items.size >= 0.30f) FontClassification.SERIF
+                            else null
+                        }
+                    }
+
+                    val lineDominantFont = run {
+                        if (allSameLineItems.isEmpty()) null
+                        else {
+                            val serifInLine = allSameLineItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.12f }
+                            if (serifInLine.toFloat() / allSameLineItems.size >= 0.40f) FontClassification.SERIF
+                            else null
+                        }
+                    }
 
                     val effectiveFont = fontClassification ?: FontMatcher.classifyFromMetrics(
                         text = targetItem.text,
                         metrics = targetItem.typography,
-                        bounds = targetItem.boundingBox
+                        bounds = targetItem.boundingBox,
+                        documentDominantFont = documentDominantFont,
+                        lineDominantFont = lineDominantFont
                     )
 
                     // Measure unconstrained natural width of the new text at document line height
@@ -1463,6 +1515,27 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         textSize = naturalFontSize
                     }
                     val naturalNewWidth = testPaint.measureText(newText)
+                    val fontMetrics = testPaint.fontMetrics
+
+                    val lockedBaselineY = run {
+                        if (isRotated) {
+                            val targetHasDesc = targetItem.text.any { it in "gjpqy" }
+                            if (targetHasDesc) targetItem.boundingBox.bottom.toFloat() - fontMetrics.descent
+                            else targetItem.boundingBox.bottom.toFloat()
+                        } else {
+                            val baselines = mutableListOf<Float>()
+                            for (item in allSameLineItems) {
+                                val hasDesc = item.text.any { it in "gjpqy" }
+                                val b = if (hasDesc) item.boundingBox.bottom.toFloat() - fontMetrics.descent else item.boundingBox.bottom.toFloat()
+                                baselines.add(b)
+                            }
+                            val targetHasDesc = targetItem.text.any { it in "gjpqy" }
+                            val targetB = if (targetHasDesc) targetItem.boundingBox.bottom.toFloat() - fontMetrics.descent else targetItem.boundingBox.bottom.toFloat()
+                            baselines.add(targetB)
+                            baselines.sort()
+                            baselines[baselines.size / 2]
+                        }
+                    }
 
                     val maxAvailableWidth = if (nextAdjacentItem != null) {
                         (nextAdjacentItem.boundingBox.left - targetItem.boundingBox.left - 6).toFloat().coerceAtLeast(16f)
@@ -1507,7 +1580,9 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     val shiftedItems = if (canReflow && actualDeltaX != 0) {
                         val reflowBmp = workingBitmap.copy(Bitmap.Config.ARGB_8888, true)
                         val c = Canvas(reflowBmp)
-                        for (item in sameLineItems) {
+                        // If shifting right, process from right to left to prevent overlapping inpaint erasure
+                        val orderedItems = if (actualDeltaX > 0) sameLineItems.reversed() else sameLineItems
+                        for (item in orderedItems) {
                             val w = item.boundingBox.width()
                             val h = item.boundingBox.height()
                             if (w > 0 && h > 0 && item.boundingBox.right <= workingBitmap.width && item.boundingBox.bottom <= workingBitmap.height) {
@@ -1572,7 +1647,12 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                                 (targetItem.boundingBox.width() + actualDeltaX + 8).toFloat().coerceAtLeast(16f)
                             } else {
                                 maxAvailableWidth
-                            }
+                            },
+                            cameraBlurSigma = cameraBlurSigma,
+                            paperBlendStrength = paperBlendStrength,
+                            baselineNudgePx = baselineNudgePx,
+                            inkToneDarkness = inkToneDarkness,
+                            lockedBaselineY = lockedBaselineY
                         )
                     )
 

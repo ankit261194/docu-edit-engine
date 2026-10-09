@@ -97,10 +97,11 @@ object SpineShadowRemover {
                 if (luma > 85f) {
                     val lumaDeficit = max(0f, targetPaperLuma - luma)
                     val boost = (lumaDeficit * shadowFactor * 0.95f)
+                    val ratio = (luma + boost) / max(1f, luma)
 
-                    val newR = min(255, (r + boost).toInt())
-                    val newG = min(255, (g + boost).toInt())
-                    val newB = min(255, (b + boost).toInt())
+                    val newR = min(255, (r * ratio).toInt())
+                    val newG = min(255, (g * ratio).toInt())
+                    val newB = min(255, (b * ratio).toInt())
 
                     rowPixels[x] = (pixel and -0x1000000) or (newR shl 16) or (newG shl 8) or newB
                 }

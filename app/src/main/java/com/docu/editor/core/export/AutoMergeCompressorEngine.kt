@@ -53,7 +53,7 @@ object AutoMergeCompressorEngine {
      */
     data class MergeInputDocument(
         val id: String = UUID.randomUUID().toString(),
-        val uri: Uri,
+        val uri: Uri? = null,
         val displayName: String,
         val fileSizeBytes: Long,
         val mimeType: String,
@@ -137,7 +137,7 @@ object AutoMergeCompressorEngine {
     data class NormalizedPageSource(
         val documentId: String,
         val documentName: String,
-        val sourceUri: Uri,
+        val sourceUri: Uri?,
         val pageIndexInDoc: Int,
         val rotationDegrees: Int,
         val isFromPdf: Boolean
@@ -479,9 +479,10 @@ object AutoMergeCompressorEngine {
         pageSource: NormalizedPageSource,
         dpi: Int
     ): Bitmap = withContext(Dispatchers.IO) {
+        val validUri = pageSource.sourceUri ?: throw IllegalStateException("Source Uri cannot be null for rendering")
         if (pageSource.isFromPdf) {
             val scale = (dpi.toFloat() / 72f).coerceIn(0.8f, 3.5f)
-            PdfPageLoader.renderPageToBitmap(context, pageSource.sourceUri, pageSource.pageIndexInDoc, renderScale = scale)
+            PdfPageLoader.renderPageToBitmap(context, validUri, pageSource.pageIndexInDoc, renderScale = scale)
         } else {
             val maxDimension = when {
                 dpi >= 200 -> 2400
@@ -489,8 +490,8 @@ object AutoMergeCompressorEngine {
                 dpi >= 100 -> 1400
                 else -> 1024
             }
-            ExifBitmapUtil.decodeUriWithExif(context, pageSource.sourceUri, maxDim = maxDimension)
-                ?: throw IllegalStateException("Cannot decode image from ${pageSource.sourceUri}")
+            ExifBitmapUtil.decodeUriWithExif(context, validUri, maxDim = maxDimension)
+                ?: throw IllegalStateException("Cannot decode image from $validUri")
         }
     }
 

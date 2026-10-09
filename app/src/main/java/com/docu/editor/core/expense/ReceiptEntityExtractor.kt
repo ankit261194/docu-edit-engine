@@ -15,7 +15,7 @@ import kotlin.math.max
 object ReceiptEntityExtractor {
 
     private val GSTIN_REGEX = Pattern.compile(
-        "\\b([0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1})\\b",
+        "\\b([0-9]{2}[\\s\\-]?[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}[\\s\\-]?Z[0-9A-Z]{1})\\b",
         Pattern.CASE_INSENSITIVE
     )
 
@@ -34,7 +34,7 @@ object ReceiptEntityExtractor {
     )
 
     private val CURRENCY_REGEX = Pattern.compile(
-        "(?:(?:Rs\\.?|INR|₹)\\s*)?([0-9]{1,3}(?:,[0-9]{3})*(?:\\.[0-9]{1,2})?|[0-9]+(?:\\.[0-9]{1,2})?)(?:\\s*(?:\\/=|Rs\\.?|INR))?",
+        "(?:(?:Rs\\.?|INR|₹)\\s*)?([0-9]{1,3}(?:,[0-9]{3})+(?:\\.[0-9]{1,2})?|[0-9]+(?:\\.[0-9]{1,2})?)(?:\\s*(?:\\/=|Rs\\.?|INR))?",
         Pattern.CASE_INSENSITIVE
     )
 
@@ -156,7 +156,7 @@ object ReceiptEntityExtractor {
     private fun extractGstin(text: String): String {
         val matcher = GSTIN_REGEX.matcher(text)
         if (matcher.find()) {
-            return matcher.group(1)?.uppercase(Locale.ROOT) ?: ""
+            return matcher.group(1)?.replace("[\\s\\-]".toRegex(), "")?.uppercase(Locale.ROOT) ?: ""
         }
         return ""
     }
@@ -266,48 +266,58 @@ object ReceiptEntityExtractor {
             "total excl tax", "basic amount", "net taxable"
         )
 
-        for (line in lines) {
+        for (i in lines.indices) {
+            val line = lines[i]
             val lower = line.lowercase(Locale.ROOT)
 
             // 1. CGST
             if (lower.contains("cgst") || lower.contains("central gst") || lower.contains("c-gst")) {
-                val amt = parseAmountFromLine(line)
+                var amt = parseAmountFromLine(line)
+                if (amt == 0.0 && i + 1 < lines.size) amt = parseAmountFromLine(lines[i + 1])
                 if (amt > 0) cgst = amt
             }
 
             // 2. SGST / UTGST
             if (lower.contains("sgst") || lower.contains("state gst") || lower.contains("s-gst") || lower.contains("utgst")) {
-                val amt = parseAmountFromLine(line)
+                var amt = parseAmountFromLine(line)
+                if (amt == 0.0 && i + 1 < lines.size) amt = parseAmountFromLine(lines[i + 1])
                 if (amt > 0) sgst = amt
             }
 
             // 3. IGST
             if (lower.contains("igst") || lower.contains("integrated gst") || lower.contains("i-gst")) {
-                val amt = parseAmountFromLine(line)
+                var amt = parseAmountFromLine(line)
+                if (amt == 0.0 && i + 1 < lines.size) amt = parseAmountFromLine(lines[i + 1])
                 if (amt > 0) igst = amt
             }
 
             // 4. Generic GST / Tax Total
             if ((lower.contains("total gst") || lower.contains("tax amount") || lower.contains("total tax")) && totalGst == 0.0) {
-                val amt = parseAmountFromLine(line)
+                var amt = parseAmountFromLine(line)
+                if (amt == 0.0 && i + 1 < lines.size) amt = parseAmountFromLine(lines[i + 1])
                 if (amt > 0) totalGst = amt
             }
 
             // 5. Discount
             if (lower.contains("discount") || lower.contains("disc.") || lower.contains("less disc")) {
-                val amt = parseAmountFromLine(line)
+                var amt = parseAmountFromLine(line)
+                if (amt == 0.0 && i + 1 < lines.size) amt = parseAmountFromLine(lines[i + 1])
                 if (amt > 0) discount = amt
             }
 
             // 6. Subtotal
             if (subtotalKeywords.any { lower.contains(it) } && subtotal == 0.0) {
-                val amt = parseAmountFromLine(line)
+                var amt = parseAmountFromLine(line)
+                if (amt == 0.0 && i + 1 < lines.size) amt = parseAmountFromLine(lines[i + 1])
                 if (amt > 0) subtotal = amt
             }
 
             // 7. Grand Total
-            if (grandTotalKeywords.any { lower.contains(it) }) {
-                val amt = parseAmountFromLine(line)
+            val isTotalLine = grandTotalKeywords.any { lower.contains(it) } ||
+                (lower.contains("total") && !lower.contains("sub") && !lower.contains("item") && !lower.contains("qty") && !lower.contains("tax") && !lower.contains("gst"))
+            if (isTotalLine) {
+                var amt = parseAmountFromLine(line)
+                if (amt == 0.0 && i + 1 < lines.size) amt = parseAmountFromLine(lines[i + 1])
                 if (amt > 0) grandTotal = amt
             }
         }
@@ -355,12 +365,14 @@ object ReceiptEntityExtractor {
 
     private fun parseAmountFromLine(line: String): Double {
         val matcher = CURRENCY_REGEX.matcher(line)
-        var lastValidAmount = 0.0
+        var bestAmount = 0.0
+        var bestPriority = 0
 
         while (matcher.find()) {
+            val fullMatch = matcher.group(0) ?: ""
             val numStr = matcher.group(1)?.replace(",", "") ?: continue
             val num = numStr.toDoubleOrNull() ?: continue
-            
+
             // Heuristic check: Filter out PIN codes (6 digits starting with 1-9) or years (2020..2026)
             if (num in 110000.0..999999.0 && !numStr.contains(".")) {
                 continue // Likely Indian PIN code
@@ -369,9 +381,23 @@ object ReceiptEntityExtractor {
                 continue // Likely Year
             }
 
-            lastValidAmount = num
+            val hasCurrencyPrefix = fullMatch.contains("Rs", ignoreCase = true) ||
+                    fullMatch.contains("INR", ignoreCase = true) ||
+                    fullMatch.contains("₹")
+            val hasDecimals = numStr.contains(".")
+
+            val priority = when {
+                hasCurrencyPrefix -> 3
+                hasDecimals -> 2
+                else -> 1
+            }
+
+            if (priority >= bestPriority) {
+                bestAmount = num
+                bestPriority = priority
+            }
         }
-        return lastValidAmount
+        return bestAmount
     }
 
     /**

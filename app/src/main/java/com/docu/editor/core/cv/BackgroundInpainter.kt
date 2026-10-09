@@ -46,17 +46,17 @@ class BackgroundInpainter {
             return@withContext sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
         }
 
-        // 1. Watermark & complex background preservation
+        // 1. High-precision OpenCV Fast Marching Telea inpainting (Primary)
+        val cvResult = inpaintWithOpenCv(sourceBitmap, safeTarget)
+        if (cvResult != null) {
+            return@withContext cvResult
+        }
+
+        // 2. Watermark & complex background preservation fallback
         if (WatermarkPreservingInpainter.hasComplexBackground(sourceBitmap, safeTarget)) {
             try {
                 return@withContext WatermarkPreservingInpainter.inpaintWatermarkBackground(sourceBitmap, safeTarget)
             } catch (_: Throwable) {}
-        }
-
-        // 2. High-precision OpenCV Fast Marching Telea inpainting
-        val cvResult = inpaintWithOpenCv(sourceBitmap, safeTarget)
-        if (cvResult != null) {
-            return@withContext cvResult
         }
 
         // 3. Fallback: Ambient paper color sampling & micro-grain gradient synthesis
@@ -71,19 +71,7 @@ class BackgroundInpainter {
         val outputBitmap = sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(outputBitmap)
 
-        // Fill text rectangle with smooth ambient paper gradient
-        val patchPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = LinearGradient(
-                safeTarget.left.toFloat(), safeTarget.top.toFloat(),
-                safeTarget.left.toFloat(), safeTarget.bottom.toFloat(),
-                sampledColors.topColor,
-                sampledColors.bottomColor,
-                Shader.TileMode.CLAMP
-            )
-            style = Paint.Style.FILL
-        }
-
-        // Proportional expansion to eliminate any residual anti-aliased text edge or outer serifs (e.g. ghost 'U')
+        // Soft-feathered ambient paper patch (zero hard rectangular boundaries!)
         val extraPadX = (safeTarget.height() * 0.12f).toInt().coerceIn(3, 8)
         val extraPadY = (safeTarget.height() * 0.08f).toInt().coerceIn(2, 6)
         val fillRect = Rect(
@@ -92,25 +80,66 @@ class BackgroundInpainter {
             min(width, safeTarget.right + extraPadX),
             min(height, safeTarget.bottom + extraPadY)
         )
-        canvas.drawRect(fillRect, patchPaint)
+        val patchW = fillRect.width()
+        val patchH = fillRect.height()
+        if (patchW > 0 && patchH > 0) {
+            val patchBmp = Bitmap.createBitmap(patchW, patchH, Bitmap.Config.ARGB_8888)
+            val patchCanvas = Canvas(patchBmp)
 
-        // Inject subtle micro paper texture matching document noise
-        if (sampledColors.hasNoise) {
-            val random = Random(42)
-            val noisePaint = Paint().apply { style = Paint.Style.FILL }
-            val noiseCount = (fillRect.width() * fillRect.height() * 0.04f).toInt().coerceIn(10, 800)
-
-            val baseLuma = (Color.red(sampledColors.topColor) + Color.green(sampledColors.topColor) + Color.blue(sampledColors.topColor)) / 3
-            val isDarkPaper = baseLuma < 120
-
-            for (i in 0 until noiseCount) {
-                val nx = fillRect.left + random.nextFloat() * fillRect.width()
-                val ny = fillRect.top + random.nextFloat() * fillRect.height()
-                val alpha = random.nextInt(4, 14)
-                val grainVal = if (isDarkPaper) 220 else 80
-                noisePaint.color = Color.argb(alpha, grainVal, grainVal, grainVal)
-                canvas.drawPoint(nx, ny, noisePaint)
+            val gradPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                shader = LinearGradient(
+                    0f, 0f, 0f, patchH.toFloat(),
+                    sampledColors.topColor,
+                    sampledColors.bottomColor,
+                    Shader.TileMode.CLAMP
+                )
+                style = Paint.Style.FILL
             }
+            patchCanvas.drawRect(0f, 0f, patchW.toFloat(), patchH.toFloat(), gradPaint)
+
+            // Inject subtle micro paper texture matching document noise
+            if (sampledColors.hasNoise) {
+                val random = Random(42)
+                val noisePaint = Paint().apply { style = Paint.Style.FILL }
+                val noiseCount = (patchW * patchH * 0.04f).toInt().coerceIn(10, 800)
+                val baseLuma = (Color.red(sampledColors.topColor) + Color.green(sampledColors.topColor) + Color.blue(sampledColors.topColor)) / 3
+                val isDarkPaper = baseLuma < 120
+
+                for (i in 0 until noiseCount) {
+                    val nx = random.nextFloat() * patchW
+                    val ny = random.nextFloat() * patchH
+                    val alpha = random.nextInt(4, 14)
+                    val grainVal = if (isDarkPaper) 220 else 80
+                    noisePaint.color = Color.argb(alpha, grainVal, grainVal, grainVal)
+                    patchCanvas.drawPoint(nx, ny, noisePaint)
+                }
+            }
+
+            // Feather outer edges (smooth 4-6px alpha falloff into genuine paper)
+            val featherDist = minOf(6, patchW / 4, patchH / 4)
+            if (featherDist > 1) {
+                val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+                }
+                val alphaMask = Bitmap.createBitmap(patchW, patchH, Bitmap.Config.ARGB_8888)
+                val maskCanvas = Canvas(alphaMask)
+                maskCanvas.drawColor(Color.WHITE)
+                for (f in 0 until featherDist) {
+                    val alphaPercent = (f.toFloat() / featherDist)
+                    val borderPaint = Paint().apply {
+                        color = Color.argb(((1f - alphaPercent) * 255).toInt(), 0, 0, 0)
+                        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_OUT)
+                        style = Paint.Style.STROKE
+                        strokeWidth = 1f
+                    }
+                    maskCanvas.drawRect(f.toFloat(), f.toFloat(), (patchW - 1 - f).toFloat(), (patchH - 1 - f).toFloat(), borderPaint)
+                }
+                patchCanvas.drawBitmap(alphaMask, 0f, 0f, clearPaint)
+                alphaMask.recycle()
+            }
+
+            canvas.drawBitmap(patchBmp, fillRect.left.toFloat(), fillRect.top.toFloat(), null)
+            patchBmp.recycle()
         }
 
         // Reconstruct crossing grid/notebook lines
@@ -215,10 +244,11 @@ class BackgroundInpainter {
             }
 
             // 2. Dual-Engine Navier-Stokes + Telea Inpainting:
-            // Navier-Stokes propagates fluid isophotes (gradients/watermarks) without leaving flat color patches
-            Photo.inpaint(rgbMat, maskMat, nsMat, 5.0, Photo.INPAINT_NS)
-            Photo.inpaint(rgbMat, maskMat, teleaMat, 4.0, Photo.INPAINT_TELEA)
-            org.opencv.core.Core.addWeighted(nsMat, 0.70, teleaMat, 0.30, 0.0, inpaintMat)
+            // Adapt inpaint radius dynamically to character height
+            val inpaintRad = (target.height() * 0.08).coerceIn(2.5, 7.5)
+            Photo.inpaint(rgbMat, maskMat, nsMat, inpaintRad + 0.5, Photo.INPAINT_NS)
+            Photo.inpaint(rgbMat, maskMat, teleaMat, inpaintRad, Photo.INPAINT_TELEA)
+            org.opencv.core.Core.addWeighted(nsMat, 0.65, teleaMat, 0.35, 0.0, inpaintMat)
 
             // 3. Inject matching local micro paper noise
             val ringMat = Mat()
@@ -255,7 +285,19 @@ class BackgroundInpainter {
                 floatDst.release()
             }
 
-            Imgproc.cvtColor(inpaintMat, restoredCrop, Imgproc.COLOR_RGB2RGBA)
+            // 4. Seamless Stroke-Only Blending:
+            // Feather the stroke mask by 0.8px so edges transition invisibly into genuine camera paper
+            val featheredMask = Mat()
+            Imgproc.GaussianBlur(maskMat, featheredMask, Size(3.0, 3.0), 0.8)
+
+            // Compose RGBA with inpaintMat (RGB) and featheredMask (Alpha):
+            // Outside the stroke mask, Alpha = 0, so canvas.drawBitmap leaves original camera paper 100% pristine!
+            val rgbChs = mutableListOf<Mat>()
+            org.opencv.core.Core.split(inpaintMat, rgbChs)
+            rgbChs.add(featheredMask)
+            org.opencv.core.Core.merge(rgbChs, restoredCrop)
+            rgbChs.forEach { it.release() }
+            featheredMask.release()
 
             val outCropBitmap = Bitmap.createBitmap(cropW, cropH, Bitmap.Config.ARGB_8888)
             Utils.matToBitmap(restoredCrop, outCropBitmap)
@@ -389,6 +431,42 @@ class BackgroundInpainter {
                 floatDst.release()
             }
 
+            val featheredMask = Mat()
+            Imgproc.GaussianBlur(maskMat, featheredMask, Size(5.0, 5.0), 1.2)
+
+            val floatInpaint = Mat()
+            val floatRgb = Mat()
+            val floatAlpha = Mat()
+            val invAlpha = Mat()
+            val alpha3 = Mat()
+            val ones = Mat(maskMat.size(), CvType.CV_32FC3, Scalar(1.0, 1.0, 1.0))
+
+            inpaintMat.convertTo(floatInpaint, CvType.CV_32FC3)
+            rgbMat.convertTo(floatRgb, CvType.CV_32FC3)
+            featheredMask.convertTo(floatAlpha, CvType.CV_32FC1, 1.0 / 255.0)
+
+            val chList = listOf(floatAlpha, floatAlpha, floatAlpha)
+            org.opencv.core.Core.merge(chList, alpha3)
+            org.opencv.core.Core.subtract(ones, alpha3, invAlpha)
+
+            val part1 = Mat()
+            val part2 = Mat()
+            org.opencv.core.Core.multiply(floatInpaint, alpha3, part1)
+            org.opencv.core.Core.multiply(floatRgb, invAlpha, part2)
+            org.opencv.core.Core.add(part1, part2, floatInpaint)
+
+            floatInpaint.convertTo(inpaintMat, CvType.CV_8UC3)
+
+            floatInpaint.release()
+            floatRgb.release()
+            floatAlpha.release()
+            invAlpha.release()
+            alpha3.release()
+            ones.release()
+            part1.release()
+            part2.release()
+            featheredMask.release()
+
             Imgproc.cvtColor(inpaintMat, restoredCrop, Imgproc.COLOR_RGB2RGBA)
             val outCropBitmap = Bitmap.createBitmap(cropW, cropH, Bitmap.Config.ARGB_8888)
             Utils.matToBitmap(restoredCrop, outCropBitmap)
@@ -453,15 +531,21 @@ class BackgroundInpainter {
         val rightX1 = min(width - 1, target.right + 2)
         val rightX2 = min(width - 1, target.right + 14)
 
-        val midY1 = max(0, target.top + 2)
-        val midY2 = min(height - 1, target.bottom - 2)
+        val midY1 = max(0, if (target.height() > 6) target.top + 2 else target.top)
+        val midY2 = min(height - 1, if (target.height() > 6) target.bottom - 2 else target.bottom)
 
-        for (y in midY1..midY2) {
-            for (x in leftX1..leftX2) {
-                horizontalSamples.add(source.getPixel(x, y))
-            }
-            for (x in rightX1..rightX2) {
-                horizontalSamples.add(source.getPixel(x, y))
+        if (midY1 <= midY2) {
+            for (y in midY1..midY2) {
+                if (leftX1 <= leftX2) {
+                    for (x in leftX1..leftX2) {
+                        horizontalSamples.add(source.getPixel(x, y))
+                    }
+                }
+                if (rightX1 <= rightX2) {
+                    for (x in rightX1..rightX2) {
+                        horizontalSamples.add(source.getPixel(x, y))
+                    }
+                }
             }
         }
 
@@ -470,13 +554,24 @@ class BackgroundInpainter {
         val botY = min(height - 1, target.bottom + 2)
         val stepX = max(1, target.width() / 15)
 
+        val topSamples = mutableListOf<Int>()
+        val bottomSamples = mutableListOf<Int>()
+
         for (x in target.left until target.right step stepX) {
-            if (topY >= 0) verticalSamples.add(source.getPixel(x, topY))
-            if (botY < height) verticalSamples.add(source.getPixel(x, botY))
+            if (topY in 0 until height) {
+                verticalSamples.add(source.getPixel(x, topY))
+                topSamples.add(source.getPixel(x, topY))
+            }
+            if (botY in 0 until height) {
+                verticalSamples.add(source.getPixel(x, botY))
+                bottomSamples.add(source.getPixel(x, botY))
+            }
         }
 
         val cleanHorizontal = filterPaperPixels(horizontalSamples)
         val cleanVertical = filterPaperPixels(verticalSamples)
+        val cleanTop = filterPaperPixels(topSamples)
+        val cleanBottom = filterPaperPixels(bottomSamples)
 
         val horizontalLuma = cleanHorizontal?.let { getLuminance(it) } ?: 250
         val verticalLuma = cleanVertical?.let { getLuminance(it) } ?: horizontalLuma
@@ -491,12 +586,13 @@ class BackgroundInpainter {
             cleanVertical ?: Color.WHITE
         }
 
-        val finalColor = baseColor
+        val topColor = if (cleanTop != null) blendColors(cleanTop, baseColor, 0.65f) else baseColor
+        val bottomColor = if (cleanBottom != null) blendColors(cleanBottom, baseColor, 0.65f) else baseColor
 
         return PaperSampleResult(
-            topColor = finalColor,
-            bottomColor = finalColor,
-            hasNoise = getLuminance(finalColor) < 235
+            topColor = topColor,
+            bottomColor = bottomColor,
+            hasNoise = getLuminance(baseColor) < 235
         )
     }
 

@@ -1,12 +1,12 @@
 {
-  "versionCode": 46,
-  "versionName": "10.8.0",
+  "versionCode": 47,
+  "versionName": "10.8.1",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.8.0 (Flagship 9 Next-Gen AI Pro Suite)",
-  "changelog": "🚀 Major Flagship Release v10.8.0 — Complete 9 Next-Gen AI Pro Suite:\n• Pro Feature 1: Document Health & Quality Doctor — Real-time DPI, blur, skew & glare diagnostic scan with 1-tap auto-cure.\n• Pro Feature 2: NotebookLM Document AI Chat — Multi-page grounded reasoning with interactive page citations.\n• Pro Feature 3: Smart Auto-Vault & Expiry Watchdog — Automatic 6-category document tagging & calendar renewal reminders.\n• Pro Feature 4: Smart Expense & GST Receipt Auditor — Spatial invoice extraction & CA-ready Excel (.xlsx) export.\n• Pro Feature 5: Hands-Free Book Scanner — Page-turn optical flow & acoustic voice shutter with spine shadow removal.\n• Pro Feature 6: Hardware Biometric Vault & Decoy PIN — AES-256-GCM zero-knowledge encryption with duress decoy mode.\n• Pro Feature 7: Magic Eraser 2.0 — AI object removal & deep inpainting with strict printed black toner protection.\n• Pro Feature 8: Offline Secure OCR 2.0 — Multi-lingual Hindi/English Ctrl+F live word search & instant tap-to-copy.\n• Pro Feature 9: Auto-Merge & Smart Batch Compressor — Combine up to 20 documents to exact Govt KB limits (SSC, UPSC, NTA).",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.0/DocuEdit-v10.8.0-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.0/DocuEdit-v10.8.0-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.0/DocuEdit-v10.8.0-arm64.apk",
-  "apkFileName": "DocuEdit-v10.8.0-arm64.apk",
-  "apkSizeMb": 100.5
+  "releaseTitle": "DocuEdit Pro v10.8.1 (Forensic Camera Photo Text Editor & Engine Perfection)",
+  "changelog": "🚀 Major Flagship Release v10.8.1 — Forensic Realism & Real-World Engine Perfection:\n• Forensic Camera Text Editor: Line-level neighboring ink sampling & luminance matching (zero jet-black stickers).\n• Seamless Stroke Inpainting: Alpha-channeled inpainting preserving authentic camera paper grain (zero rectangular white patches).\n• Optical Camera Blur (PSF): 2-pass alpha-weighted Gaussian convolution eliminates dark halos & matches lens softness.\n• Typography Consensus: Terminal flare ratio & line consensus prevents Times New Roman / Serif from mutating to Arial.\n• Spine Shadow Remover: Chromaticity-preserving proportional illumination for book pages.\n• Micro-Tuning Realism Controls: Live sliders for Camera Blur, Baseline Nudge, Paper Blending, and Ink Tone in Text Edit dialog.\n• Engine Hardening: 58 unit tests passing across Devanagari OCR, Receipt GST, Vault AES-256-GCM, and Expiry Watchdog.",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.1/DocuEdit-v10.8.1-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.1/DocuEdit-v10.8.1-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.1/DocuEdit-v10.8.1-arm64.apk",
+  "apkFileName": "DocuEdit-v10.8.1-arm64.apk",
+  "apkSizeMb": 105.4
 }

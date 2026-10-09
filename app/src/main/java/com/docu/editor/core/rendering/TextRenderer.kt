@@ -23,7 +23,13 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val isBold: Boolean? = null,
         val sizeMultiplier: Float = 1.0f,
         val alignment: Paint.Align = Paint.Align.LEFT,
-        val availableWidth: Float? = null
+        val availableWidth: Float? = null,
+        // Pro Camera Photo & Realism Tuning:
+        val cameraBlurSigma: Float = 1.2f,
+        val paperBlendStrength: Float = 1.0f,
+        val baselineNudgePx: Float = 0f,
+        val inkToneDarkness: Float = 1.0f,
+        val lockedBaselineY: Float? = null
     )
 
     data class TextRenderResult(
@@ -80,7 +86,9 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             paint = paint,
             originalText = params.originalText,
             sizeMultiplier = params.sizeMultiplier,
-            availableWidth = params.availableWidth
+            availableWidth = params.availableWidth,
+            baselineNudgePx = params.baselineNudgePx,
+            lockedBaselineY = params.lockedBaselineY
         )
 
         val masterOutput = cleanedBackground.copy(Bitmap.Config.ARGB_8888, true)
@@ -156,11 +164,6 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             textLayer
         }
 
-        // 2. Analyze paper background texture & apply authentic toner micro-grain & edge bleed
-        val paperStats = PaperTextureBlender.analyzeLocalPaperBackground(cleanedBackground, params.targetBounds)
-        PaperTextureBlender.blendTextWithPaperTexture(masterCanvas, finalRenderLayer, params.targetBounds, paperStats)
-        finalRenderLayer.recycle()
-
         val maxMeasuredWidth = lines.maxOfOrNull { paint.measureText(it) } ?: paint.measureText(params.newText)
         val renderedTotalHeight = (lines.size * lineHeight).coerceAtLeast(params.targetBounds.height().toFloat())
         val renderedLeft = when (params.alignment) {
@@ -169,9 +172,62 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             else -> params.targetBounds.left
         }
         val renderedRight = (renderedLeft + maxMeasuredWidth.toInt()).coerceAtMost(cleanedBackground.width)
-        val renderedTop = params.targetBounds.top
-        val renderedBottom = (renderedTop + renderedTotalHeight.toInt()).coerceAtMost(cleanedBackground.height)
-        val renderedBounds = Rect(renderedLeft, renderedTop, renderedRight, renderedBottom)
+        val renderedTop = minOf(params.targetBounds.top, (fitResult.baselineY + fontMetrics.ascent).toInt().coerceAtLeast(0))
+        val renderedBottom = maxOf(
+            params.targetBounds.bottom,
+            (fitResult.baselineY + (lines.size - 1) * lineHeight + fontMetrics.descent).toInt().coerceAtMost(cleanedBackground.height)
+        )
+        val unrotatedBounds = Rect(renderedLeft, renderedTop, renderedRight, renderedBottom)
+
+        // Compute enclosing bounding box if text is rotated
+        val fullRenderBounds = if (abs(params.rotationAngle) > 0.5f) {
+            val rad = Math.toRadians(params.rotationAngle.toDouble())
+            val cosA = kotlin.math.cos(rad)
+            val sinA = kotlin.math.sin(rad)
+            val corners = listOf(
+                Pair(unrotatedBounds.left.toFloat(), unrotatedBounds.top.toFloat()),
+                Pair(unrotatedBounds.right.toFloat(), unrotatedBounds.top.toFloat()),
+                Pair(unrotatedBounds.right.toFloat(), unrotatedBounds.bottom.toFloat()),
+                Pair(unrotatedBounds.left.toFloat(), unrotatedBounds.bottom.toFloat())
+            )
+            var minX = Float.MAX_VALUE
+            var minY = Float.MAX_VALUE
+            var maxX = Float.MIN_VALUE
+            var maxY = Float.MIN_VALUE
+            for ((cx, cy) in corners) {
+                val dx = cx - pivotX
+                val dy = cy - pivotY
+                val rx = pivotX + (dx * cosA - dy * sinA).toFloat()
+                val ry = pivotY + (dx * sinA + dy * cosA).toFloat()
+                minX = minOf(minX, rx)
+                minY = minOf(minY, ry)
+                maxX = maxOf(maxX, rx)
+                maxY = maxOf(maxY, ry)
+            }
+            Rect(
+                minX.toInt().coerceIn(0, cleanedBackground.width),
+                minY.toInt().coerceIn(0, cleanedBackground.height),
+                maxX.toInt().coerceIn(0, cleanedBackground.width),
+                maxY.toInt().coerceIn(0, cleanedBackground.height)
+            )
+        } else {
+            unrotatedBounds
+        }
+
+        // 2. Analyze paper background texture & apply authentic optical camera blur, toner micro-grain & edge bleed
+        val paperStats = PaperTextureBlender.analyzeLocalPaperBackground(cleanedBackground, params.targetBounds)
+        val effectiveBlur = if (params.cameraBlurSigma >= 0f) params.cameraBlurSigma else paperStats.estimatedBlurSigma
+        PaperTextureBlender.blendTextWithPaperTexture(
+            masterCanvas = masterCanvas,
+            textLayerBitmap = finalRenderLayer,
+            targetBounds = params.targetBounds,
+            stats = paperStats,
+            cameraBlurSigma = effectiveBlur,
+            paperBlendStrength = params.paperBlendStrength,
+            inkToneDarkness = params.inkToneDarkness,
+            renderBounds = fullRenderBounds
+        )
+        finalRenderLayer.recycle()
 
         return TextRenderResult(
             outputBitmap = masterOutput,
@@ -181,7 +237,7 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             appliedScaleX = fitResult.scaleX,
             renderedWidth = maxMeasuredWidth,
             renderedHeight = renderedTotalHeight,
-            renderedBounds = renderedBounds
+            renderedBounds = fullRenderBounds
         )
     }
 

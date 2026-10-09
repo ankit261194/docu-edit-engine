@@ -19,14 +19,15 @@ enum class FontWeightEstimate {
 }
 
 data class TypographyMetrics(
-    val estimatedFontWeight: FontWeightEstimate,
-    val strokeWidthRatio: Float,
-    val glyphDensity: Float,
-    val letterSpacingEm: Float,
-    val estimatedFontSizePx: Float,
+    val estimatedFontWeight: FontWeightEstimate = FontWeightEstimate.REGULAR,
+    val strokeWidthRatio: Float = 0.12f,
+    val glyphDensity: Float = 0.45f,
+    val letterSpacingEm: Float = 0.05f,
+    val estimatedFontSizePx: Float = 16f,
     val isSerif: Boolean = false,
     val strokeThicknessPx: Float = 2.0f,
-    val numericFontWeight: Int = 400
+    val numericFontWeight: Int = 400,
+    val terminalFlareRatio: Float = 1.0f
 )
 
 data class DetectedTextItem(

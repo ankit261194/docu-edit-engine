@@ -90,25 +90,55 @@ fun TextEditBottomSheet(
         sizeMultiplier: Float,
         colorRgb: Int,
         alignment: android.graphics.Paint.Align,
-        useCloudAi: Boolean
+        useCloudAi: Boolean,
+        cameraBlurSigma: Float,
+        paperBlendStrength: Float,
+        baselineNudgePx: Float,
+        inkToneDarkness: Float
     ) -> Unit
 ) {
     // 100% Context-Aware Document & Line Typography Auto Detection:
+    val sameLineItems = remember(item.id, allDetectedItems) {
+        val lineH = maxOf(16f, item.boundingBox.height().toFloat())
+        val rad = Math.toRadians(item.rotationAngle.toDouble())
+        val cosA = kotlin.math.cos(rad).toFloat()
+        val sinA = kotlin.math.sin(rad).toFloat()
+        val targetCenterX = item.boundingBox.exactCenterX()
+        val targetCenterY = item.boundingBox.exactCenterY()
+        allDetectedItems.filter {
+            if (it.id == item.id) return@filter false
+            val dx = it.boundingBox.exactCenterX() - targetCenterX
+            val dy = it.boundingBox.exactCenterY() - targetCenterY
+            val perpDist = kotlin.math.abs(-dx * sinA + dy * cosA)
+            perpDist < lineH * 0.70f
+        }
+    }
+
     val documentDominantFont = remember(allDetectedItems) {
         if (allDetectedItems.isEmpty()) null
         else {
-            val serifCount = allDetectedItems.count { it.typography.isSerif }
-            if (serifCount.toFloat() / allDetectedItems.size >= 0.16f) FontClassification.SERIF
+            val serifCount = allDetectedItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.13f }
+            if (serifCount.toFloat() / allDetectedItems.size >= 0.30f) FontClassification.SERIF
             else null
         }
     }
 
-    val autoDetectedClassification = remember(item.id, documentDominantFont) {
+    val lineDominantFont = remember(sameLineItems) {
+        if (sameLineItems.isEmpty()) null
+        else {
+            val serifInLine = sameLineItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.12f }
+            if (serifInLine.toFloat() / sameLineItems.size >= 0.40f) FontClassification.SERIF
+            else null
+        }
+    }
+
+    val autoDetectedClassification = remember(item.id, documentDominantFont, lineDominantFont) {
         FontMatcher.classifyFromMetrics(
             text = item.text,
             metrics = item.typography,
             bounds = item.boundingBox,
-            documentDominantFont = documentDominantFont
+            documentDominantFont = documentDominantFont,
+            lineDominantFont = lineDominantFont
         )
     }
     val autoDetectedBold = remember(item.id) {
@@ -132,6 +162,13 @@ fun TextEditBottomSheet(
     var selectedAlignment by remember(item.id) { mutableStateOf(android.graphics.Paint.Align.LEFT) }
     var showCustomColorPicker by remember(item.id) { mutableStateOf(false) }
     var customHue by remember(item.id) { mutableFloatStateOf(0f) }
+
+    // Pro Realism & Camera Photo Tuning States:
+    var cameraBlurSigma by remember(item.id) { mutableFloatStateOf(1.2f) }
+    var paperBlendStrength by remember(item.id) { mutableFloatStateOf(1.0f) }
+    var baselineNudgePx by remember(item.id) { mutableFloatStateOf(0f) }
+    var inkToneDarkness by remember(item.id) { mutableFloatStateOf(1.0f) }
+    var showProRealismControls by remember(item.id) { mutableStateOf(false) }
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val fontMatcher = remember(context) { FontMatcher(context) }
@@ -706,6 +743,154 @@ fun TextEditBottomSheet(
                 }
             }
 
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Pro Camera Photo Realism & Micro-Alignment Tuning Card
+            Surface(
+                color = surfaceBg,
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, surfaceBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showProRealismControls = !showProRealismControls },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color(0xFF2563EB), modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Camera Photo Realism & Alignment Tuning", color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Text(if (showProRealismControls) "Hide ▲" else "Adjust ▼", color = Color(0xFF2563EB), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    if (showProRealismControls) {
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // 1. Camera Blur / Edge Softness Slider
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Edge Softness (Camera Blur):", color = textSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                text = "${String.format(java.util.Locale.US, "%.1f", cameraBlurSigma)} px ${if (cameraBlurSigma <= 0.2f) "(Digital Vector)" else "(Camera Lens)"}",
+                                color = Color(0xFF2563EB),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Slider(
+                            value = cameraBlurSigma,
+                            onValueChange = { cameraBlurSigma = it },
+                            valueRange = 0f..2.5f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF2563EB),
+                                activeTrackColor = Color(0xFF2563EB),
+                                inactiveTrackColor = surfaceBorder
+                            )
+                        )
+
+                        // 2. Microscopic Baseline Nudge (±px)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Baseline Nudge (Vertical Lock):", color = textSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = chipUnselectedBg,
+                                    modifier = Modifier.size(26.dp).clickable { baselineNudgePx -= 1f }
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text("-", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                    }
+                                }
+                                Text(
+                                    text = "${baselineNudgePx.toInt()} px",
+                                    color = Color(0xFF2563EB),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = chipUnselectedBg,
+                                    modifier = Modifier.size(26.dp).clickable { baselineNudgePx += 1f }
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text("+", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = textPrimary)
+                                    }
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = chipUnselectedBg,
+                                    modifier = Modifier.clickable { baselineNudgePx = 0f }.padding(horizontal = 6.dp, vertical = 4.dp)
+                                ) {
+                                    Text("0", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = chipUnselectedText)
+                                }
+                            }
+                        }
+                        Slider(
+                            value = baselineNudgePx,
+                            onValueChange = { baselineNudgePx = it },
+                            valueRange = -8f..8f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF2563EB),
+                                activeTrackColor = Color(0xFF2563EB),
+                                inactiveTrackColor = surfaceBorder
+                            )
+                        )
+
+                        // 3. Paper Blending & Grain Slider
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Paper Grain & Fiber Blending:", color = textSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text("${(paperBlendStrength * 100).toInt()}%", color = Color(0xFF2563EB), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Slider(
+                            value = paperBlendStrength,
+                            onValueChange = { paperBlendStrength = it },
+                            valueRange = 0f..1.5f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF2563EB),
+                                activeTrackColor = Color(0xFF2563EB),
+                                inactiveTrackColor = surfaceBorder
+                            )
+                        )
+
+                        // 4. Ink Tone Match Slider
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Ink Tone Darkness / Match:", color = textSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text("${(inkToneDarkness * 100).toInt()}%", color = Color(0xFF2563EB), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Slider(
+                            value = inkToneDarkness,
+                            onValueChange = { inkToneDarkness = it },
+                            valueRange = 0.5f..1.5f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color(0xFF2563EB),
+                                activeTrackColor = Color(0xFF2563EB),
+                                inactiveTrackColor = surfaceBorder
+                            )
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // Action Buttons
@@ -716,7 +901,7 @@ fun TextEditBottomSheet(
                 // Instant Local Apply (Default CamScanner Auto Mode)
                 Button(
                     onClick = {
-                        onApplyEdit(editedText.text, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, selectedAlignment, false)
+                        onApplyEdit(editedText.text, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, selectedAlignment, false, cameraBlurSigma, paperBlendStrength, baselineNudgePx, inkToneDarkness)
                     },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
@@ -730,7 +915,7 @@ fun TextEditBottomSheet(
                 // Smart Cloud AI Apply
                 Button(
                     onClick = {
-                        onApplyEdit(editedText.text, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, selectedAlignment, true)
+                        onApplyEdit(editedText.text, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, selectedAlignment, true, cameraBlurSigma, paperBlendStrength, baselineNudgePx, inkToneDarkness)
                     },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),

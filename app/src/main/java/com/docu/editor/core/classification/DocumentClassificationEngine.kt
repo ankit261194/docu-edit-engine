@@ -43,11 +43,11 @@ object DocumentClassificationEngine {
     )
 
     // Regex Patterns for Indian & Global Identity Documents
-    private val AADHAAR_REGEX = Pattern.compile("\\b\\d{4}\\s?\\d{4}\\s?\\d{4}\\b")
-    private val PAN_REGEX = Pattern.compile("\\b[A-Z]{5}[0-9]{4}[A-Z]\\b")
-    private val PASSPORT_REGEX = Pattern.compile("\\b[A-Z][0-9]{7}\\b")
-    private val DL_REGEX = Pattern.compile("\\b[A-Z]{2}[0-9]{2}\\s?[0-9]{11}\\b")
-    private val GSTIN_REGEX = Pattern.compile("\\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]\\b")
+    private val AADHAAR_REGEX = Pattern.compile("\\b\\d{4}[\\s\\-]?\\d{4}[\\s\\-]?\\d{4}\\b")
+    private val PAN_REGEX = Pattern.compile("\\b[a-zA-Z]{5}[0-9]{4}[a-zA-Z]\\b")
+    private val PASSPORT_REGEX = Pattern.compile("\\b[a-zA-Z][0-9]{7}\\b")
+    private val DL_REGEX = Pattern.compile("\\b[a-zA-Z]{2}[0-9]{2}[\\s\\-]?[0-9]{11}\\b")
+    private val GSTIN_REGEX = Pattern.compile("\\b[0-9]{2}[a-zA-Z]{5}[0-9]{4}[a-zA-Z][1-9a-zA-Z]Z[0-9a-zA-Z]\\b", Pattern.CASE_INSENSITIVE)
 
     fun classify(ocrText: String, title: String = ""): ClassificationResult {
         val combinedText = "${title.lowercase(Locale.ROOT)} \n ${ocrText.lowercase(Locale.ROOT)}"
@@ -160,11 +160,11 @@ object DocumentClassificationEngine {
         return when (category) {
             CanonicalCategory.IDENTITY -> {
                 when {
-                    text.contains("aadhaar") || text.contains("uidai") -> "Aadhaar Card"
-                    text.contains("permanent account") || text.contains("income tax") -> "PAN Card"
-                    text.contains("driving licence") || text.contains("driving license") -> "Driving License"
-                    text.contains("passport") -> "Passport"
-                    text.contains("election commission") || text.contains("voter") -> "Voter ID Card"
+                    text.contains("aadhaar") || text.contains("uidai") || text.contains("unique identification") || AADHAAR_REGEX.matcher(text).find() -> "Aadhaar Card"
+                    text.contains("permanent account") || text.contains("income tax") || PAN_REGEX.matcher(text).find() -> "PAN Card"
+                    text.contains("driving licence") || text.contains("driving license") || DL_REGEX.matcher(text).find() -> "Driving License"
+                    text.contains("passport") || (PASSPORT_REGEX.matcher(text).find() && text.contains("republic of india")) -> "Passport"
+                    text.contains("election commission") || text.contains("voter") || text.contains("elector") -> "Voter ID Card"
                     else -> "Identity Document"
                 }
             }

@@ -34,10 +34,11 @@ object ExpiryWatchdogEngine {
 
     // Trigger Keywords that precede an Expiry or Due Date
     private val EXPIRY_KEYWORDS = listOf(
-        "valid till", "valid upto", "valid up to", "validity", "valid through",
-        "expiry date", "date of expiry", "expires on", "expires", "exp date", "exp.",
+        "valid till", "valid upto", "valid up to", "validity", "valid through", "valid thru", "good thru", "valid until",
+        "expiry date", "date of expiry", "expires on", "expires", "exp date", "exp.", "exp:", "exp",
         "due date", "payment due", "bill due date", "pay before", "pay by",
         "renewal date", "renewal due", "renew before", "renew by",
+        "best before", "use before", "use by", "mfg/exp",
         "coverage end date", "policy end date", "maturity date"
     )
 
@@ -45,6 +46,7 @@ object ExpiryWatchdogEngine {
     private val ISO_DATE_REGEX = Pattern.compile("\\b(\\d{4})[\\/\\-](\\d{1,2})[\\/\\-](\\d{1,2})\\b")
     private val TEXT_DATE_REGEX_1 = Pattern.compile("\\b(\\d{1,2})\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[\\s,]+(\\d{2,4})\\b", Pattern.CASE_INSENSITIVE)
     private val TEXT_DATE_REGEX_2 = Pattern.compile("\\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+(\\d{1,2})[\\s,]+(\\d{2,4})\\b", Pattern.CASE_INSENSITIVE)
+    private val MONTH_YEAR_DATE_REGEX = Pattern.compile("\\b(0?[1-9]|1[0-2])[\\/\\-]((?:20)?\\d{2})\\b")
 
     fun extractExpiry(ocrText: String): ExpiryDetectionResult {
         if (ocrText.isBlank()) return ExpiryDetectionResult(hasExpiry = false)
@@ -128,6 +130,13 @@ object ExpiryWatchdogEngine {
             dateStr?.let { parseAnyDate(it) }?.let { return it }
         }
 
+        // Try Month/Year format (e.g. 12/2028 or 05/27)
+        val myMatcher = MONTH_YEAR_DATE_REGEX.matcher(text)
+        if (myMatcher.find()) {
+            val dateStr = myMatcher.group(0)
+            dateStr?.let { parseAnyDate(it) }?.let { return it }
+        }
+
         return null
     }
 
@@ -139,7 +148,9 @@ object ExpiryWatchdogEngine {
             "dd/MM/yy", "dd-MM-yy", "dd.MM.yy",
             "yyyy-MM-dd", "yyyy/MM/dd",
             "dd MMM yyyy", "d MMM yyyy",
-            "MMM dd yyyy", "MMM d yyyy"
+            "MMM dd yyyy", "MMM d yyyy",
+            "MM/yyyy", "MM-yyyy",
+            "MM/yy", "MM-yy"
         )
 
         for (pattern in patterns) {

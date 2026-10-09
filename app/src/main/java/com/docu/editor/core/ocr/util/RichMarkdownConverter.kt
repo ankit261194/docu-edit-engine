@@ -156,7 +156,7 @@ object RichMarkdownConverter {
 
             when {
                 // Heading 1: ALL CAPS short line
-                line.length in 4..40 && line == line.uppercase() && !line.any { it.isDigit() } -> {
+                line.length in 4..40 && line == line.uppercase() && line.any { it.isLetter() } -> {
                     sb.append("## $line\n\n")
                 }
                 isBulletItem(line) -> {
