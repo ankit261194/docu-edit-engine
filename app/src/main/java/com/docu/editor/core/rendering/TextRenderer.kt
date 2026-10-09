@@ -58,10 +58,10 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
 
         val solidInk = ensureSolidInkColor(params.inkColorRgb)
 
-        val numericWeight = params.typographyMetrics.numericFontWeight
+        val targetWeight = if (matchedFont.isBold) maxOf(700, params.typographyMetrics.numericFontWeight) else params.typographyMetrics.numericFontWeight
         val baseTypeface = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
             try {
-                android.graphics.Typeface.create(matchedFont.typeface, numericWeight, false)
+                android.graphics.Typeface.create(matchedFont.typeface, targetWeight, false)
             } catch (_: Exception) {
                 matchedFont.typeface
             }
@@ -72,10 +72,13 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
             color = solidInk
             typeface = baseTypeface
-            isFakeBoldText = matchedFont.isBold && !baseTypeface.isBold
-            if (numericWeight >= 650 && !isFakeBoldText) {
+            isFakeBoldText = matchedFont.isBold
+            if (matchedFont.isBold) {
                 style = Paint.Style.FILL_AND_STROKE
-                strokeWidth = ((numericWeight - 500) / 1000f) * 0.8f
+                strokeWidth = maxOf(0.75f, ((targetWeight - 500) / 1000f) * 1.2f)
+            } else if (targetWeight >= 650) {
+                style = Paint.Style.FILL_AND_STROKE
+                strokeWidth = ((targetWeight - 500) / 1000f) * 0.8f
             } else {
                 style = Paint.Style.FILL
             }

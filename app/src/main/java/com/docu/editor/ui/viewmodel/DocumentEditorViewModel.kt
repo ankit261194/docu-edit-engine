@@ -1490,21 +1490,20 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
                     val nextAdjacentItem = sameLineItems.firstOrNull()
 
-                    if (effectiveBold == null) {
-                        val lineBoldCount = allSameLineItems.count {
-                            (it.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM)) ||
-                            it.typography.strokeWidthRatio >= 0.12f ||
-                            it.typography.glyphDensity >= 0.22f ||
-                            it.typography.numericFontWeight >= 600
-                        }
-                        effectiveBold = if (allSameLineItems.isNotEmpty()) {
-                            lineBoldCount.toFloat() / allSameLineItems.size >= 0.40f
-                        } else {
-                            (targetItem.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM)) ||
+                    val lineBoldCount = allSameLineItems.count {
+                        (it.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM)) ||
+                        it.typography.strokeWidthRatio >= 0.12f ||
+                        it.typography.glyphDensity >= 0.22f ||
+                        it.typography.numericFontWeight >= 600
+                    }
+                    val lineBoldRatio = if (allSameLineItems.isNotEmpty()) lineBoldCount.toFloat() / allSameLineItems.size else 0f
+                    if (lineBoldRatio >= 0.35f) {
+                        effectiveBold = true
+                    } else if (effectiveBold == null) {
+                        effectiveBold = (targetItem.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM)) ||
                             targetItem.typography.strokeWidthRatio >= 0.12f ||
                             targetItem.typography.glyphDensity >= 0.22f ||
                             targetItem.typography.numericFontWeight >= 600
-                        }
                     }
 
                     val lineReferenceHeight = if (allSameLineItems.isNotEmpty()) {
@@ -2693,11 +2692,60 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     fun insertNewTextItem(bitmapX: Float, bitmapY: Float) {
         val current = _uiState.value.currentBitmap ?: return
-        val defaultWidth = 140
-        val defaultHeight = 44
+        val detected = _uiState.value.detectedItems
+
+        // 1. Intelligent Snap-To-Line: Search for nearby detected text lines within ±1.6x line height
+        val nearbyLineItems = detected.filter { item ->
+            val h = item.boundingBox.height().toFloat().coerceAtLeast(16f)
+            val centerY = item.boundingBox.exactCenterY()
+            val dy = kotlin.math.abs(centerY - bitmapY)
+            val vDist = when {
+                bitmapY < item.boundingBox.top -> item.boundingBox.top - bitmapY
+                bitmapY > item.boundingBox.bottom -> bitmapY - item.boundingBox.bottom
+                else -> 0f
+            }
+            vDist < h * 1.30f || dy < h * 1.60f
+        }
+
+        val snapTop: Int
+        val snapBottom: Int
+        val snapHeight: Int
+        val lineBold: Boolean
+        val lineInkRgb: Int
+
+        if (nearbyLineItems.isNotEmpty()) {
+            val heights = nearbyLineItems.map { it.boundingBox.height() }.sorted()
+            snapHeight = heights[heights.size / 2]
+            val tops = nearbyLineItems.map { it.boundingBox.top }.sorted()
+            snapTop = tops[tops.size / 2]
+            val bottoms = nearbyLineItems.map { it.boundingBox.bottom }.sorted()
+            snapBottom = bottoms[bottoms.size / 2]
+
+            val boldCount = nearbyLineItems.count {
+                (it.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM)) ||
+                it.typography.strokeWidthRatio >= 0.12f ||
+                it.typography.glyphDensity >= 0.22f ||
+                it.typography.numericFontWeight >= 600
+            }
+            lineBold = boldCount.toFloat() / nearbyLineItems.size >= 0.35f
+
+            val lineInk = TextInkColorSampler.sampleLineInk(
+                source = current,
+                targetBounds = Rect(bitmapX.toInt(), snapTop, (bitmapX + 100).toInt(), snapBottom),
+                neighborBounds = nearbyLineItems.map { it.boundingBox }
+            )
+            lineInkRgb = lineInk.dominantRgb
+        } else {
+            snapHeight = 44
+            snapTop = bitmapY.toInt().coerceIn(0, (current.height - snapHeight).coerceAtLeast(1))
+            snapBottom = snapTop + snapHeight
+            lineBold = false
+            lineInkRgb = Color.rgb(0, 0, 0)
+        }
+
+        val defaultWidth = (snapHeight * 2.5f).toInt().coerceIn(80, 240)
         val left = bitmapX.toInt().coerceIn(0, (current.width - defaultWidth).coerceAtLeast(1))
-        val top = bitmapY.toInt().coerceIn(0, (current.height - defaultHeight).coerceAtLeast(1))
-        val box = Rect(left, top, left + defaultWidth, top + defaultHeight)
+        val box = Rect(left, snapTop, left + defaultWidth, snapBottom)
 
         val newItem = DetectedTextItem(
             id = "new_text_${System.currentTimeMillis()}",
@@ -2709,15 +2757,17 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                 Point(box.right, box.bottom),
                 Point(box.left, box.bottom)
             ),
-            rotationAngle = 0f,
-            inkColor = androidx.compose.ui.graphics.Color(0xFF0F172A),
-            inkColorRgb = Color.rgb(15, 23, 42),
+            rotationAngle = if (nearbyLineItems.isNotEmpty()) nearbyLineItems.first().rotationAngle else 0f,
+            inkColor = androidx.compose.ui.graphics.Color(lineInkRgb),
+            inkColorRgb = lineInkRgb,
             typography = TypographyMetrics(
-                estimatedFontWeight = FontWeightEstimate.REGULAR,
-                strokeWidthRatio = 0.08f,
-                glyphDensity = 0.5f,
+                estimatedFontWeight = if (lineBold) FontWeightEstimate.BOLD else FontWeightEstimate.REGULAR,
+                strokeWidthRatio = if (lineBold) 0.18f else 0.10f,
+                glyphDensity = if (lineBold) 0.35f else 0.20f,
                 letterSpacingEm = 0.02f,
-                estimatedFontSizePx = 28f
+                estimatedFontSizePx = snapHeight * 0.82f,
+                isSerif = false,
+                numericFontWeight = if (lineBold) 700 else 400
             ),
             confidence = 1.0f,
             level = TextHierarchyLevel.ELEMENT

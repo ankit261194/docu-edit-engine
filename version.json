@@ -1,12 +1,12 @@
 {
-  "versionCode": 50,
-  "versionName": "10.8.4",
+  "versionCode": 51,
+  "versionName": "10.8.5",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.8.4 (Flawless Sans-Serif Arial & Line-Neighbor Match)",
-  "changelog": "⚡ Flawless Arial / Sans-Serif Typography & 100% Line Matching:\n• Fixed False-Positive Serif Detection: Arial with natural stroke contrast no longer misclassified as Times New Roman.\n• Robust Line Neighbor Clustering: Combines vertical bounding box overlap and rotation-tolerant distance so words on the same line ('For Archana' -> 'Kumar') always share identical font family and bold weight.\n• Instant Sans-Serif Consensus: Signature lines, invoice details, and table headers correctly default to Bold Arial.\n• Crisp Ink & Optical Alignment: Solid pure black ink with zero camera blur on clean computer prints.",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.4/DocuEdit-v10.8.4-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.4/DocuEdit-v10.8.4-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.4/DocuEdit-v10.8.4-arm64.apk",
-  "apkFileName": "DocuEdit-v10.8.4-arm64.apk",
+  "releaseTitle": "DocuEdit Pro v10.8.5 (Intelligent Add Text Snap & 100% Bold Alignment)",
+  "changelog": "⚡ Flawless Add Text & Line-Snapped Typography Alignment:\n• Intelligent Snap-To-Line in Add Text Mode: Tapping near any existing text line automatically locks the insertion box to the exact median height, baseline, and font size of neighboring words ('For Archana' -> 'Kumar').\n• Line-Level Bold & Ink Inheritance: Added text automatically inherits bold weight (700) and pure jet-black ink (#000000) from the line.\n• Heavy Bold Stroke Widening: Bold text in TextRenderer uses algorithmic outline expansion and FILL_AND_STROKE to match authentic computer-printed laser/inkjet Arial Bold.\n• Overwhelming Line Bold Consensus: When neighbor words are bold, the added word is guaranteed to match with 100% consistency.",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.5/DocuEdit-v10.8.5-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.5/DocuEdit-v10.8.5-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.5/DocuEdit-v10.8.5-arm64.apk",
+  "apkFileName": "DocuEdit-v10.8.5-arm64.apk",
   "apkSizeMb": 105.4
 }
