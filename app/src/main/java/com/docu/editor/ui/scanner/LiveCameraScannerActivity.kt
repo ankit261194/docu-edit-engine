@@ -43,6 +43,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.docu.editor.core.scanner.DocumentEdgeDetector
+import com.docu.editor.core.scanner.IdCardStitcher
 import com.docu.editor.core.scanner.PerspectiveTransformer
 import com.docu.editor.core.scanner.model.DocumentCorners
 import kotlinx.coroutines.CoroutineScope
@@ -1183,18 +1184,27 @@ class LiveCameraScannerActivity : ComponentActivity() {
                     }
 
                     if (scannerMode == ScannerMode.ID_CARD) {
-                        val cardRect = overlayView.getIdCardRect()
-                        val scaleX = fullBitmap.width.toFloat() / overlayView.width.coerceAtLeast(1)
-                        val scaleY = fullBitmap.height.toFloat() / overlayView.height.coerceAtLeast(1)
-                        val cropL = (cardRect.left * scaleX).toInt().coerceIn(0, fullBitmap.width - 10)
-                        val cropT = (cardRect.top * scaleY).toInt().coerceIn(0, fullBitmap.height - 10)
-                        val cropW = (cardRect.width() * scaleX).toInt().coerceIn(10, fullBitmap.width - cropL)
-                        val cropH = (cardRect.height() * scaleY).toInt().coerceIn(10, fullBitmap.height - cropT)
-                        val cardCrop = Bitmap.createBitmap(fullBitmap, cropL, cropT, cropW, cropH)
+                        withContext(Dispatchers.Main) {
+                            statusText.text = if (idCardFrontBitmap == null) "🪪 Straightening & enhancing front card..." else "🪪 Processing back & stitching A4 sheet..."
+                        }
+
+                        // 1. Detect corners on the full high-res photo, falling back to initialCorners
+                        val cardCorners = DocumentEdgeDetector.detectCornersOrNull(fullBitmap) ?: initialCorners
+                        val warped = try {
+                            PerspectiveTransformer.warpPerspective(fullBitmap, cardCorners)
+                        } catch (_: Exception) {
+                            fullBitmap
+                        }
+
+                        // 2. Deskew, orient to landscape, and apply Magic Color
+                        val processedCard = IdCardStitcher.processAndWarpCard(warped, autoEnhance = true)
+                        if (warped != fullBitmap && warped != processedCard && !warped.isRecycled) {
+                            warped.recycle()
+                        }
                         fullBitmap.recycle()
 
                         if (idCardFrontBitmap == null) {
-                            idCardFrontBitmap = cardCrop
+                            idCardFrontBitmap = processedCard
                             withContext(Dispatchers.Main) {
                                 overlayView.idCardGuideText = "ALIGN ID CARD BACK"
                                 overlayView.invalidate()
@@ -1204,17 +1214,26 @@ class LiveCameraScannerActivity : ComponentActivity() {
                             }
                         } else {
                             withContext(Dispatchers.Main) {
-                                statusText.text = "⚡ Auto-stitching ID card to A4 page..."
+                                statusText.text = "⚡ Generating official A4 KYC sheet..."
                             }
                             val front = idCardFrontBitmap!!
-                            val stitchedA4 = com.docu.editor.core.scanner.IdCardStitcher.stitchIdCardToA4(front, cardCrop)
+                            val stitchedA4 = com.docu.editor.core.scanner.IdCardStitcher.stitchIdCardToA4(
+                                frontCard = front,
+                                backCard = processedCard,
+                                layoutMode = IdCardStitcher.IdCardLayoutMode.VERTICAL_STACK,
+                                scaleMode = IdCardStitcher.CardScaleMode.PHYSICAL_1TO1,
+                                paperSize = IdCardStitcher.PaperSize.A4,
+                                applyAntiGlare = true,
+                                drawCuttingGuide = true,
+                                autoEnhance = false // already enhanced by processAndWarpCard
+                            )
                             front.recycle()
                             idCardFrontBitmap = null
-                            cardCrop.recycle()
+                            processedCard.recycle()
 
                             val outFile = File(cacheDir, "scanned_idcard_${System.currentTimeMillis()}.jpg")
                             FileOutputStream(outFile).use { fos ->
-                                stitchedA4.compress(Bitmap.CompressFormat.JPEG, 94, fos)
+                                stitchedA4.compress(Bitmap.CompressFormat.JPEG, 95, fos)
                             }
                             stitchedA4.recycle()
 

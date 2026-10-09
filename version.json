@@ -1,12 +1,12 @@
 {
-  "versionCode": 51,
-  "versionName": "10.8.5",
+  "versionCode": 52,
+  "versionName": "10.8.6",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.8.5 (Intelligent Add Text Snap & 100% Bold Alignment)",
-  "changelog": "⚡ Flawless Add Text & Line-Snapped Typography Alignment:\n• Intelligent Snap-To-Line in Add Text Mode: Tapping near any existing text line automatically locks the insertion box to the exact median height, baseline, and font size of neighboring words ('For Archana' -> 'Kumar').\n• Line-Level Bold & Ink Inheritance: Added text automatically inherits bold weight (700) and pure jet-black ink (#000000) from the line.\n• Heavy Bold Stroke Widening: Bold text in TextRenderer uses algorithmic outline expansion and FILL_AND_STROKE to match authentic computer-printed laser/inkjet Arial Bold.\n• Overwhelming Line Bold Consensus: When neighbor words are bold, the added word is guaranteed to match with 100% consistency.",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.5/DocuEdit-v10.8.5-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.5/DocuEdit-v10.8.5-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.5/DocuEdit-v10.8.5-arm64.apk",
-  "apkFileName": "DocuEdit-v10.8.5-arm64.apk",
+  "releaseTitle": "DocuEdit Pro v10.8.6 (Enterprise ID Card Front & Back Scanner 2.0)",
+  "changelog": "🪪 Enterprise ID Card Front & Back Scanner 2.0:\n• Automatic 4-Corner Edge Detection & Perspective Warping: Table and desk backgrounds are automatically detected and cropped out; skewed card captures are straightened with sub-pixel precision.\n• Magic Color Document Enhancement: Whitens background paper and enhances text and photo contrast cleanly (CamScanner/Adobe Scan quality).\n• Auto Landscape Orientation: Cards are automatically aligned into standard ISO/IEC 7810 ID-1 landscape format.\n• Dual-Input Flexibility: Seamlessly switch between Camera Scan and Gallery Picker for both Front and Back sides independently.\n• Clean Official KYC Print Layout: Standard A4 print sheet with subtle hairline borders, clean minimal labels, and optional cutting guide (ZERO ads or giant badges).",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.6/DocuEdit-v10.8.6-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.6/DocuEdit-v10.8.6-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.6/DocuEdit-v10.8.6-arm64.apk",
+  "apkFileName": "DocuEdit-v10.8.6-arm64.apk",
   "apkSizeMb": 105.4
 }

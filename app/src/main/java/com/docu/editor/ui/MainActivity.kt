@@ -656,6 +656,49 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 }
 
                 // ID Card image pickers
+                var tempIdFrontUri by remember { mutableStateOf<Uri?>(null) }
+                var tempIdBackUri by remember { mutableStateOf<Uri?>(null) }
+
+                val idCardFrontCameraLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.TakePicture()
+                ) { success ->
+                    if (success && tempIdFrontUri != null) {
+                        val bmp = loadBitmapDirect(tempIdFrontUri!!)
+                        bmp?.let { b -> viewModel.setIdCardFront(b) }
+                    }
+                }
+
+                val idCardBackCameraLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.TakePicture()
+                ) { success ->
+                    if (success && tempIdBackUri != null) {
+                        val bmp = loadBitmapDirect(tempIdBackUri!!)
+                        bmp?.let { b -> viewModel.setIdCardBack(b) }
+                    }
+                }
+
+                val launchIdFrontCamera: () -> Unit = {
+                    try {
+                        val file = File(cacheDir, "id_front_${System.currentTimeMillis()}.jpg")
+                        val uri = FileProvider.getUriForFile(this@MainActivity, "${applicationContext.packageName}.fileprovider", file)
+                        tempIdFrontUri = uri
+                        idCardFrontCameraLauncher.launch(uri)
+                    } catch (e: Exception) {
+                        Toast.makeText(this@MainActivity, "Camera launch failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                val launchIdBackCamera: () -> Unit = {
+                    try {
+                        val file = File(cacheDir, "id_back_${System.currentTimeMillis()}.jpg")
+                        val uri = FileProvider.getUriForFile(this@MainActivity, "${applicationContext.packageName}.fileprovider", file)
+                        tempIdBackUri = uri
+                        idCardBackCameraLauncher.launch(uri)
+                    } catch (e: Exception) {
+                        Toast.makeText(this@MainActivity, "Camera launch failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
                 val idCardFrontPicker = rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.OpenDocument()
                 ) { uri ->
@@ -1720,20 +1763,37 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                             IdCardDialog(
                                 frontBitmap = uiState.idCardFrontBitmap,
                                 backBitmap = uiState.idCardBackBitmap,
-                                onPickFrontClicked = {
+                                onCaptureFrontCamera = {
+                                    if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                        launchIdFrontCamera()
+                                    } else {
+                                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                    }
+                                },
+                                onPickFrontGallery = {
                                     idCardFrontPicker.launch(arrayOf("image/*"))
                                 },
-                                onPickBackClicked = {
+                                onClearFront = { viewModel.clearIdCardFront() },
+                                onCaptureBackCamera = {
+                                    if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                        launchIdBackCamera()
+                                    } else {
+                                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+                                    }
+                                },
+                                onPickBackGallery = {
                                     idCardBackPicker.launch(arrayOf("image/*"))
                                 },
-                                onStitchClicked = { layoutMode, scaleMode, paperSize, applyAntiGlare, drawCuttingGuide, purposeText ->
+                                onClearBack = { viewModel.clearIdCardBack() },
+                                onStitchClicked = { layoutMode, scaleMode, paperSize, autoMagicColor, drawCuttingGuide, purposeText ->
                                     viewModel.stitchIdCardToA4(
                                         layoutMode = layoutMode,
                                         scaleMode = scaleMode,
                                         paperSize = paperSize,
-                                        applyAntiGlare = applyAntiGlare,
+                                        applyAntiGlare = true,
                                         drawCuttingGuide = drawCuttingGuide,
-                                        purposeAnnotation = purposeText
+                                        purposeAnnotation = purposeText,
+                                        autoEnhance = autoMagicColor
                                     )
                                 },
                                 onDismiss = { viewModel.showIdCardDialog(false) }

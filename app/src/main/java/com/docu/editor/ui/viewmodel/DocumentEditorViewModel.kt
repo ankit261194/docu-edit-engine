@@ -2156,13 +2156,21 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     // --- ID Card Duplex Mode ---
 
     fun setIdCardFront(bitmap: Bitmap) {
-        val scaled = scaleDownIfNeeded(bitmap, 1600)
+        val scaled = scaleDownIfNeeded(bitmap, 2400)
         _uiState.update { it.copy(idCardFrontBitmap = scaled) }
     }
 
     fun setIdCardBack(bitmap: Bitmap) {
-        val scaled = scaleDownIfNeeded(bitmap, 1600)
+        val scaled = scaleDownIfNeeded(bitmap, 2400)
         _uiState.update { it.copy(idCardBackBitmap = scaled) }
+    }
+
+    fun clearIdCardFront() {
+        _uiState.update { it.copy(idCardFrontBitmap = null) }
+    }
+
+    fun clearIdCardBack() {
+        _uiState.update { it.copy(idCardBackBitmap = null) }
     }
 
     fun stitchIdCardToA4(
@@ -2171,7 +2179,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         paperSize: com.docu.editor.core.scanner.IdCardStitcher.PaperSize = com.docu.editor.core.scanner.IdCardStitcher.PaperSize.A4,
         applyAntiGlare: Boolean = true,
         drawCuttingGuide: Boolean = true,
-        purposeAnnotation: String = ""
+        purposeAnnotation: String = "",
+        autoEnhance: Boolean = true
     ) {
         val front = _uiState.value.idCardFrontBitmap ?: return
         val back = _uiState.value.idCardBackBitmap ?: return
@@ -2188,7 +2197,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         paperSize = paperSize,
                         applyAntiGlare = applyAntiGlare,
                         drawCuttingGuide = drawCuttingGuide,
-                        purposeAnnotation = purposeAnnotation
+                        purposeAnnotation = purposeAnnotation,
+                        autoEnhance = autoEnhance
                     )
                 }
                 setDocumentBitmap(a4Bitmap)
