@@ -416,7 +416,27 @@ object ReceiptEntityExtractor {
             return ExpenseCategory.FUEL
         }
 
-        // 2. Food & Dining
+        // 2. Travel & Lodging (Evaluated before Food to accurately disambiguate hotel stays/lodging from restaurant dining)
+        val hasLodgingIndicators = combined.contains("room") || combined.contains("check-in") ||
+            combined.contains("checkin") || combined.contains("check in") || combined.contains("check-out") ||
+            combined.contains("checkout") || combined.contains("check out") || combined.contains("lodging") ||
+            combined.contains("resort") || combined.contains("stay") || combined.contains("tariff") ||
+            combined.contains("accommodation") || combined.contains("guest house") ||
+            combined.contains("homestay") || combined.contains("inn") || combined.contains("suite") ||
+            combined.contains("oyo") || combined.contains("airbnb") || combined.contains("booking.com") ||
+            combined.contains("agoda")
+
+        if (hasLodgingIndicators ||
+            combined.contains("flight") || combined.contains("airline") || combined.contains("train") ||
+            combined.contains("irctc") || combined.contains("cab") || combined.contains("taxi") ||
+            combined.contains("uber") || combined.contains("ola") || combined.contains("bus") ||
+            combined.contains("toll") || combined.contains("fastag") || combined.contains("indigo") ||
+            combined.contains("air india") || combined.contains("makemytrip")
+        ) {
+            return ExpenseCategory.TRAVEL
+        }
+
+        // 3. Food & Dining (Includes vernacular eateries and restaurants named "Hotel ...", e.g. Udupi Hotel, Hotel Saravana Bhavan)
         if (combined.contains("restaurant") || combined.contains("cafe") || combined.contains("dining") ||
             combined.contains("food") || combined.contains("kitchen") || combined.contains("zomato") ||
             combined.contains("swiggy") || combined.contains("coffee") || combined.contains("pizza") ||
@@ -428,7 +448,7 @@ object ReceiptEntityExtractor {
             return ExpenseCategory.FOOD
         }
 
-        // 3. Medical & Health
+        // 4. Medical & Health
         if (combined.contains("pharmacy") || combined.contains("chemist") || combined.contains("hospital") ||
             combined.contains("clinic") || combined.contains("diagnostic") || combined.contains("pathology") ||
             combined.contains("medplus") || combined.contains("apollo") || combined.contains("medicine") ||
@@ -439,7 +459,7 @@ object ReceiptEntityExtractor {
             return ExpenseCategory.MEDICAL
         }
 
-        // 4. Groceries & Provisions
+        // 5. Groceries & Provisions
         if (combined.contains("supermarket") || combined.contains("grocery") || combined.contains("kirana") ||
             combined.contains("mart") || combined.contains("provisions") || combined.contains("milk") ||
             combined.contains("vegetables") || combined.contains("fruits") || combined.contains("d-mart") ||
@@ -449,7 +469,7 @@ object ReceiptEntityExtractor {
             return ExpenseCategory.GROCERIES
         }
 
-        // 5. Office & Business Supplies
+        // 6. Office & Business Supplies
         if (combined.contains("stationery") || combined.contains("xerox") || combined.contains("print") ||
             combined.contains("hardware") || combined.contains("software") || combined.contains("courier") ||
             combined.contains("postage") || combined.contains("pen") || combined.contains("paper") ||
@@ -458,16 +478,6 @@ object ReceiptEntityExtractor {
             combined.contains("hosting")
         ) {
             return ExpenseCategory.OFFICE
-        }
-
-        // 6. Travel & Lodging
-        if (combined.contains("flight") || combined.contains("airline") || combined.contains("train") ||
-            combined.contains("irctc") || combined.contains("cab") || combined.contains("taxi") ||
-            combined.contains("uber") || combined.contains("ola") || combined.contains("bus") ||
-            combined.contains("toll") || combined.contains("fastag") || combined.contains("indigo") ||
-            combined.contains("air india") || combined.contains("makemytrip") || combined.contains("stay")
-        ) {
-            return ExpenseCategory.TRAVEL
         }
 
         // 7. Utilities & Bills

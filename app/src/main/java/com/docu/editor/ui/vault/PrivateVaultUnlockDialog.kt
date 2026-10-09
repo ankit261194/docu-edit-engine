@@ -312,7 +312,9 @@ fun PrivateVaultUnlockDialog(
                                                         title = "Unlock Private Vault",
                                                         onSuccess = { onUnlocked(VaultSecurityManager.VaultMode.REAL) },
                                                         onError = { errorMessage = it },
-                                                        onFallbackToPin = {}
+                                                        onFallbackToPin = {
+                                                            errorMessage = "Please enter your 4-digit PIN"
+                                                        }
                                                     )
                                                 }
                                             }
