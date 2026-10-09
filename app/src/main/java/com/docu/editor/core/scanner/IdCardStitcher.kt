@@ -8,6 +8,8 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import com.docu.editor.core.pdf.PdfExportEngine
+import com.docu.editor.core.scanner.model.DocumentCorners
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.opencv.android.Utils
@@ -17,8 +19,10 @@ import org.opencv.core.Mat
 import org.opencv.core.Scalar
 import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
+import java.io.File
 import kotlin.math.hypot
 import kotlin.math.roundToInt
+import kotlin.math.abs
 
 object IdCardStitcher {
 
@@ -59,11 +63,12 @@ object IdCardStitcher {
         applyAntiGlare: Boolean = true,
         drawCuttingGuide: Boolean = true,
         purposeAnnotation: String = "",
-        autoEnhance: Boolean = true
+        autoEnhance: Boolean = true,
+        filterType: DocumentFilters.FilterType = if (autoEnhance) DocumentFilters.FilterType.MAGIC_COLOR else DocumentFilters.FilterType.ORIGINAL
     ): Bitmap = withContext(Dispatchers.Default) {
         // 1. Process, deskew, orient and enhance both cards
-        val normalizedFront = processAndWarpCard(frontCard, autoEnhance = autoEnhance)
-        val normalizedBack = processAndWarpCard(backCard, autoEnhance = autoEnhance)
+        val normalizedFront = autoStraightenAndFrameCard(frontCard, filterType)
+        val normalizedBack = autoStraightenAndFrameCard(backCard, filterType)
 
         val pageWidth = paperSize.widthPx
         val pageHeight = paperSize.heightPx
@@ -190,29 +195,76 @@ object IdCardStitcher {
     }
 
     /**
-     * Enterprise CamScanner-Grade Card Preprocessor:
-     * 1. Detects authentic 4-corner document boundary using OpenCV DocumentEdgeDetector.
-     * 2. Straightens perspective skew via PerspectiveTransformer with Lanczos-4 bicubic resampling.
-     * 3. Guarantees standard ISO/IEC 7810 ID-1 landscape orientation (width > height).
-     * 4. Enforces strict ID-1 canonical aspect ratio (85.60mm x 53.98mm = 1.58577).
-     * 5. Applies crisp Magic Color enhancement to whiten paper/background and boost ink/photo contrast.
+     * Stitches Front and Back ID cards onto a standard page and exports directly to a PDF file.
      */
-    suspend fun processAndWarpCard(source: Bitmap, autoEnhance: Boolean = true): Bitmap = withContext(Dispatchers.Default) {
-        val currentAspect = source.width.toFloat() / source.height.toFloat().coerceAtLeast(1f)
-        val isAlreadyCropped = (kotlin.math.abs(currentAspect - 1.5858f) < 0.06f) ||
-                (kotlin.math.abs(currentAspect - (1f / 1.5858f)) < 0.06f)
+    suspend fun stitchIdCardToPdf(
+        frontCard: Bitmap,
+        backCard: Bitmap,
+        outputFile: File,
+        layoutMode: IdCardLayoutMode = IdCardLayoutMode.VERTICAL_STACK,
+        scaleMode: CardScaleMode = CardScaleMode.PHYSICAL_1TO1,
+        paperSize: PaperSize = PaperSize.A4,
+        applyAntiGlare: Boolean = true,
+        drawCuttingGuide: Boolean = true,
+        purposeAnnotation: String = "",
+        filterType: DocumentFilters.FilterType = DocumentFilters.FilterType.MAGIC_COLOR
+    ): File = withContext(Dispatchers.Default) {
+        val pageBitmap = stitchIdCardToA4(
+            frontCard = frontCard,
+            backCard = backCard,
+            layoutMode = layoutMode,
+            scaleMode = scaleMode,
+            paperSize = paperSize,
+            applyAntiGlare = applyAntiGlare,
+            drawCuttingGuide = drawCuttingGuide,
+            purposeAnnotation = purposeAnnotation,
+            autoEnhance = filterType != DocumentFilters.FilterType.ORIGINAL,
+            filterType = filterType
+        )
+        try {
+            PdfExportEngine.exportBitmapToPdf(
+                bitmap = pageBitmap,
+                outputFile = outputFile,
+                fitToA4 = (paperSize == PaperSize.A4)
+            )
+        } finally {
+            if (!pageBitmap.isRecycled) {
+                pageBitmap.recycle()
+            }
+        }
+    }
 
-        // 1. Detect card edges if not already tightly cropped
+    /**
+     * Enterprise CamScanner-Grade Card Preprocessor & Auto-Straightener:
+     * 1. Detects authentic 4-corner card boundary using specialized detectCardCornersOrNull.
+     * 2. Straightens perspective skew via PerspectiveTransformer with Lanczos-4 bicubic resampling.
+     * 3. Fallback: If no corners detected, applies intelligent centered crop to remove outer desk margins.
+     * 4. Guarantees standard ISO/IEC 7810 ID-1 landscape orientation (width > height).
+     * 5. Enforces strict ID-1 canonical aspect ratio (85.60mm x 53.98mm = 1.58577).
+     * 6. Trims microscopic edge bleed to guarantee zero background table fringe.
+     * 7. Applies user-selected document enhancement filter (Magic Color, B&W, Grayscale, etc.).
+     */
+    suspend fun autoStraightenAndFrameCard(
+        source: Bitmap,
+        filterType: DocumentFilters.FilterType = DocumentFilters.FilterType.MAGIC_COLOR
+    ): Bitmap = withContext(Dispatchers.Default) {
+        val currentAspect = source.width.toFloat() / source.height.toFloat().coerceAtLeast(1f)
+        val isAlreadyCropped = (abs(currentAspect - 1.5858f) < 0.05f) ||
+                (abs(currentAspect - (1f / 1.5858f)) < 0.05f)
+
+        // 1. Detect card edges or fallback to intelligent center crop
         val warped = if (!isAlreadyCropped) {
-            val detectedCorners = DocumentEdgeDetector.detectCornersOrNull(source)
+            val detectedCorners = DocumentEdgeDetector.detectCardCornersOrNull(source)
+                ?: DocumentEdgeDetector.detectCornersOrNull(source)
+
             if (detectedCorners != null) {
                 try {
                     PerspectiveTransformer.warpPerspective(source, detectedCorners)
                 } catch (_: Exception) {
-                    source
+                    computeCenteredCardCrop(source)
                 }
             } else {
-                source
+                computeCenteredCardCrop(source)
             }
         } else {
             source
@@ -231,13 +283,13 @@ object IdCardStitcher {
         // 3. Precision snap to exact ISO ID-1 aspect ratio (85.60 / 53.98 = 1.58577)
         val targetAspect = 85.60f / 53.98f
         val actualAspect = oriented.width.toFloat() / oriented.height.toFloat().coerceAtLeast(1f)
-        val tightlyFramed = if (actualAspect > targetAspect * 1.03f) {
+        val tightlyFramed = if (actualAspect > targetAspect * 1.02f) {
             val targetW = (oriented.height * targetAspect).toInt().coerceAtMost(oriented.width)
             val startX = ((oriented.width - targetW) / 2).coerceAtLeast(0)
             val cropped = Bitmap.createBitmap(oriented, startX, 0, targetW, oriented.height)
             if (oriented != source && !oriented.isRecycled) oriented.recycle()
             cropped
-        } else if (actualAspect < targetAspect * 0.97f) {
+        } else if (actualAspect < targetAspect * 0.98f) {
             val targetH = (oriented.width / targetAspect).toInt().coerceAtMost(oriented.height)
             val startY = ((oriented.height - targetH) / 2).coerceAtLeast(0)
             val cropped = Bitmap.createBitmap(oriented, 0, startY, oriented.width, targetH)
@@ -247,22 +299,75 @@ object IdCardStitcher {
             oriented
         }
 
-        // 4. Document enhancement (Magic Color)
-        val enhanced = if (autoEnhance) {
-            try {
-                val filtered = DocumentFilters.applyFilter(tightlyFramed, DocumentFilters.FilterType.MAGIC_COLOR, 0.88f)
-                if (tightlyFramed != source && tightlyFramed != filtered && !tightlyFramed.isRecycled) {
-                    tightlyFramed.recycle()
-                }
-                filtered
-            } catch (_: Exception) {
-                tightlyFramed
-            }
+        // 4. Inset by 1.2% to eradicate any microscopic background border fringe
+        val insetX = (tightlyFramed.width * 0.012f).roundToInt().coerceAtLeast(0)
+        val insetY = (tightlyFramed.height * 0.012f).roundToInt().coerceAtLeast(0)
+        val cleanCard = if (insetX > 0 && insetY > 0 && tightlyFramed.width > insetX * 4 && tightlyFramed.height > insetY * 4) {
+            val cropped = Bitmap.createBitmap(
+                tightlyFramed,
+                insetX,
+                insetY,
+                tightlyFramed.width - (insetX * 2),
+                tightlyFramed.height - (insetY * 2)
+            )
+            if (tightlyFramed != source && !tightlyFramed.isRecycled) tightlyFramed.recycle()
+            cropped
         } else {
             tightlyFramed
         }
 
+        // 5. Document enhancement
+        val enhanced = if (filterType != DocumentFilters.FilterType.ORIGINAL) {
+            try {
+                val filtered = DocumentFilters.applyFilter(cleanCard, filterType, 0.92f)
+                if (cleanCard != source && cleanCard != filtered && !cleanCard.isRecycled) {
+                    cleanCard.recycle()
+                }
+                filtered
+            } catch (_: Exception) {
+                cleanCard
+            }
+        } else {
+            cleanCard
+        }
+
         enhanced
+    }
+
+    private fun computeCenteredCardCrop(bitmap: Bitmap): Bitmap {
+        val targetAspect = 85.60f / 53.98f
+        val width = bitmap.width
+        val height = bitmap.height
+
+        val (cropW, cropH) = if (width >= height) {
+            val potentialW = (width * 0.88f).toInt()
+            val potentialH = (potentialW / targetAspect).toInt()
+            if (potentialH <= height * 0.96f) {
+                Pair(potentialW, potentialH)
+            } else {
+                val h = (height * 0.88f).toInt()
+                val w = (h * targetAspect).toInt().coerceAtMost(width)
+                Pair(w, h)
+            }
+        } else {
+            val potentialH = (height * 0.52f).toInt()
+            val potentialW = (potentialH * targetAspect).toInt().coerceAtMost((width * 0.94f).toInt())
+            val adjustedH = (potentialW / targetAspect).toInt()
+            Pair(potentialW, adjustedH)
+        }
+
+        val startX = ((width - cropW) / 2).coerceIn(0, width - cropW)
+        val startY = ((height - cropH) / 2).coerceIn(0, height - cropH)
+
+        return Bitmap.createBitmap(bitmap, startX, startY, cropW, cropH)
+    }
+
+    /**
+     * Backward-compatible preprocessor method.
+     */
+    suspend fun processAndWarpCard(source: Bitmap, autoEnhance: Boolean = true): Bitmap {
+        val filter = if (autoEnhance) DocumentFilters.FilterType.MAGIC_COLOR else DocumentFilters.FilterType.ORIGINAL
+        return autoStraightenAndFrameCard(source, filter)
     }
 
     private fun drawCuttingGuideLine(canvas: Canvas, pageWidth: Int, y: Float) {

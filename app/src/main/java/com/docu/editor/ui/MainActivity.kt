@@ -1785,6 +1785,10 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                     idCardBackPicker.launch(arrayOf("image/*"))
                                 },
                                 onClearBack = { viewModel.clearIdCardBack() },
+                                onRotateFront = { viewModel.rotateIdCardFront90() },
+                                onRotateBack = { viewModel.rotateIdCardBack90() },
+                                currentFilter = uiState.idCardFilterType,
+                                onFilterChanged = { filter -> viewModel.setIdCardFilter(filter) },
                                 onStitchClicked = { layoutMode, scaleMode, paperSize, autoMagicColor, drawCuttingGuide, purposeText ->
                                     viewModel.stitchIdCardToA4(
                                         layoutMode = layoutMode,
@@ -1793,7 +1797,19 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                         applyAntiGlare = true,
                                         drawCuttingGuide = drawCuttingGuide,
                                         purposeAnnotation = purposeText,
-                                        autoEnhance = autoMagicColor
+                                        autoEnhance = autoMagicColor,
+                                        filterType = uiState.idCardFilterType
+                                    )
+                                },
+                                onExportPdfClicked = { layoutMode, scaleMode, paperSize, _, drawCuttingGuide, purposeText ->
+                                    viewModel.exportIdCardDirectToPdf(
+                                        layoutMode = layoutMode,
+                                        scaleMode = scaleMode,
+                                        paperSize = paperSize,
+                                        applyAntiGlare = true,
+                                        drawCuttingGuide = drawCuttingGuide,
+                                        purposeAnnotation = purposeText,
+                                        filterType = uiState.idCardFilterType
                                     )
                                 },
                                 onDismiss = { viewModel.showIdCardDialog(false) }

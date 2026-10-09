@@ -2156,21 +2156,109 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     // --- ID Card Duplex Mode ---
 
     fun setIdCardFront(bitmap: Bitmap) {
-        val scaled = scaleDownIfNeeded(bitmap, 2400)
-        _uiState.update { it.copy(idCardFrontBitmap = scaled) }
+        viewModelScope.launch {
+            val original = scaleDownIfNeeded(bitmap, 2400)
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Detecting ID card & auto-straightening front...") }
+            try {
+                val straightened = withContext(Dispatchers.Default) {
+                    com.docu.editor.core.scanner.IdCardStitcher.autoStraightenAndFrameCard(
+                        source = original,
+                        filterType = _uiState.value.idCardFilterType
+                    )
+                }
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        idCardFrontBitmap = straightened,
+                        idCardFrontOriginalBitmap = original
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        idCardFrontBitmap = original,
+                        idCardFrontOriginalBitmap = original
+                    )
+                }
+            }
+        }
     }
 
     fun setIdCardBack(bitmap: Bitmap) {
-        val scaled = scaleDownIfNeeded(bitmap, 2400)
-        _uiState.update { it.copy(idCardBackBitmap = scaled) }
+        viewModelScope.launch {
+            val original = scaleDownIfNeeded(bitmap, 2400)
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Detecting ID card & auto-straightening back...") }
+            try {
+                val straightened = withContext(Dispatchers.Default) {
+                    com.docu.editor.core.scanner.IdCardStitcher.autoStraightenAndFrameCard(
+                        source = original,
+                        filterType = _uiState.value.idCardFilterType
+                    )
+                }
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        idCardBackBitmap = straightened,
+                        idCardBackOriginalBitmap = original
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        processingMessage = null,
+                        idCardBackBitmap = original,
+                        idCardBackOriginalBitmap = original
+                    )
+                }
+            }
+        }
+    }
+
+    fun rotateIdCardFront90() {
+        val current = _uiState.value.idCardFrontBitmap ?: return
+        val matrix = android.graphics.Matrix().apply { postRotate(90f) }
+        val rotated = Bitmap.createBitmap(current, 0, 0, current.width, current.height, matrix, true)
+        _uiState.update { it.copy(idCardFrontBitmap = rotated) }
+    }
+
+    fun rotateIdCardBack90() {
+        val current = _uiState.value.idCardBackBitmap ?: return
+        val matrix = android.graphics.Matrix().apply { postRotate(90f) }
+        val rotated = Bitmap.createBitmap(current, 0, 0, current.width, current.height, matrix, true)
+        _uiState.update { it.copy(idCardBackBitmap = rotated) }
+    }
+
+    fun setIdCardFilter(filter: com.docu.editor.core.scanner.DocumentFilters.FilterType) {
+        _uiState.update { it.copy(idCardFilterType = filter) }
+        viewModelScope.launch {
+            val frontOrig = _uiState.value.idCardFrontOriginalBitmap
+            val backOrig = _uiState.value.idCardBackOriginalBitmap
+            if (frontOrig != null) {
+                val refreshedFront = withContext(Dispatchers.Default) {
+                    com.docu.editor.core.scanner.IdCardStitcher.autoStraightenAndFrameCard(frontOrig, filter)
+                }
+                _uiState.update { it.copy(idCardFrontBitmap = refreshedFront) }
+            }
+            if (backOrig != null) {
+                val refreshedBack = withContext(Dispatchers.Default) {
+                    com.docu.editor.core.scanner.IdCardStitcher.autoStraightenAndFrameCard(backOrig, filter)
+                }
+                _uiState.update { it.copy(idCardBackBitmap = refreshedBack) }
+            }
+        }
     }
 
     fun clearIdCardFront() {
-        _uiState.update { it.copy(idCardFrontBitmap = null) }
+        _uiState.update { it.copy(idCardFrontBitmap = null, idCardFrontOriginalBitmap = null) }
     }
 
     fun clearIdCardBack() {
-        _uiState.update { it.copy(idCardBackBitmap = null) }
+        _uiState.update { it.copy(idCardBackBitmap = null, idCardBackOriginalBitmap = null) }
     }
 
     fun stitchIdCardToA4(
@@ -2180,7 +2268,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         applyAntiGlare: Boolean = true,
         drawCuttingGuide: Boolean = true,
         purposeAnnotation: String = "",
-        autoEnhance: Boolean = true
+        autoEnhance: Boolean = true,
+        filterType: com.docu.editor.core.scanner.DocumentFilters.FilterType = _uiState.value.idCardFilterType
     ) {
         val front = _uiState.value.idCardFrontBitmap ?: return
         val back = _uiState.value.idCardBackBitmap ?: return
@@ -2198,7 +2287,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         applyAntiGlare = applyAntiGlare,
                         drawCuttingGuide = drawCuttingGuide,
                         purposeAnnotation = purposeAnnotation,
-                        autoEnhance = autoEnhance
+                        autoEnhance = autoEnhance,
+                        filterType = filterType
                     )
                 }
                 setDocumentBitmap(a4Bitmap)
@@ -2207,12 +2297,69 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         isApplyingEdit = false,
                         showIdCardDialog = false,
                         idCardFrontBitmap = null,
+                        idCardFrontOriginalBitmap = null,
                         idCardBackBitmap = null,
+                        idCardBackOriginalBitmap = null,
                         successMessage = "ID Card stitched onto standard A4 document!"
                     )
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "ID Stitch failed: ${e.localizedMessage}") }
+            }
+        }
+    }
+
+    fun exportIdCardDirectToPdf(
+        layoutMode: com.docu.editor.core.scanner.IdCardStitcher.IdCardLayoutMode = com.docu.editor.core.scanner.IdCardStitcher.IdCardLayoutMode.VERTICAL_STACK,
+        scaleMode: com.docu.editor.core.scanner.IdCardStitcher.CardScaleMode = com.docu.editor.core.scanner.IdCardStitcher.CardScaleMode.PHYSICAL_1TO1,
+        paperSize: com.docu.editor.core.scanner.IdCardStitcher.PaperSize = com.docu.editor.core.scanner.IdCardStitcher.PaperSize.A4,
+        applyAntiGlare: Boolean = true,
+        drawCuttingGuide: Boolean = true,
+        purposeAnnotation: String = "",
+        filterType: com.docu.editor.core.scanner.DocumentFilters.FilterType = _uiState.value.idCardFilterType
+    ) {
+        val front = _uiState.value.idCardFrontBitmap ?: return
+        val back = _uiState.value.idCardBackBitmap ?: return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Generating official ID Card PDF...") }
+            try {
+                val context = getApplication<android.app.Application>()
+                val time = System.currentTimeMillis()
+                val tempPdfFile = File(context.cacheDir, "ID_Card_KYC_$time.pdf")
+
+                withContext(Dispatchers.Default) {
+                    com.docu.editor.core.scanner.IdCardStitcher.stitchIdCardToPdf(
+                        frontCard = front,
+                        backCard = back,
+                        outputFile = tempPdfFile,
+                        layoutMode = layoutMode,
+                        scaleMode = scaleMode,
+                        paperSize = paperSize,
+                        applyAntiGlare = applyAntiGlare,
+                        drawCuttingGuide = drawCuttingGuide,
+                        purposeAnnotation = purposeAnnotation,
+                        filterType = filterType
+                    )
+                }
+
+                val savedUri = com.docu.editor.core.util.DocuStorageUtil.saveFileToPublicDownloads(
+                    context = context,
+                    srcFile = tempPdfFile,
+                    displayName = tempPdfFile.name,
+                    mimeType = "application/pdf"
+                )
+
+                _uiState.update {
+                    it.copy(
+                        isApplyingEdit = false,
+                        showIdCardDialog = false,
+                        exportUri = savedUri?.toString(),
+                        successMessage = "ID Card PDF saved to Downloads: ${tempPdfFile.name}"
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isApplyingEdit = false, errorMessage = "ID Card PDF export failed: ${e.localizedMessage}") }
             }
         }
     }

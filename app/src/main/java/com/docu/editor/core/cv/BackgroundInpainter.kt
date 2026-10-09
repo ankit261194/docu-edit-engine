@@ -46,20 +46,14 @@ class BackgroundInpainter {
             return@withContext sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
         }
 
-        // 1. High-precision OpenCV Fast Marching Telea inpainting (Primary)
-        val cvResult = inpaintWithOpenCv(sourceBitmap, safeTarget)
-        if (cvResult != null) {
-            return@withContext cvResult
-        }
-
-        // 2. Watermark & complex background preservation fallback
+        // 1. Watermark & complex background preservation (guilloche, security patterns)
         if (WatermarkPreservingInpainter.hasComplexBackground(sourceBitmap, safeTarget)) {
             try {
                 return@withContext WatermarkPreservingInpainter.inpaintWatermarkBackground(sourceBitmap, safeTarget)
             } catch (_: Throwable) {}
         }
 
-        // 3. Fallback: Ambient paper color sampling & micro-grain gradient synthesis
+        // 2. Pure ambient document paper sampling & micro-grain gradient synthesis
         val sampledColors = samplePerimeterPaperColors(sourceBitmap, safeTarget, sampleMargin)
         val paperLuma = getLuminance(sampledColors.topColor)
 
@@ -73,7 +67,7 @@ class BackgroundInpainter {
 
         // Soft-feathered ambient paper patch (zero hard rectangular boundaries!)
         val extraPadX = (safeTarget.height() * 0.12f).toInt().coerceIn(3, 8)
-        val extraPadY = (safeTarget.height() * 0.08f).toInt().coerceIn(2, 6)
+        val extraPadY = (safeTarget.height() * 0.10f).toInt().coerceIn(3, 8)
         val fillRect = Rect(
             max(0, safeTarget.left - extraPadX),
             max(0, safeTarget.top - extraPadY),
@@ -528,77 +522,96 @@ class BackgroundInpainter {
         val width = source.width
         val height = source.height
 
-        val horizontalSamples = mutableListOf<Int>()
-        val verticalSamples = mutableListOf<Int>()
+        // Determine if local region is light or dark document
+        val localMargin = (target.height() * 1.5f).toInt().coerceIn(16, 60)
+        val lLeft = max(0, target.left - localMargin)
+        val lTop = max(0, target.top - localMargin)
+        val lRight = min(width, target.right + localMargin)
+        val lBottom = min(height, target.bottom + localMargin)
+        val localW = lRight - lLeft
+        val localH = lBottom - lTop
 
-        // 1. Primary: Sample HORIZONTALLY along the exact text baseline (Left and Right margins)
-        val leftX1 = max(0, target.left - 14)
+        var sumLocalLuma = 0.0
+        var localPixelCount = 0
+        val step = max(1, min(localW, localH) / 10)
+        for (y in lTop until lBottom step step) {
+            for (x in lLeft until lRight step step) {
+                val p = source.getPixel(x, y)
+                sumLocalLuma += getLuminance(p)
+                localPixelCount++
+            }
+        }
+        val isDarkDoc = if (localPixelCount > 0) (sumLocalLuma / localPixelCount) < 128 else false
+
+        // 1. Sample clean paper strip ABOVE (between target.top - 16 and target.top - 2)
+        val topY1 = max(0, target.top - 16)
+        val topY2 = max(0, target.top - 2)
+        val topSamples = mutableListOf<Int>()
+        if (topY1 < topY2) {
+            val stepX = max(1, target.width() / 25)
+            for (y in topY1 until topY2) {
+                for (x in target.left until target.right step stepX) {
+                    if (x in 0 until width && y in 0 until height) {
+                        topSamples.add(source.getPixel(x, y))
+                    }
+                }
+            }
+        }
+
+        // 2. Sample clean paper strip BELOW (between target.bottom + 2 and target.bottom + 16)
+        val botY1 = min(height - 1, target.bottom + 2)
+        val botY2 = min(height - 1, target.bottom + 16)
+        val botSamples = mutableListOf<Int>()
+        if (botY1 < botY2) {
+            val stepX = max(1, target.width() / 25)
+            for (y in botY1 until botY2) {
+                for (x in target.left until target.right step stepX) {
+                    if (x in 0 until width && y in 0 until height) {
+                        botSamples.add(source.getPixel(x, y))
+                    }
+                }
+            }
+        }
+
+        // 3. Sample left and right margins (only safe 2-8px margin)
+        val sideSamples = mutableListOf<Int>()
+        val leftX1 = max(0, target.left - 8)
         val leftX2 = max(0, target.left - 2)
         val rightX1 = min(width - 1, target.right + 2)
-        val rightX2 = min(width - 1, target.right + 14)
-
-        val midY1 = max(0, if (target.height() > 6) target.top + 2 else target.top)
-        val midY2 = min(height - 1, if (target.height() > 6) target.bottom - 2 else target.bottom)
-
-        if (midY1 <= midY2) {
-            for (y in midY1..midY2) {
-                if (leftX1 <= leftX2) {
-                    for (x in leftX1..leftX2) {
-                        horizontalSamples.add(source.getPixel(x, y))
-                    }
-                }
-                if (rightX1 <= rightX2) {
-                    for (x in rightX1..rightX2) {
-                        horizontalSamples.add(source.getPixel(x, y))
-                    }
-                }
+        val rightX2 = min(width - 1, target.right + 8)
+        val stepY = max(1, target.height() / 10)
+        for (y in target.top until target.bottom step stepY) {
+            if (y in 0 until height) {
+                for (x in leftX1 until leftX2) sideSamples.add(source.getPixel(x, y))
+                for (x in rightX1 until rightX2) sideSamples.add(source.getPixel(x, y))
             }
         }
 
-        // 2. Secondary: Sample TOP and BOTTOM ONLY 2-3px close
-        val topY = max(0, target.top - 2)
-        val botY = min(height - 1, target.bottom + 2)
-        val stepX = max(1, target.width() / 15)
+        val cleanTop = filterPaperPixels(topSamples, isDarkDoc)
+        val cleanBot = filterPaperPixels(botSamples, isDarkDoc)
+        val cleanSides = filterPaperPixels(sideSamples, isDarkDoc)
 
-        val topSamples = mutableListOf<Int>()
-        val bottomSamples = mutableListOf<Int>()
-
-        for (x in target.left until target.right step stepX) {
-            if (topY in 0 until height) {
-                verticalSamples.add(source.getPixel(x, topY))
-                topSamples.add(source.getPixel(x, topY))
-            }
-            if (botY in 0 until height) {
-                verticalSamples.add(source.getPixel(x, botY))
-                bottomSamples.add(source.getPixel(x, botY))
-            }
+        val baseColor = when {
+            cleanTop != null && cleanBot != null -> blendColors(cleanTop, cleanBot, 0.5f)
+            cleanTop != null -> cleanTop
+            cleanBot != null -> cleanBot
+            cleanSides != null -> cleanSides
+            else -> if (isDarkDoc) Color.BLACK else Color.WHITE
         }
 
-        val cleanHorizontal = filterPaperPixels(horizontalSamples)
-        val cleanVertical = filterPaperPixels(verticalSamples)
-        val cleanTop = filterPaperPixels(topSamples)
-        val cleanBottom = filterPaperPixels(bottomSamples)
+        val topColor = cleanTop ?: baseColor
+        val bottomColor = cleanBot ?: baseColor
+        val topLuma = getLuminance(topColor)
+        val botLuma = getLuminance(bottomColor)
 
-        val horizontalLuma = cleanHorizontal?.let { getLuminance(it) } ?: 250
-        val verticalLuma = cleanVertical?.let { getLuminance(it) } ?: horizontalLuma
-
-        val baseColor = if (cleanHorizontal != null) {
-            if (cleanVertical != null && kotlin.math.abs(verticalLuma - horizontalLuma) < 18) {
-                blendColors(cleanHorizontal, cleanVertical, 0.7f)
-            } else {
-                cleanHorizontal
-            }
-        } else {
-            cleanVertical ?: Color.WHITE
-        }
-
-        val topColor = if (cleanTop != null) blendColors(cleanTop, baseColor, 0.65f) else baseColor
-        val bottomColor = if (cleanBottom != null) blendColors(cleanBottom, baseColor, 0.65f) else baseColor
+        // For standard digital documents with bright paper (Luma >= 235), snap to pure clean white
+        val finalTop = if (!isDarkDoc && topLuma >= 235) Color.WHITE else topColor
+        val finalBot = if (!isDarkDoc && botLuma >= 235) Color.WHITE else bottomColor
 
         return PaperSampleResult(
-            topColor = topColor,
-            bottomColor = bottomColor,
-            hasNoise = getLuminance(baseColor) < 235
+            topColor = finalTop,
+            bottomColor = finalBot,
+            hasNoise = !isDarkDoc && (topLuma in 130..234 || botLuma in 130..234)
         )
     }
 
@@ -617,15 +630,22 @@ class BackgroundInpainter {
         return Color.rgb(r, g, b)
     }
 
-    private fun filterPaperPixels(samples: List<Int>): Int? {
+    private fun filterPaperPixels(samples: List<Int>, isDarkDoc: Boolean = false): Int? {
         if (samples.isEmpty()) return null
 
         val sorted = samples.map { c ->
             Pair(c, getLuminance(c))
         }.sortedBy { it.second }
 
-        val startIndex = (sorted.size * 0.50f).toInt().coerceIn(0, sorted.size - 1)
-        val validSamples = sorted.subList(startIndex, sorted.size).map { it.first }
+        // On normal light documents, paper is the brightest 40% pixels (filtering out dark text & borders).
+        // On dark mode documents, paper is the darkest 40% pixels.
+        val validSamples = if (!isDarkDoc) {
+            val cutoff = (sorted.size * 0.60f).toInt().coerceIn(0, sorted.size - 1)
+            sorted.subList(cutoff, sorted.size).map { it.first }
+        } else {
+            val cutoff = (sorted.size * 0.40f).toInt().coerceIn(1, sorted.size)
+            sorted.subList(0, cutoff).map { it.first }
+        }
 
         if (validSamples.isEmpty()) return null
 

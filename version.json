@@ -1,12 +1,12 @@
 {
-  "versionCode": 52,
-  "versionName": "10.8.6",
+  "versionCode": 54,
+  "versionName": "10.8.8",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.8.6 (Enterprise ID Card Front & Back Scanner 2.0)",
-  "changelog": "🪪 Enterprise ID Card Front & Back Scanner 2.0:\n• Automatic 4-Corner Edge Detection & Perspective Warping: Table and desk backgrounds are automatically detected and cropped out; skewed card captures are straightened with sub-pixel precision.\n• Magic Color Document Enhancement: Whitens background paper and enhances text and photo contrast cleanly (CamScanner/Adobe Scan quality).\n• Auto Landscape Orientation: Cards are automatically aligned into standard ISO/IEC 7810 ID-1 landscape format.\n• Dual-Input Flexibility: Seamlessly switch between Camera Scan and Gallery Picker for both Front and Back sides independently.\n• Clean Official KYC Print Layout: Standard A4 print sheet with subtle hairline borders, clean minimal labels, and optional cutting guide (ZERO ads or giant badges).",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.6/DocuEdit-v10.8.6-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.6/DocuEdit-v10.8.6-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.6/DocuEdit-v10.8.6-arm64.apk",
-  "apkFileName": "DocuEdit-v10.8.6-arm64.apk",
+  "releaseTitle": "DocuEdit Pro v10.8.8 (Pristine Text Inpainting & Intelligent ID Card Studio)",
+  "changelog": "✨ Pristine Document Text Inpainting & Intelligent ID Card Studio:\n• 100% Elimination of Gray Inpainting Mud: Eradicated OpenCV Fast Marching smudging across text boxes; replaced with pure ambient document paper synthesis matching genuine lighting and paper tone.\n• Guaranteed Complete Eradication of Original Text: 0 remnant pixels or underlying letter strokes remain when editing or replacing words.\n• Vertical Paper Strip Sampling & Outlier Rejection: Samples authentic paper strictly from unpolluted strips above and below text lines, ignoring ink strokes and selection boundaries.\n• Automatic ID Card Auto-Straighten & Dewarp: Automatically detects ID card boundaries from smartphone photos, removes background desks/bedsheets, auto-rotates to standard landscape, and snaps tightly to ISO/IEC 7810 ID-1 proportions.\n• Live ID Card Document Filters: Choose between Magic Color, Original, Sharp B&W, and Grayscale with instant real-time thumbnail preview.\n• Direct 1-Tap A4 PDF Export: Generate official print-ready 2-sided A4 KYC PDFs with cutting guide and standard 1:1 scale with a single tap.\n• Rotate 90° Controls: Instant orientation adjustment for upside-down or portrait card captures.",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.8/DocuEdit-v10.8.8-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.8/DocuEdit-v10.8.8-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.8/DocuEdit-v10.8.8-arm64.apk",
+  "apkFileName": "DocuEdit-v10.8.8-arm64.apk",
   "apkSizeMb": 105.4
 }

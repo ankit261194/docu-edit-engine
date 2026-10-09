@@ -59,6 +59,278 @@ object DocumentEdgeDetector {
     }
 
     /**
+     * Specialized Enterprise 4-Corner Edge Detector optimized for ID Cards (Aadhaar, PAN, DL, Voter ID, PVC Cards).
+     * Accommodates:
+     * - Small card footprint in smartphone frame (area as low as 1.5% to 98% of frame).
+     * - ISO/IEC 7810 ID-1 standard canonical aspect ratio (85.60mm x 53.98mm = 1.5858).
+     * - Multi-epsilon approxPolyDP + minAreaRect fallback for rounded card corners (standard 3.18mm radius).
+     * - Scoring that prioritizes quads matching ID-1 card proportions.
+     */
+    suspend fun detectCardCornersOrNull(bitmap: Bitmap): DocumentCorners? = withContext(Dispatchers.Default) {
+        val srcMat = Mat()
+        val grayMat = Mat()
+        try {
+            Utils.bitmapToMat(bitmap, srcMat)
+            Imgproc.cvtColor(srcMat, grayMat, Imgproc.COLOR_RGBA2GRAY)
+            detectCardCornersFromGrayMat(grayMat, bitmap.width, bitmap.height)
+        } catch (_: Exception) {
+            null
+        } finally {
+            srcMat.release()
+            grayMat.release()
+        }
+    }
+
+    /**
+     * Detects 4 corners of an ID Card from a grayscale matrix.
+     */
+    fun detectCardCornersFromGrayMat(grayMat: Mat, origWidth: Int, origHeight: Int): DocumentCorners? {
+        val targetWidth = 640.0
+        val scale = if (origWidth > targetWidth) targetWidth / origWidth.toDouble() else 1.0
+        val procWidth = (origWidth * scale).toInt().coerceAtLeast(10)
+        val procHeight = (origHeight * scale).toInt().coerceAtLeast(10)
+
+        val smallGray = Mat()
+        val blurredMat = Mat()
+        val claheMat = Mat()
+        val k3 = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0))
+
+        try {
+            if (scale < 1.0) {
+                Imgproc.resize(grayMat, smallGray, Size(procWidth.toDouble(), procHeight.toDouble()), 0.0, 0.0, Imgproc.INTER_AREA)
+            } else {
+                grayMat.copyTo(smallGray)
+            }
+
+            Imgproc.GaussianBlur(smallGray, blurredMat, Size(5.0, 5.0), 0.0)
+            val clahe = Imgproc.createCLAHE(2.0, Size(8.0, 8.0))
+            clahe.apply(blurredMat, claheMat)
+
+            var bestQuad: Array<Point>? = null
+
+            // Strategy 1: Canny
+            val cannyMat = Mat()
+            val dilatedCanny = Mat()
+            try {
+                Imgproc.Canny(claheMat, cannyMat, 30.0, 100.0)
+                Imgproc.dilate(cannyMat, dilatedCanny, k3)
+                bestQuad = extractBestCardQuadFromEdgeMap(dilatedCanny, procWidth, procHeight, smallGray)
+            } finally {
+                cannyMat.release()
+                dilatedCanny.release()
+            }
+
+            // Strategy 2: Morphological Gradient + Otsu
+            if (bestQuad == null) {
+                val gradMat = Mat()
+                val otsuGrad = Mat()
+                val dilatedGrad = Mat()
+                val k5 = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
+                try {
+                    Imgproc.morphologyEx(blurredMat, gradMat, Imgproc.MORPH_GRADIENT, k5)
+                    Imgproc.threshold(gradMat, otsuGrad, 0.0, 255.0, Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU)
+                    Imgproc.dilate(otsuGrad, dilatedGrad, k3)
+                    bestQuad = extractBestCardQuadFromEdgeMap(dilatedGrad, procWidth, procHeight, smallGray)
+                } finally {
+                    k5.release()
+                    gradMat.release()
+                    otsuGrad.release()
+                    dilatedGrad.release()
+                }
+            }
+
+            // Strategy 3: Adaptive Gaussian Thresholding
+            if (bestQuad == null) {
+                val adaptMat = Mat()
+                val closedAdapt = Mat()
+                val kClose = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
+                try {
+                    Imgproc.adaptiveThreshold(
+                        blurredMat,
+                        adaptMat,
+                        255.0,
+                        Imgproc.ADAPTIVE_THRESH_GAUSSIAN_C,
+                        Imgproc.THRESH_BINARY_INV,
+                        21,
+                        5.0
+                    )
+                    Imgproc.morphologyEx(adaptMat, closedAdapt, Imgproc.MORPH_CLOSE, kClose)
+                    bestQuad = extractBestCardQuadFromEdgeMap(closedAdapt, procWidth, procHeight, smallGray)
+                } finally {
+                    kClose.release()
+                    adaptMat.release()
+                    closedAdapt.release()
+                }
+            }
+
+            if (bestQuad != null) {
+                try {
+                    val cornersMat = MatOfPoint2f(*bestQuad)
+                    val term = org.opencv.core.TermCriteria(
+                        org.opencv.core.TermCriteria.EPS or org.opencv.core.TermCriteria.COUNT,
+                        30,
+                        0.05
+                    )
+                    Imgproc.cornerSubPix(
+                        smallGray,
+                        cornersMat,
+                        Size(5.0, 5.0),
+                        Size(-1.0, -1.0),
+                        term
+                    )
+                    val refined = cornersMat.toArray()
+                    cornersMat.release()
+                    if (isValidCardQuad(refined, procWidth, procHeight)) {
+                        bestQuad = refined
+                    }
+                } catch (_: Exception) {}
+
+                val invScale = 1.0 / scale
+                val scaledPoints = bestQuad.map {
+                    Point(
+                        (it.x * invScale).coerceIn(0.0, origWidth.toDouble()),
+                        (it.y * invScale).coerceIn(0.0, origHeight.toDouble())
+                    )
+                }.toTypedArray()
+
+                return sortCorners(scaledPoints)
+            }
+
+            return null
+        } catch (_: Exception) {
+            return null
+        } finally {
+            smallGray.release()
+            blurredMat.release()
+            claheMat.release()
+            k3.release()
+        }
+    }
+
+    private fun extractBestCardQuadFromEdgeMap(
+        edgeMap: Mat,
+        procW: Int,
+        procH: Int,
+        smallGray: Mat
+    ): Array<Point>? {
+        val contours = mutableListOf<MatOfPoint>()
+        val hierarchy = Mat()
+        try {
+            Imgproc.findContours(
+                edgeMap,
+                contours,
+                hierarchy,
+                Imgproc.RETR_LIST,
+                Imgproc.CHAIN_APPROX_SIMPLE
+            )
+
+            val frameArea = procW.toDouble() * procH.toDouble()
+            val minArea = frameArea * 0.015
+            val maxAllowedArea = frameArea * 0.98
+
+            val candidateContours = contours
+                .map { Pair(it, Imgproc.contourArea(it)) }
+                .filter { it.second in minArea..maxAllowedArea }
+                .sortedByDescending { it.second }
+                .take(10)
+
+            var bestScore = -1.0
+            var bestQuad: Array<Point>? = null
+
+            for ((contour, contourArea) in candidateContours) {
+                val hullIndices = MatOfInt()
+                Imgproc.convexHull(contour, hullIndices)
+                val contourPoints = contour.toArray()
+                val hullPoints = hullIndices.toArray().map { contourPoints[it] }.toTypedArray()
+                hullIndices.release()
+
+                if (hullPoints.size < 4) continue
+
+                val hullMat = MatOfPoint2f(*hullPoints)
+                val peri = Imgproc.arcLength(hullMat, true)
+                var foundQuad: Array<Point>? = null
+
+                // 1. approxPolyDP with sweep
+                for (eps in doubleArrayOf(0.012, 0.018, 0.025, 0.035, 0.05, 0.065)) {
+                    val approx = MatOfPoint2f()
+                    Imgproc.approxPolyDP(hullMat, approx, eps * peri, true)
+                    if (approx.total() == 4L) {
+                        val mop = MatOfPoint(*approx.toArray())
+                        if (Imgproc.isContourConvex(mop)) {
+                            val pts = approx.toArray()
+                            if (isValidCardQuad(pts, procW, procH)) {
+                                foundQuad = pts
+                                mop.release()
+                                approx.release()
+                                break
+                            }
+                        }
+                        mop.release()
+                    }
+                    approx.release()
+                }
+
+                // 2. minAreaRect fallback for rounded corner cards
+                if (foundQuad == null) {
+                    val rotRect = Imgproc.minAreaRect(hullMat)
+                    val boxPts = Array(4) { Point() }
+                    rotRect.points(boxPts)
+                    if (isValidCardQuad(boxPts, procW, procH)) {
+                        val rectArea = rotRect.size.width * rotRect.size.height
+                        if (rectArea > 0 && (contourArea / rectArea) > 0.65) {
+                            foundQuad = boxPts
+                        }
+                    }
+                }
+
+                hullMat.release()
+
+                if (foundQuad != null) {
+                    val edge1 = hypot(foundQuad[0].x - foundQuad[1].x, foundQuad[0].y - foundQuad[1].y)
+                    val edge2 = hypot(foundQuad[1].x - foundQuad[2].x, foundQuad[1].y - foundQuad[2].y)
+                    val maxEdge = maxOf(edge1, edge2)
+                    val minEdge = minOf(edge1, edge2).coerceAtLeast(1.0)
+                    val ar = maxEdge / minEdge
+                    val arPenalty = kotlin.math.abs(ar - 1.5858)
+                    val score = contourArea / (1.0 + arPenalty * 4.0)
+
+                    if (score > bestScore) {
+                        bestScore = score
+                        bestQuad = foundQuad
+                    }
+                }
+            }
+
+            contours.forEach { it.release() }
+            return bestQuad
+        } catch (_: Exception) {
+            return null
+        } finally {
+            hierarchy.release()
+        }
+    }
+
+    private fun isValidCardQuad(pts: Array<Point>, w: Int, h: Int): Boolean {
+        if (pts.size != 4) return false
+        val edge1 = hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)
+        val edge2 = hypot(pts[1].x - pts[2].x, pts[1].y - pts[2].y)
+        val edge3 = hypot(pts[2].x - pts[3].x, pts[2].y - pts[3].y)
+        val edge4 = hypot(pts[3].x - pts[0].x, pts[3].y - pts[0].y)
+
+        val minEdge = minOf(edge1, edge2, edge3, edge4)
+        val maxEdge = maxOf(edge1, edge2, edge3, edge4)
+        if (minEdge < 18.0) return false
+        val ar = maxEdge / minEdge
+        if (ar < 1.10 || ar > 2.8) return false
+
+        val quadArea = computePolygonArea(pts)
+        val totalArea = w.toDouble() * h.toDouble()
+        if (quadArea < totalArea * 0.015 || quadArea > totalArea * 0.98) return false
+
+        return true
+    }
+
+    /**
      * Real-time high-speed corner detector operating directly on CameraX Y-plane Mat (0ms bitmap conversion).
      * Returns null if no document is detected.
      */
