@@ -52,12 +52,12 @@ object TypographyEstimator {
         val strokeRatio = verticalStemWidth / height
         val strokeContrast = if (horizontalBarWidth > 0.5f) verticalStemWidth / horizontalBarWidth else 1.0f
 
-        // Camera photos soften horizontal bars. Multi-signal serif detector:
-        val isSerif = documentDominantSerif ||
-            lineDominantSerif ||
-            (strokeContrast >= 1.12f && charCount >= 2) ||
-            (flareRatio >= 1.13f && charCount >= 2) ||
-            (strokeContrast >= 1.07f && flareRatio >= 1.09f)
+        // Camera photos soften horizontal bars. Multi-signal serif detector with authentic thresholds:
+        val isSerif = (lineDominantSerif && flareRatio >= 1.18f) ||
+            (documentDominantSerif && strokeContrast >= 1.50f && flareRatio >= 1.15f) ||
+            (strokeContrast >= 1.65f && flareRatio >= 1.18f && charCount >= 2) ||
+            (flareRatio >= 1.28f && charCount >= 2) ||
+            (strokeContrast >= 2.10f && charCount >= 2)
 
         val density = foregroundResult.foregroundRatio
         val weight = when {

@@ -240,8 +240,8 @@ class FontMatcher(private val context: Context) {
                 return lineDominantFont
             }
 
-            // 2. Document-Level Consensus: only if document is overwhelmingly Serif and metrics don't contradict
-            if (documentDominantFont == FontClassification.SERIF && (metrics.isSerif || metrics.terminalFlareRatio >= 1.08f)) {
+            // 2. Document-Level Consensus: only if document is overwhelmingly Serif and metrics confirm
+            if (documentDominantFont == FontClassification.SERIF && (metrics.isSerif || metrics.terminalFlareRatio >= 1.25f)) {
                 return FontClassification.SERIF
             } else if (documentDominantFont != null && metrics.isSerif) {
                 return documentDominantFont
@@ -249,7 +249,7 @@ class FontMatcher(private val context: Context) {
 
             return when {
                 // 3. Serif: Times New Roman / Formal documents, legal certificates, agreements
-                metrics.isSerif || metrics.terminalFlareRatio >= 1.13f -> {
+                metrics.isSerif || metrics.terminalFlareRatio >= 1.28f -> {
                     FontClassification.SERIF
                 }
                 // 4. Typewriter: fixed pitch typewriter numbers/code

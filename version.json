@@ -1,12 +1,12 @@
 {
-  "versionCode": 49,
-  "versionName": "10.8.3",
+  "versionCode": 50,
+  "versionName": "10.8.4",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.8.3 (Crisp Computer Print & Perfect Font Matching)",
-  "changelog": "⚡ Razor-Sharp Computer Print Perfection & Flawless Line Typography:\n• Line-Level Font Consensus: Preserves authentic font family across line neighbors (e.g. 'For Archana' -> 'Kumar' renders Bold Sans-Serif, never Times New Roman).\n• 100% Bold Weight Consensus: Line boldness automatically detects bold headings and signature lines.\n• Zero Optical Blur on Prints: Digital documents & clean paper default to 0.0px blur for razor-sharp vector text.\n• Solid Pitch Black Ink: Sampler preserves authentic pure #000000 ink on computer prints without charcoal fading.\n• Exact CapHeight & Median Baseline: Normalized letter height matches neighboring words down to the pixel.\n• Update Loop Permanently Fixed: 24h snooze and strict semantic version checks eliminate repeated update popups.",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.3/DocuEdit-v10.8.3-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.3/DocuEdit-v10.8.3-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.3/DocuEdit-v10.8.3-arm64.apk",
-  "apkFileName": "DocuEdit-v10.8.3-arm64.apk",
+  "releaseTitle": "DocuEdit Pro v10.8.4 (Flawless Sans-Serif Arial & Line-Neighbor Match)",
+  "changelog": "⚡ Flawless Arial / Sans-Serif Typography & 100% Line Matching:\n• Fixed False-Positive Serif Detection: Arial with natural stroke contrast no longer misclassified as Times New Roman.\n• Robust Line Neighbor Clustering: Combines vertical bounding box overlap and rotation-tolerant distance so words on the same line ('For Archana' -> 'Kumar') always share identical font family and bold weight.\n• Instant Sans-Serif Consensus: Signature lines, invoice details, and table headers correctly default to Bold Arial.\n• Crisp Ink & Optical Alignment: Solid pure black ink with zero camera blur on clean computer prints.",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.4/DocuEdit-v10.8.4-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.4/DocuEdit-v10.8.4-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.4/DocuEdit-v10.8.4-arm64.apk",
+  "apkFileName": "DocuEdit-v10.8.4-arm64.apk",
   "apkSizeMb": 105.4
 }

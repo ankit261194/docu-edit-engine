@@ -21,11 +21,11 @@ class TypographyAndOpticsTest {
     @Test
     fun testFontClassificationWithTerminalFlare() {
         // Optical camera blur softens corner detection (isSerif = false),
-        // but terminal flare ratio > 1.13 catches serif foot flaring
+        // but genuine serif terminal flare ratio >= 1.28 catches serif foot flaring
         val blurredSerifMetrics = TypographyMetrics(
             estimatedFontSizePx = 32f,
             isSerif = false,
-            terminalFlareRatio = 1.18f
+            terminalFlareRatio = 1.30f
         )
         val classification = FontMatcher.classifyFromMetrics(
             text = "Department",
@@ -35,6 +35,26 @@ class TypographyAndOpticsTest {
             lineDominantFont = null
         )
         assertEquals(FontClassification.SERIF, classification)
+    }
+
+    @Test
+    fun testArialSansSerifDoesNotTriggerSerif() {
+        // Standard Arial on printed/scanned document has natural stroke contrast (~1.18)
+        // and camera optical bleed (flare ~1.12). This MUST NEVER trigger Serif!
+        val arialMetrics = TypographyMetrics(
+            estimatedFontSizePx = 28f,
+            isSerif = false,
+            terminalFlareRatio = 1.12f,
+            strokeWidthRatio = 0.16f
+        )
+        val classification = FontMatcher.classifyFromMetrics(
+            text = "Kumar",
+            metrics = arialMetrics,
+            bounds = null,
+            documentDominantFont = null,
+            lineDominantFont = null
+        )
+        assertEquals(FontClassification.SANS_SERIF, classification)
     }
 
     @Test

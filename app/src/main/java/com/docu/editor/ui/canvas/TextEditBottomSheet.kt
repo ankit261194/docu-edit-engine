@@ -108,18 +108,21 @@ fun TextEditBottomSheet(
         val targetCenterY = item.boundingBox.exactCenterY()
         allDetectedItems.filter {
             if (it.id == item.id) return@filter false
+            val vOverlap = minOf(it.boundingBox.bottom, item.boundingBox.bottom) - maxOf(it.boundingBox.top, item.boundingBox.top)
+            val minH = minOf(it.boundingBox.height(), item.boundingBox.height()).toFloat()
+            val hasVerticalOverlap = vOverlap > minH * 0.25f
             val dx = it.boundingBox.exactCenterX() - targetCenterX
             val dy = it.boundingBox.exactCenterY() - targetCenterY
             val perpDist = kotlin.math.abs(-dx * sinA + dy * cosA)
-            perpDist < lineH * 0.70f
+            hasVerticalOverlap || (perpDist < maxOf(28f, lineH * 1.45f))
         }
     }
 
     val documentDominantFont = remember(allDetectedItems) {
         if (allDetectedItems.isEmpty()) null
         else {
-            val serifCount = allDetectedItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.13f }
-            if (serifCount.toFloat() / allDetectedItems.size >= 0.55f) FontClassification.SERIF
+            val serifCount = allDetectedItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.28f }
+            if (serifCount.toFloat() / allDetectedItems.size >= 0.65f) FontClassification.SERIF
             else null
         }
     }
@@ -130,13 +133,9 @@ fun TextEditBottomSheet(
             if (sameLineItems.any { it.text.any { c -> c in '\u0900'..'\u097F' } }) {
                 FontClassification.DEVANAGARI
             } else {
-                val serifInLine = sameLineItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.14f }
+                val serifInLine = sameLineItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.28f }
                 val serifRatio = serifInLine.toFloat() / sameLineItems.size
-                when {
-                    serifRatio >= 0.50f -> FontClassification.SERIF
-                    serifRatio <= 0.25f -> FontClassification.SANS_SERIF
-                    else -> FontClassification.SANS_SERIF
-                }
+                if (serifRatio >= 0.60f) FontClassification.SERIF else FontClassification.SANS_SERIF
             }
         }
     }

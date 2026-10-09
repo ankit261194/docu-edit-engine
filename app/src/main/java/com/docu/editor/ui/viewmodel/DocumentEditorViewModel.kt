@@ -1459,12 +1459,16 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     val targetCenterX = targetItem.boundingBox.exactCenterX()
                     val targetCenterY = targetItem.boundingBox.exactCenterY()
 
+                    val lineH = maxOf(16f, targetItem.boundingBox.height().toFloat())
                     val allSameLineItems = _uiState.value.detectedItems.filter { item ->
                         if (item.id == targetItem.id) return@filter false
+                        val vOverlap = minOf(item.boundingBox.bottom, targetItem.boundingBox.bottom) - maxOf(item.boundingBox.top, targetItem.boundingBox.top)
+                        val minH = minOf(item.boundingBox.height(), targetItem.boundingBox.height()).toFloat()
+                        val hasVerticalOverlap = vOverlap > minH * 0.25f
                         val dx = item.boundingBox.exactCenterX() - targetCenterX
                         val dy = item.boundingBox.exactCenterY() - targetCenterY
                         val perpDist = kotlin.math.abs(-dx * sinA + dy * cosA)
-                        perpDist < singleLineH * 0.70f
+                        hasVerticalOverlap || (perpDist < maxOf(28f, lineH * 1.45f))
                     }.sortedBy { item ->
                         val dx = item.boundingBox.exactCenterX() - targetCenterX
                         val dy = item.boundingBox.exactCenterY() - targetCenterY
@@ -1489,16 +1493,16 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     if (effectiveBold == null) {
                         val lineBoldCount = allSameLineItems.count {
                             (it.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM)) ||
-                            it.typography.strokeWidthRatio >= 0.10f ||
-                            it.typography.glyphDensity >= 0.20f ||
+                            it.typography.strokeWidthRatio >= 0.12f ||
+                            it.typography.glyphDensity >= 0.22f ||
                             it.typography.numericFontWeight >= 600
                         }
                         effectiveBold = if (allSameLineItems.isNotEmpty()) {
                             lineBoldCount.toFloat() / allSameLineItems.size >= 0.40f
                         } else {
                             (targetItem.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM)) ||
-                            targetItem.typography.strokeWidthRatio >= 0.10f ||
-                            targetItem.typography.glyphDensity >= 0.20f ||
+                            targetItem.typography.strokeWidthRatio >= 0.12f ||
+                            targetItem.typography.glyphDensity >= 0.22f ||
                             targetItem.typography.numericFontWeight >= 600
                         }
                     }
@@ -1514,8 +1518,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         val items = _uiState.value.detectedItems
                         if (items.isEmpty()) null
                         else {
-                            val serifCount = items.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.13f }
-                            if (serifCount.toFloat() / items.size >= 0.55f) FontClassification.SERIF
+                            val serifCount = items.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.28f }
+                            if (serifCount.toFloat() / items.size >= 0.65f) FontClassification.SERIF
                             else null
                         }
                     }
@@ -1526,13 +1530,9 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             if (allSameLineItems.any { it.text.any { c -> c in '\u0900'..'\u097F' } }) {
                                 FontClassification.DEVANAGARI
                             } else {
-                                val serifInLine = allSameLineItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.14f }
+                                val serifInLine = allSameLineItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.28f }
                                 val serifRatio = serifInLine.toFloat() / allSameLineItems.size
-                                when {
-                                    serifRatio >= 0.50f -> FontClassification.SERIF
-                                    serifRatio <= 0.25f -> FontClassification.SANS_SERIF
-                                    else -> FontClassification.SANS_SERIF
-                                }
+                                if (serifRatio >= 0.60f) FontClassification.SERIF else FontClassification.SANS_SERIF
                             }
                         }
                     }
