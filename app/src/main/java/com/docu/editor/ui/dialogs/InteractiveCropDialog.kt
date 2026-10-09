@@ -65,29 +65,68 @@ import kotlinx.coroutines.launch
 @Composable
 fun InteractiveCropDialog(
     sourceBitmap: Bitmap,
+    title: String = "Adjust Borders",
+    subtitle: String = "Drag corners • Magnifier shows exact boundary",
+    isIdCardMode: Boolean = false,
     onApplyCrop: (DocumentCorners) -> Unit,
     onRotateClockwise: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var overlayViewRef by remember { mutableStateOf<CropLoupeOverlayView?>(null) }
-    val initialCorners = remember(sourceBitmap) {
-        DocumentCorners(
-            topLeft = PointF(sourceBitmap.width * 0.04f, sourceBitmap.height * 0.04f),
-            topRight = PointF(sourceBitmap.width * 0.96f, sourceBitmap.height * 0.04f),
-            bottomRight = PointF(sourceBitmap.width * 0.96f, sourceBitmap.height * 0.96f),
-            bottomLeft = PointF(sourceBitmap.width * 0.04f, sourceBitmap.height * 0.96f)
-        )
+    val initialCorners = remember(sourceBitmap, isIdCardMode) {
+        if (isIdCardMode) {
+            val w = sourceBitmap.width.toFloat()
+            val h = sourceBitmap.height.toFloat()
+            val cardAspect = 85.60f / 53.98f // 1.5858
+            if (w >= h) {
+                val boxW = w * 0.80f
+                val boxH = (boxW / cardAspect).coerceAtMost(h * 0.88f)
+                val left = (w - boxW) / 2f
+                val top = (h - boxH) / 2f
+                DocumentCorners(
+                    topLeft = PointF(left, top),
+                    topRight = PointF(left + boxW, top),
+                    bottomRight = PointF(left + boxW, top + boxH),
+                    bottomLeft = PointF(left, top + boxH)
+                )
+            } else {
+                // Portrait photo
+                val boxH = h * 0.72f
+                val boxW = (boxH / cardAspect).coerceAtMost(w * 0.85f)
+                val left = (w - boxW) / 2f
+                val top = (h - boxH) / 2f
+                DocumentCorners(
+                    topLeft = PointF(left, top),
+                    topRight = PointF(left + boxW, top),
+                    bottomRight = PointF(left + boxW, top + boxH),
+                    bottomLeft = PointF(left, top + boxH)
+                )
+            }
+        } else {
+            DocumentCorners(
+                topLeft = PointF(sourceBitmap.width * 0.04f, sourceBitmap.height * 0.04f),
+                topRight = PointF(sourceBitmap.width * 0.96f, sourceBitmap.height * 0.04f),
+                bottomRight = PointF(sourceBitmap.width * 0.96f, sourceBitmap.height * 0.96f),
+                bottomLeft = PointF(sourceBitmap.width * 0.04f, sourceBitmap.height * 0.96f)
+            )
+        }
     }
     var currentCorners by remember { mutableStateOf(initialCorners) }
 
     // Auto-detect document edges in background on launch
-    LaunchedEffect(sourceBitmap) {
+    LaunchedEffect(sourceBitmap, isIdCardMode) {
         try {
-            val detected = DocumentEdgeDetector.detectCorners(sourceBitmap)
-            currentCorners = detected
-            overlayViewRef?.referenceCorners = detected
-            overlayViewRef?.corners = detected
+            val detected = if (isIdCardMode) {
+                DocumentEdgeDetector.detectCardCornersOrNull(sourceBitmap)
+            } else {
+                DocumentEdgeDetector.detectCorners(sourceBitmap)
+            }
+            if (detected != null) {
+                currentCorners = detected
+                overlayViewRef?.referenceCorners = detected
+                overlayViewRef?.corners = detected
+            }
         } catch (_: Exception) {}
     }
 
@@ -132,7 +171,7 @@ fun InteractiveCropDialog(
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        text = "Adjust Borders",
+                                        text = title,
                                         fontSize = 17.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color.White
@@ -143,7 +182,7 @@ fun InteractiveCropDialog(
                                         color = Color(0xFF059669)
                                     ) {
                                         Text(
-                                            text = "2.5x LOUPE",
+                                            text = if (isIdCardMode) "ISO ID-1" else "2.5x LOUPE",
                                             color = Color.White,
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Black,
@@ -152,7 +191,7 @@ fun InteractiveCropDialog(
                                     }
                                 }
                                 Text(
-                                    text = "Drag corners • Magnifier shows exact boundary",
+                                    text = subtitle,
                                     fontSize = 11.sp,
                                     color = Color(0xFF94A3B8)
                                 )
@@ -168,9 +207,16 @@ fun InteractiveCropDialog(
                                 .clickable {
                                     scope.launch {
                                         try {
-                                            val detected = DocumentEdgeDetector.detectCorners(sourceBitmap)
-                                            overlayViewRef?.corners = detected
-                                            currentCorners = detected
+                                            val detected = if (isIdCardMode) {
+                                                DocumentEdgeDetector.detectCardCornersOrNull(sourceBitmap)
+                                                    ?: DocumentEdgeDetector.detectCorners(sourceBitmap)
+                                            } else {
+                                                DocumentEdgeDetector.detectCorners(sourceBitmap)
+                                            }
+                                            if (detected != null) {
+                                                overlayViewRef?.corners = detected
+                                                currentCorners = detected
+                                            }
                                         } catch (_: Exception) {}
                                     }
                                 }

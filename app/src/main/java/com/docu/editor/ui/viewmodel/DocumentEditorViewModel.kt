@@ -94,6 +94,7 @@ import com.docu.editor.domain.model.CanvaAnimationType
 import com.docu.editor.domain.model.CanvaStyleMatchPreset
 import com.docu.editor.domain.model.SelectiveColorTarget
 import com.docu.editor.domain.model.MagicEraserTargetMode
+import com.docu.editor.domain.model.IdCardCropTarget
 import com.docu.editor.core.scanner.CanvaMockupFramesEngine
 import com.docu.editor.core.scanner.CanvaTextStudioEngine
 import com.docu.editor.core.scanner.CanvaBrandKitEngine
@@ -2155,98 +2156,212 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
     // --- ID Card Duplex Mode ---
 
-    fun setIdCardFront(bitmap: Bitmap) {
+    // --- ID Card Duplex Studio Mode (User-Controlled Interactive 4-Corner Crop) ---
+
+    fun onIdCardFrontImageSelected(bitmap: Bitmap) {
+        val scaled = scaleDownIfNeeded(bitmap, 2400)
+        _uiState.update {
+            it.copy(
+                idCardRawBitmapToCrop = scaled,
+                idCardCroppingSide = IdCardCropTarget.FRONT
+            )
+        }
+    }
+
+    fun onIdCardBackImageSelected(bitmap: Bitmap) {
+        val scaled = scaleDownIfNeeded(bitmap, 2400)
+        _uiState.update {
+            it.copy(
+                idCardRawBitmapToCrop = scaled,
+                idCardCroppingSide = IdCardCropTarget.BACK
+            )
+        }
+    }
+
+    fun reopenIdCardCrop(isFront: Boolean) {
+        val original = if (isFront) _uiState.value.idCardFrontOriginalBitmap else _uiState.value.idCardBackOriginalBitmap
+        if (original != null) {
+            _uiState.update {
+                it.copy(
+                    idCardRawBitmapToCrop = original,
+                    idCardCroppingSide = if (isFront) IdCardCropTarget.FRONT else IdCardCropTarget.BACK
+                )
+            }
+        }
+    }
+
+    fun rotateIdCardRawToCrop90() {
+        val current = _uiState.value.idCardRawBitmapToCrop ?: return
+        val matrix = android.graphics.Matrix().apply { postRotate(90f) }
+        val rotated = Bitmap.createBitmap(current, 0, 0, current.width, current.height, matrix, true)
+        _uiState.update { it.copy(idCardRawBitmapToCrop = rotated) }
+    }
+
+    fun cancelIdCardCrop() {
+        _uiState.update {
+            it.copy(
+                idCardRawBitmapToCrop = null,
+                idCardCroppingSide = null
+            )
+        }
+    }
+
+    fun applyIdCardCrop(corners: com.docu.editor.core.scanner.model.DocumentCorners) {
+        val raw = _uiState.value.idCardRawBitmapToCrop ?: return
+        val side = _uiState.value.idCardCroppingSide ?: return
         viewModelScope.launch {
-            val original = scaleDownIfNeeded(bitmap, 2400)
-            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Detecting ID card & auto-straightening front...") }
+            _uiState.update {
+                it.copy(
+                    isApplyingEdit = true,
+                    processingMessage = "Straightening ID card & removing desk fringes...",
+                    idCardRawBitmapToCrop = null,
+                    idCardCroppingSide = null
+                )
+            }
             try {
-                val straightened = withContext(Dispatchers.Default) {
-                    com.docu.editor.core.scanner.IdCardStitcher.autoStraightenAndFrameCard(
-                        source = original,
-                        filterType = _uiState.value.idCardFilterType
-                    )
+                val (croppedRaw, filtered) = withContext(Dispatchers.Default) {
+                    // 1. 4-point perspective warp
+                    val warped = com.docu.editor.core.scanner.PerspectiveTransformer.warpPerspective(raw, corners)
+
+                    // 2. Normalize to landscape (ISO/IEC 7810 ID-1 standard)
+                    val oriented = if (warped.height > warped.width) {
+                        val matrix = android.graphics.Matrix().apply { postRotate(90f) }
+                        val rot = Bitmap.createBitmap(warped, 0, 0, warped.width, warped.height, matrix, true)
+                        if (warped != raw && !warped.isRecycled) warped.recycle()
+                        rot
+                    } else {
+                        warped
+                    }
+
+                    // 3. Precision snap to ISO ID-1 aspect ratio (85.60 / 53.98 = 1.58577)
+                    val targetAspect = 85.60f / 53.98f
+                    val actualAspect = oriented.width.toFloat() / oriented.height.toFloat().coerceAtLeast(1f)
+                    val tightlyFramed = if (actualAspect > targetAspect * 1.02f) {
+                        val targetW = (oriented.height * targetAspect).toInt().coerceAtMost(oriented.width)
+                        val startX = ((oriented.width - targetW) / 2).coerceAtLeast(0)
+                        val cropped = Bitmap.createBitmap(oriented, startX, 0, targetW, oriented.height)
+                        if (oriented != raw && !oriented.isRecycled) oriented.recycle()
+                        cropped
+                    } else if (actualAspect < targetAspect * 0.98f) {
+                        val targetH = (oriented.width / targetAspect).toInt().coerceAtMost(oriented.height)
+                        val startY = ((oriented.height - targetH) / 2).coerceAtLeast(0)
+                        val cropped = Bitmap.createBitmap(oriented, 0, startY, oriented.width, targetH)
+                        if (oriented != raw && !oriented.isRecycled) oriented.recycle()
+                        cropped
+                    } else {
+                        oriented
+                    }
+
+                    // 4. Inset 1.2% to guarantee zero background border fringe
+                    val insetX = (tightlyFramed.width * 0.012f).toInt().coerceAtLeast(0)
+                    val insetY = (tightlyFramed.height * 0.012f).toInt().coerceAtLeast(0)
+                    val cleanCard = if (insetX > 0 && insetY > 0 && tightlyFramed.width > insetX * 4 && tightlyFramed.height > insetY * 4) {
+                        val cropped = Bitmap.createBitmap(
+                            tightlyFramed,
+                            insetX,
+                            insetY,
+                            tightlyFramed.width - (insetX * 2),
+                            tightlyFramed.height - (insetY * 2)
+                        )
+                        if (tightlyFramed != raw && !tightlyFramed.isRecycled) tightlyFramed.recycle()
+                        cropped
+                    } else {
+                        tightlyFramed
+                    }
+
+                    // 5. Apply selected filter
+                    val currentFilter = _uiState.value.idCardFilterType
+                    val finalFiltered = if (currentFilter != com.docu.editor.core.scanner.DocumentFilters.FilterType.ORIGINAL) {
+                        com.docu.editor.core.scanner.DocumentFilters.applyFilter(cleanCard, currentFilter, 0.92f)
+                    } else {
+                        cleanCard
+                    }
+                    Pair(cleanCard, finalFiltered)
                 }
-                _uiState.update {
-                    it.copy(
-                        isApplyingEdit = false,
-                        processingMessage = null,
-                        idCardFrontBitmap = straightened,
-                        idCardFrontOriginalBitmap = original
-                    )
+
+                if (side == IdCardCropTarget.FRONT) {
+                    _uiState.update {
+                        it.copy(
+                            isApplyingEdit = false,
+                            processingMessage = null,
+                            idCardFrontBitmap = filtered,
+                            idCardFrontCroppedRawBitmap = croppedRaw,
+                            idCardFrontOriginalBitmap = raw,
+                            successMessage = "Front ID card cropped & straightened"
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isApplyingEdit = false,
+                            processingMessage = null,
+                            idCardBackBitmap = filtered,
+                            idCardBackCroppedRawBitmap = croppedRaw,
+                            idCardBackOriginalBitmap = raw,
+                            successMessage = "Back ID card cropped & straightened"
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
                         isApplyingEdit = false,
                         processingMessage = null,
-                        idCardFrontBitmap = original,
-                        idCardFrontOriginalBitmap = original
+                        errorMessage = "Crop failed: ${e.localizedMessage}"
                     )
                 }
             }
         }
     }
 
+    fun setIdCardFront(bitmap: Bitmap) {
+        onIdCardFrontImageSelected(bitmap)
+    }
+
     fun setIdCardBack(bitmap: Bitmap) {
-        viewModelScope.launch {
-            val original = scaleDownIfNeeded(bitmap, 2400)
-            _uiState.update { it.copy(isApplyingEdit = true, processingMessage = "Detecting ID card & auto-straightening back...") }
-            try {
-                val straightened = withContext(Dispatchers.Default) {
-                    com.docu.editor.core.scanner.IdCardStitcher.autoStraightenAndFrameCard(
-                        source = original,
-                        filterType = _uiState.value.idCardFilterType
-                    )
-                }
-                _uiState.update {
-                    it.copy(
-                        isApplyingEdit = false,
-                        processingMessage = null,
-                        idCardBackBitmap = straightened,
-                        idCardBackOriginalBitmap = original
-                    )
-                }
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(
-                        isApplyingEdit = false,
-                        processingMessage = null,
-                        idCardBackBitmap = original,
-                        idCardBackOriginalBitmap = original
-                    )
-                }
-            }
-        }
+        onIdCardBackImageSelected(bitmap)
     }
 
     fun rotateIdCardFront90() {
         val current = _uiState.value.idCardFrontBitmap ?: return
+        val currentRaw = _uiState.value.idCardFrontCroppedRawBitmap
         val matrix = android.graphics.Matrix().apply { postRotate(90f) }
         val rotated = Bitmap.createBitmap(current, 0, 0, current.width, current.height, matrix, true)
-        _uiState.update { it.copy(idCardFrontBitmap = rotated) }
+        val rotatedRaw = currentRaw?.let { Bitmap.createBitmap(it, 0, 0, it.width, it.height, matrix, true) }
+        _uiState.update { it.copy(idCardFrontBitmap = rotated, idCardFrontCroppedRawBitmap = rotatedRaw ?: it.idCardFrontCroppedRawBitmap) }
     }
 
     fun rotateIdCardBack90() {
         val current = _uiState.value.idCardBackBitmap ?: return
+        val currentRaw = _uiState.value.idCardBackCroppedRawBitmap
         val matrix = android.graphics.Matrix().apply { postRotate(90f) }
         val rotated = Bitmap.createBitmap(current, 0, 0, current.width, current.height, matrix, true)
-        _uiState.update { it.copy(idCardBackBitmap = rotated) }
+        val rotatedRaw = currentRaw?.let { Bitmap.createBitmap(it, 0, 0, it.width, it.height, matrix, true) }
+        _uiState.update { it.copy(idCardBackBitmap = rotated, idCardBackCroppedRawBitmap = rotatedRaw ?: it.idCardBackCroppedRawBitmap) }
     }
 
     fun setIdCardFilter(filter: com.docu.editor.core.scanner.DocumentFilters.FilterType) {
         _uiState.update { it.copy(idCardFilterType = filter) }
         viewModelScope.launch {
-            val frontOrig = _uiState.value.idCardFrontOriginalBitmap
-            val backOrig = _uiState.value.idCardBackOriginalBitmap
-            if (frontOrig != null) {
+            val frontCropped = _uiState.value.idCardFrontCroppedRawBitmap ?: _uiState.value.idCardFrontBitmap
+            val backCropped = _uiState.value.idCardBackCroppedRawBitmap ?: _uiState.value.idCardBackBitmap
+            if (frontCropped != null) {
                 val refreshedFront = withContext(Dispatchers.Default) {
-                    com.docu.editor.core.scanner.IdCardStitcher.autoStraightenAndFrameCard(frontOrig, filter)
+                    if (filter == com.docu.editor.core.scanner.DocumentFilters.FilterType.ORIGINAL) {
+                        frontCropped
+                    } else {
+                        com.docu.editor.core.scanner.DocumentFilters.applyFilter(frontCropped, filter, 0.92f)
+                    }
                 }
                 _uiState.update { it.copy(idCardFrontBitmap = refreshedFront) }
             }
-            if (backOrig != null) {
+            if (backCropped != null) {
                 val refreshedBack = withContext(Dispatchers.Default) {
-                    com.docu.editor.core.scanner.IdCardStitcher.autoStraightenAndFrameCard(backOrig, filter)
+                    if (filter == com.docu.editor.core.scanner.DocumentFilters.FilterType.ORIGINAL) {
+                        backCropped
+                    } else {
+                        com.docu.editor.core.scanner.DocumentFilters.applyFilter(backCropped, filter, 0.92f)
+                    }
                 }
                 _uiState.update { it.copy(idCardBackBitmap = refreshedBack) }
             }
@@ -2254,11 +2369,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun clearIdCardFront() {
-        _uiState.update { it.copy(idCardFrontBitmap = null, idCardFrontOriginalBitmap = null) }
+        _uiState.update { it.copy(idCardFrontBitmap = null, idCardFrontOriginalBitmap = null, idCardFrontCroppedRawBitmap = null) }
     }
 
     fun clearIdCardBack() {
-        _uiState.update { it.copy(idCardBackBitmap = null, idCardBackOriginalBitmap = null) }
+        _uiState.update { it.copy(idCardBackBitmap = null, idCardBackOriginalBitmap = null, idCardBackCroppedRawBitmap = null) }
     }
 
     fun stitchIdCardToA4(

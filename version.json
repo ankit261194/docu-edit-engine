@@ -1,12 +1,12 @@
 {
-  "versionCode": 54,
-  "versionName": "10.8.8",
+  "versionCode": 55,
+  "versionName": "10.8.9",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.8.8 (Pristine Text Inpainting & Intelligent ID Card Studio)",
-  "changelog": "✨ Pristine Document Text Inpainting & Intelligent ID Card Studio:\n• 100% Elimination of Gray Inpainting Mud: Eradicated OpenCV Fast Marching smudging across text boxes; replaced with pure ambient document paper synthesis matching genuine lighting and paper tone.\n• Guaranteed Complete Eradication of Original Text: 0 remnant pixels or underlying letter strokes remain when editing or replacing words.\n• Vertical Paper Strip Sampling & Outlier Rejection: Samples authentic paper strictly from unpolluted strips above and below text lines, ignoring ink strokes and selection boundaries.\n• Automatic ID Card Auto-Straighten & Dewarp: Automatically detects ID card boundaries from smartphone photos, removes background desks/bedsheets, auto-rotates to standard landscape, and snaps tightly to ISO/IEC 7810 ID-1 proportions.\n• Live ID Card Document Filters: Choose between Magic Color, Original, Sharp B&W, and Grayscale with instant real-time thumbnail preview.\n• Direct 1-Tap A4 PDF Export: Generate official print-ready 2-sided A4 KYC PDFs with cutting guide and standard 1:1 scale with a single tap.\n• Rotate 90° Controls: Instant orientation adjustment for upside-down or portrait card captures.",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.8/DocuEdit-v10.8.8-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.8/DocuEdit-v10.8.8-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.8/DocuEdit-v10.8.8-arm64.apk",
-  "apkFileName": "DocuEdit-v10.8.8-arm64.apk",
+  "releaseTitle": "DocuEdit Pro v10.8.9 (User-Controlled Interactive ID Card Studio)",
+  "changelog": "✨ User-Controlled Interactive ID Card Studio (Zero Blind Automation):\n• Interactive 4-Corner Loupe Crop: Draggable corner handles with 2.5x magnifying loupe immediately appear upon card photo capture or selection. Real-world printed bedsheets, textured fabrics, and wood grain desks are now 100% supported.\n• Instant Landscape ID-1 Snap: After setting corners, the card is instantly perspective-dewarped, auto-rotated to landscape, and snapped to standard ISO/IEC 7810 ID-1 proportions (85.60mm x 53.98mm).\n• Adjust Crop Anytime: Tap 'Adjust Crop' on any card thumbnail to re-open corner pins and fine-tune borders in seconds.\n• Lossless Filter Switching: Switch between Magic Color, Original, Sharp B&W, and Grayscale with instant lossless preview re-rendering.\n• 1-Tap Official A4 KYC PDF Export: Generate standard 2-sided KYC A4 sheet with 1:1 scale and center cutting guide directly saved to Downloads.",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.9/DocuEdit-v10.8.9-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.9/DocuEdit-v10.8.9-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.9/DocuEdit-v10.8.9-arm64.apk",
+  "apkFileName": "DocuEdit-v10.8.9-arm64.apk",
   "apkSizeMb": 105.4
 }

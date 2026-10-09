@@ -21,3 +21,7 @@ Thumbs.db
 google-services.json
 
 .kotlin/
+release_*.py
+verify_*.py
+__pycache__/
+*.pyc

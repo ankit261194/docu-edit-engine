@@ -102,9 +102,13 @@ data class DocumentEditorUiState(
     val cloudAiStatus: String = "Online",
     val idCardFrontBitmap: Bitmap? = null,
     val idCardFrontOriginalBitmap: Bitmap? = null,
+    val idCardFrontCroppedRawBitmap: Bitmap? = null,
     val idCardBackBitmap: Bitmap? = null,
     val idCardBackOriginalBitmap: Bitmap? = null,
+    val idCardBackCroppedRawBitmap: Bitmap? = null,
     val idCardFilterType: com.docu.editor.core.scanner.DocumentFilters.FilterType = com.docu.editor.core.scanner.DocumentFilters.FilterType.MAGIC_COLOR,
+    val idCardCroppingSide: IdCardCropTarget? = null,
+    val idCardRawBitmapToCrop: Bitmap? = null,
     val extractedSignature: Bitmap? = null,
     val activeOverlayBitmap: Bitmap? = null,
     val overlayPositionX: Float = 100f,
@@ -184,5 +188,10 @@ data class DocumentEditorUiState(
 ) {
     val selectedLayer: DocumentCanvasLayer?
         get() = canvasLayers.firstOrNull { it.id == selectedLayerId }
+}
+
+enum class IdCardCropTarget {
+    FRONT,
+    BACK
 }
 

@@ -664,7 +664,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 ) { success ->
                     if (success && tempIdFrontUri != null) {
                         val bmp = loadBitmapDirect(tempIdFrontUri!!)
-                        bmp?.let { b -> viewModel.setIdCardFront(b) }
+                        bmp?.let { b -> viewModel.onIdCardFrontImageSelected(b) }
                     }
                 }
 
@@ -673,7 +673,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 ) { success ->
                     if (success && tempIdBackUri != null) {
                         val bmp = loadBitmapDirect(tempIdBackUri!!)
-                        bmp?.let { b -> viewModel.setIdCardBack(b) }
+                        bmp?.let { b -> viewModel.onIdCardBackImageSelected(b) }
                     }
                 }
 
@@ -704,7 +704,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 ) { uri ->
                     uri?.let {
                         val bmp = loadBitmapDirect(it)
-                        bmp?.let { b -> viewModel.setIdCardFront(b) }
+                        bmp?.let { b -> viewModel.onIdCardFrontImageSelected(b) }
                     }
                 }
 
@@ -713,7 +713,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                 ) { uri ->
                     uri?.let {
                         val bmp = loadBitmapDirect(it)
-                        bmp?.let { b -> viewModel.setIdCardBack(b) }
+                        bmp?.let { b -> viewModel.onIdCardBackImageSelected(b) }
                     }
                 }
 
@@ -1773,6 +1773,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                 onPickFrontGallery = {
                                     idCardFrontPicker.launch(arrayOf("image/*"))
                                 },
+                                onAdjustCropFront = { viewModel.reopenIdCardCrop(isFront = true) },
                                 onClearFront = { viewModel.clearIdCardFront() },
                                 onCaptureBackCamera = {
                                     if (ContextCompat.checkSelfPermission(this@MainActivity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
@@ -1784,6 +1785,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                 onPickBackGallery = {
                                     idCardBackPicker.launch(arrayOf("image/*"))
                                 },
+                                onAdjustCropBack = { viewModel.reopenIdCardCrop(isFront = false) },
                                 onClearBack = { viewModel.clearIdCardBack() },
                                 onRotateFront = { viewModel.rotateIdCardFront90() },
                                 onRotateBack = { viewModel.rotateIdCardBack90() },
@@ -2091,6 +2093,26 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                     viewModel.rotateDocumentClockwise()
                                 },
                                 onDismiss = { viewModel.showInteractiveCropDialog(false) }
+                            )
+                        }
+
+                        // User-Controlled Interactive 4-Corner Crop for ID Card Duplex Mode
+                        val idCardCropBmp = uiState.idCardRawBitmapToCrop
+                        val idCardCropSide = uiState.idCardCroppingSide
+                        if (idCardCropBmp != null && idCardCropSide != null) {
+                            val isFront = idCardCropSide == com.docu.editor.domain.model.IdCardCropTarget.FRONT
+                            InteractiveCropDialog(
+                                sourceBitmap = idCardCropBmp,
+                                title = if (isFront) "Crop Front ID Card" else "Crop Back ID Card",
+                                subtitle = "Drag 4 corner pins with loupe magnifier. Tap ↻ to rotate if sideways.",
+                                isIdCardMode = true,
+                                onApplyCrop = { corners ->
+                                    viewModel.applyIdCardCrop(corners)
+                                },
+                                onRotateClockwise = {
+                                    viewModel.rotateIdCardRawToCrop90()
+                                },
+                                onDismiss = { viewModel.cancelIdCardCrop() }
                             )
                         }
 

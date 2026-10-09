@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
@@ -72,10 +73,12 @@ fun IdCardDialog(
     onPickBackClicked: () -> Unit = {},
     onCaptureFrontCamera: () -> Unit = {},
     onPickFrontGallery: () -> Unit = onPickFrontClicked,
+    onAdjustCropFront: () -> Unit = {},
     onClearFront: () -> Unit = {},
     onRotateFront: () -> Unit = {},
     onCaptureBackCamera: () -> Unit = {},
     onPickBackGallery: () -> Unit = onPickBackClicked,
+    onAdjustCropBack: () -> Unit = {},
     onClearBack: () -> Unit = {},
     onRotateBack: () -> Unit = {},
     currentFilter: DocumentFilters.FilterType = DocumentFilters.FilterType.MAGIC_COLOR,
@@ -169,6 +172,7 @@ fun IdCardDialog(
                     bitmap = frontBitmap,
                     onCameraCapture = onCaptureFrontCamera,
                     onGalleryPick = onPickFrontGallery,
+                    onAdjustCrop = onAdjustCropFront,
                     onRotate = onRotateFront,
                     onClear = onClearFront
                 )
@@ -181,6 +185,7 @@ fun IdCardDialog(
                     bitmap = backBitmap,
                     onCameraCapture = onCaptureBackCamera,
                     onGalleryPick = onPickBackGallery,
+                    onAdjustCrop = onAdjustCropBack,
                     onRotate = onRotateBack,
                     onClear = onClearBack
                 )
@@ -404,6 +409,7 @@ private fun EnhancedIdCardSlot(
     bitmap: Bitmap?,
     onCameraCapture: () -> Unit,
     onGalleryPick: () -> Unit,
+    onAdjustCrop: () -> Unit = {},
     onRotate: () -> Unit,
     onClear: () -> Unit
 ) {
@@ -465,6 +471,20 @@ private fun EnhancedIdCardSlot(
                         .padding(6.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0xEE059669))
+                            .clickable { onAdjustCrop() }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Crop, contentDescription = "Adjust Crop", tint = Color.White, modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Adjust Crop", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))

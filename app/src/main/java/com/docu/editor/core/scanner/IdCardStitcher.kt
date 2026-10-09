@@ -66,9 +66,9 @@ object IdCardStitcher {
         autoEnhance: Boolean = true,
         filterType: DocumentFilters.FilterType = if (autoEnhance) DocumentFilters.FilterType.MAGIC_COLOR else DocumentFilters.FilterType.ORIGINAL
     ): Bitmap = withContext(Dispatchers.Default) {
-        // 1. Process, deskew, orient and enhance both cards
-        val normalizedFront = autoStraightenAndFrameCard(frontCard, filterType)
-        val normalizedBack = autoStraightenAndFrameCard(backCard, filterType)
+        // 1. Process, deskew, orient and enhance both cards (or use directly if already normalized)
+        val normalizedFront = if (abs(frontCard.width.toFloat() / frontCard.height.toFloat().coerceAtLeast(1f) - 1.5858f) < 0.12f) frontCard else autoStraightenAndFrameCard(frontCard, filterType)
+        val normalizedBack = if (abs(backCard.width.toFloat() / backCard.height.toFloat().coerceAtLeast(1f) - 1.5858f) < 0.12f) backCard else autoStraightenAndFrameCard(backCard, filterType)
 
         val pageWidth = paperSize.widthPx
         val pageHeight = paperSize.heightPx
