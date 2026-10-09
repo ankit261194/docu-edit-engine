@@ -234,15 +234,14 @@ class FontMatcher(private val context: Context) {
                 return FontClassification.SERIF
             }
 
-            // Line-Level Consensus: if immediate neighbors on the same line are Serif, preserve Serif
-            if (lineDominantFont == FontClassification.SERIF ||
-                (lineDominantFont != null && (metrics.isSerif || metrics.terminalFlareRatio >= 1.11f))
-            ) {
+            // 1. Line-Level Consensus: Immediate neighbors on the same line have absolute highest authority!
+            // If line neighbors are Sans-Serif ("For Archana"), the target word ("Kumar") MUST be Sans-Serif!
+            if (lineDominantFont != null) {
                 return lineDominantFont
             }
 
-            // Document-Level Consensus: if the document is established Serif, honor it
-            if (documentDominantFont == FontClassification.SERIF) {
+            // 2. Document-Level Consensus: only if document is overwhelmingly Serif and metrics don't contradict
+            if (documentDominantFont == FontClassification.SERIF && (metrics.isSerif || metrics.terminalFlareRatio >= 1.08f)) {
                 return FontClassification.SERIF
             } else if (documentDominantFont != null && metrics.isSerif) {
                 return documentDominantFont

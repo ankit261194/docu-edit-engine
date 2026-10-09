@@ -30,15 +30,20 @@ class AutoUpdateManagerTest {
         assertFalse(isSemanticVersionNewer("10.8.1", "v10.8.1"))
         assertFalse(isSemanticVersionNewer("10.8.2", "10.8.2"))
         assertFalse(isSemanticVersionNewer("v10.8.2", "v10.8.2"))
+        assertFalse(isSemanticVersionNewer("10.8.3", "10.8.3"))
+        assertFalse(isSemanticVersionNewer("v10.8.3", "v10.8.3"))
 
         // Older current version must trigger update
         assertTrue(isSemanticVersionNewer("10.8.1", "10.8.2"))
+        assertTrue(isSemanticVersionNewer("10.8.2", "10.8.3"))
+        assertTrue(isSemanticVersionNewer("10.8.1", "10.8.3"))
         assertTrue(isSemanticVersionNewer("10.8.0", "10.8.1"))
         assertTrue(isSemanticVersionNewer("v10.7.0", "10.8.1"))
         assertTrue(isSemanticVersionNewer("10.7.0", "10.8.2"))
         assertTrue(isSemanticVersionNewer("9.9.9", "10.0.0"))
 
         // Newer current version must never trigger update
+        assertFalse(isSemanticVersionNewer("10.8.3", "10.8.2"))
         assertFalse(isSemanticVersionNewer("10.8.2", "10.8.1"))
         assertFalse(isSemanticVersionNewer("10.9.0", "10.8.1"))
         assertFalse(isSemanticVersionNewer("11.0.0", "10.8.2"))

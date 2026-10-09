@@ -1353,8 +1353,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
         colorOverrideRgb: Int? = null,
         alignment: Paint.Align = Paint.Align.LEFT,
         useCloudAi: Boolean = false,
-        cameraBlurSigma: Float = 1.2f,
-        paperBlendStrength: Float = 1.0f,
+        cameraBlurSigma: Float = 0.0f,
+        paperBlendStrength: Float = 0.0f,
         baselineNudgePx: Float = 0f,
         inkToneDarkness: Float = 1.0f
     ) {
@@ -1486,12 +1486,36 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
                     val nextAdjacentItem = sameLineItems.firstOrNull()
 
+                    if (effectiveBold == null) {
+                        val lineBoldCount = allSameLineItems.count {
+                            (it.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM)) ||
+                            it.typography.strokeWidthRatio >= 0.10f ||
+                            it.typography.glyphDensity >= 0.20f ||
+                            it.typography.numericFontWeight >= 600
+                        }
+                        effectiveBold = if (allSameLineItems.isNotEmpty()) {
+                            lineBoldCount.toFloat() / allSameLineItems.size >= 0.40f
+                        } else {
+                            (targetItem.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM)) ||
+                            targetItem.typography.strokeWidthRatio >= 0.10f ||
+                            targetItem.typography.glyphDensity >= 0.20f ||
+                            targetItem.typography.numericFontWeight >= 600
+                        }
+                    }
+
+                    val lineReferenceHeight = if (allSameLineItems.isNotEmpty()) {
+                        val heights = allSameLineItems.map { it.boundingBox.height().toFloat() }.sorted()
+                        heights[heights.size / 2]
+                    } else {
+                        targetItem.boundingBox.height().toFloat()
+                    }
+
                     val documentDominantFont = run {
                         val items = _uiState.value.detectedItems
                         if (items.isEmpty()) null
                         else {
                             val serifCount = items.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.13f }
-                            if (serifCount.toFloat() / items.size >= 0.30f) FontClassification.SERIF
+                            if (serifCount.toFloat() / items.size >= 0.55f) FontClassification.SERIF
                             else null
                         }
                     }
@@ -1499,9 +1523,17 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     val lineDominantFont = run {
                         if (allSameLineItems.isEmpty()) null
                         else {
-                            val serifInLine = allSameLineItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.12f }
-                            if (serifInLine.toFloat() / allSameLineItems.size >= 0.40f) FontClassification.SERIF
-                            else null
+                            if (allSameLineItems.any { it.text.any { c -> c in '\u0900'..'\u097F' } }) {
+                                FontClassification.DEVANAGARI
+                            } else {
+                                val serifInLine = allSameLineItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.14f }
+                                val serifRatio = serifInLine.toFloat() / allSameLineItems.size
+                                when {
+                                    serifRatio >= 0.50f -> FontClassification.SERIF
+                                    serifRatio <= 0.25f -> FontClassification.SANS_SERIF
+                                    else -> FontClassification.SANS_SERIF
+                                }
+                            }
                         }
                     }
 
@@ -1516,16 +1548,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     // Measure unconstrained natural width of the new text at document line height
                     val targetHasCapOrAsc = targetItem.text.any { it.isUpperCase() || it in "bdfhklt1234567890$€₹£" }
                     val targetHasDesc = targetItem.text.any { it in "gjpqy" }
-                    val normalizedLineH = if (allSameLineItems.isNotEmpty()) {
-                        allSameLineItems.maxOf { it.boundingBox.height().toFloat() }.coerceAtLeast(
-                            if (!targetHasCapOrAsc && !targetHasDesc) singleLineH * 1.40f else singleLineH
-                        )
-                    } else if (!targetHasCapOrAsc && !targetHasDesc) {
-                        singleLineH * 1.40f
-                    } else {
-                        singleLineH
-                    }
-                    val naturalFontSize = normalizedLineH * 0.85f * sizeMultiplier
+                    val normalizedLineH = lineReferenceHeight.coerceAtLeast(
+                        if (!targetHasCapOrAsc && !targetHasDesc) singleLineH * 1.40f else singleLineH
+                    )
+                    val naturalFontSize = normalizedLineH * 0.82f * sizeMultiplier
                     val testPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                         typeface = fontMatcher.getDocumentTypeface(effectiveFont, effectiveBold ?: false)
                         textSize = naturalFontSize
@@ -1538,18 +1564,19 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             val targetHasDesc = targetItem.text.any { it in "gjpqy" }
                             if (targetHasDesc) targetItem.boundingBox.bottom.toFloat() - fontMetrics.descent
                             else targetItem.boundingBox.bottom.toFloat()
-                        } else {
+                        } else if (allSameLineItems.isNotEmpty()) {
                             val baselines = mutableListOf<Float>()
                             for (item in allSameLineItems) {
                                 val hasDesc = item.text.any { it in "gjpqy" }
                                 val b = if (hasDesc) item.boundingBox.bottom.toFloat() - fontMetrics.descent else item.boundingBox.bottom.toFloat()
                                 baselines.add(b)
                             }
-                            val targetHasDesc = targetItem.text.any { it in "gjpqy" }
-                            val targetB = if (targetHasDesc) targetItem.boundingBox.bottom.toFloat() - fontMetrics.descent else targetItem.boundingBox.bottom.toFloat()
-                            baselines.add(targetB)
                             baselines.sort()
                             baselines[baselines.size / 2]
+                        } else {
+                            val targetHasDesc = targetItem.text.any { it in "gjpqy" }
+                            if (targetHasDesc) targetItem.boundingBox.bottom.toFloat() - fontMetrics.descent
+                            else targetItem.boundingBox.bottom.toFloat()
                         }
                     }
 
@@ -1668,7 +1695,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             paperBlendStrength = paperBlendStrength,
                             baselineNudgePx = baselineNudgePx,
                             inkToneDarkness = inkToneDarkness,
-                            lockedBaselineY = lockedBaselineY
+                            lockedBaselineY = lockedBaselineY,
+                            lineReferenceHeightPx = lineReferenceHeight
                         )
                     )
 

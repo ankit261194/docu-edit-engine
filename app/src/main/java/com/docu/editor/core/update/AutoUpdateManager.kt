@@ -382,6 +382,19 @@ class AutoUpdateManager(
         return false
     }
 
+    fun shouldShowAutomaticPrompt(info: UpdateInfo): Boolean {
+        if (!info.hasUpdate) return false
+        val key = "snooze_update_${info.latestVersion}"
+        val lastSnooze = prefs.getLong(key, 0L)
+        val now = System.currentTimeMillis()
+        val twentyFourHoursMs = 24 * 3600 * 1000L
+        return (now - lastSnooze) >= twentyFourHoursMs
+    }
+
+    fun snoozeUpdatePrompt(version: String) {
+        prefs.edit().putLong("snooze_update_$version", System.currentTimeMillis()).apply()
+    }
+
     /**
      * Downloads APK update silently in the background and posts a 1-click install notification.
      */

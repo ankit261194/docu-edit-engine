@@ -115,7 +115,8 @@ object AutoFitFontCondenser {
         sizeMultiplier: Float = 1.0f,
         availableWidth: Float? = null,
         baselineNudgePx: Float = 0f,
-        lockedBaselineY: Float? = null
+        lockedBaselineY: Float? = null,
+        lineReferenceHeightPx: Float? = null
     ): AdjustedTypography {
         val targetWidth = max(16, targetBounds.width()).toFloat()
         val originalLines = if (originalText.isNotEmpty()) originalText.split("\n").size else 1
@@ -133,7 +134,7 @@ object AutoFitFontCondenser {
 
         // Maintain consistent document typography: calculate per-line target height
         val effectiveLineCount = max(originalLines, lineCount)
-        val targetHeight = (max(8, targetBounds.height()).toFloat() / effectiveLineCount)
+        val targetHeight = (lineReferenceHeightPx ?: max(8, targetBounds.height()).toFloat()) / effectiveLineCount
 
         // 1. Initial font size estimate based on EM box vs visual cap-height.
         var fontSize = (targetHeight * 0.85f) * sizeMultiplier
@@ -151,12 +152,11 @@ object AutoFitFontCondenser {
         val measuredCapH = refBounds.height().toFloat()
 
         if (measuredCapH > 2f) {
-            val desiredCapH = when {
+            val desiredCapH = if (lineReferenceHeightPx != null) {
+                (targetHeight * 0.72f) * sizeMultiplier
+            } else when {
                 !origHasCapOrAscender && !origHasDescenders -> {
-                    // Original word was short lowercase x-height only (e.g. "are", "on", "was", "seen", "or", "me").
-                    // In Latin typography, x-height is ~50% of EM, and CapHeight is ~72% of EM.
-                    // Scale desired CapHeight up by 1.40x so capitalized or taller replacement words don't shrink to 50% size!
-                    (targetHeight * 1.40f) * sizeMultiplier
+                    (targetHeight * 1.15f) * sizeMultiplier
                 }
                 !origHasCapOrAscender && origHasDescenders -> {
                     // Lowercase with descenders (e.g. "my", "you", "go", "eye")
@@ -172,7 +172,7 @@ object AutoFitFontCondenser {
                 }
             }
             val calibrationRatio = desiredCapH / measuredCapH
-            fontSize = (fontSize * calibrationRatio).coerceIn(6f, targetHeight * 2.2f)
+            fontSize = (fontSize * calibrationRatio).coerceIn(6f, targetHeight * 1.6f)
             paint.textSize = fontSize
         }
 

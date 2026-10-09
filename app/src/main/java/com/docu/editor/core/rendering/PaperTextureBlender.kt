@@ -110,12 +110,12 @@ object PaperTextureBlender {
         val variance = sumSqDiff / count
         val noiseSigma = sqrt(variance).toFloat().coerceIn(1.0f, 18.0f)
 
-        // Digital PDF: noiseSigma < 1.3 and high luma -> 0.0px blur.
-        // Camera Photo: noiseSigma >= 1.5 -> lens softness 1.0 to 2.2px.
-        val estimatedBlur = if (noiseSigma < 1.3f && meanLuma > 242f) {
+        // Digital PDF & Clean Computer Print: noiseSigma < 5.0 and high luma (> 220) -> 0.0px blur.
+        // Camera Photo under shadows: noiseSigma >= 5.0 or meanLuma <= 220 -> lens softness 0.9 to 1.8px.
+        val estimatedBlur = if (noiseSigma < 5.0f && meanLuma > 220f) {
             0.0f
         } else {
-            (noiseSigma * 0.18f + 0.70f).coerceIn(0.9f, 2.2f)
+            (noiseSigma * 0.15f + 0.50f).coerceIn(0.8f, 1.8f)
         }
 
         return BackgroundStats(meanLuma, noiseSigma, meanR, meanG, meanB, estimatedBlur)
@@ -130,16 +130,17 @@ object PaperTextureBlender {
         textLayerBitmap: Bitmap,
         targetBounds: Rect,
         stats: BackgroundStats,
-        cameraBlurSigma: Float = 1.2f,
-        paperBlendStrength: Float = 1.0f,
+        cameraBlurSigma: Float = 0.0f,
+        paperBlendStrength: Float = 0.0f,
         inkToneDarkness: Float = 1.0f,
         renderBounds: Rect? = null
     ) {
         val w = textLayerBitmap.width
         val h = textLayerBitmap.height
 
-        // 1. Digital PDF Bypass: If paper background is pure smooth digital white and blur is 0
-        if (cameraBlurSigma <= 0.05f && stats.noiseSigma < 1.3f && stats.meanLuma > 242f && inkToneDarkness == 1.0f) {
+        // 1. Digital Vector / Crisp Print Bypass: If blur <= 0.2 and blend strength <= 0.2,
+        // preserve 100% pristine vector sharpness with zero blur or degradation!
+        if (cameraBlurSigma <= 0.20f && paperBlendStrength <= 0.20f && inkToneDarkness == 1.0f) {
             val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
             masterCanvas.drawBitmap(textLayerBitmap, 0f, 0f, paint)
             return

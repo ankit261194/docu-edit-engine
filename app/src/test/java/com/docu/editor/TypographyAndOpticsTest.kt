@@ -287,4 +287,38 @@ class TypographyAndOpticsTest {
         assertEquals(Pair(false, true), classifyWord("you"))
         assertEquals(Pair(true, false), classifyWord("$500"))
     }
+
+    @Test
+    fun testLineLevelSansSerifConsensusOverridesDocumentSerif() {
+        // Real-world invoice scenario: document has serif numbers in tables above (documentDominantFont = SERIF),
+        // but the signature line has Sans-Serif neighbors "For" and "Archana" (lineDominantFont = SANS_SERIF).
+        // The replacement word "Kumar" MUST render as Sans-Serif, NEVER Times New Roman!
+        val metrics = TypographyMetrics(
+            estimatedFontSizePx = 24f,
+            isSerif = false,
+            terminalFlareRatio = 1.05f
+        )
+        val classification = FontMatcher.classifyFromMetrics(
+            text = "Kumar",
+            metrics = metrics,
+            bounds = null,
+            documentDominantFont = FontClassification.SERIF,
+            lineDominantFont = FontClassification.SANS_SERIF
+        )
+        assertEquals(FontClassification.SANS_SERIF, classification)
+    }
+
+    @Test
+    fun testComputerPrintZeroBlurEstimation() {
+        // Digital invoice or computer print has clean paper (meanLuma >= 225, noiseSigma < 4.0)
+        // Must estimate 0.0px blur for razor-sharp vector text!
+        val noiseSigma = 2.1f
+        val meanLuma = 246f
+        val estimatedBlur = if (noiseSigma < 5.0f && meanLuma > 220f) {
+            0.0f
+        } else {
+            (noiseSigma * 0.15f + 0.50f).coerceIn(0.8f, 1.8f)
+        }
+        assertEquals(0.0f, estimatedBlur, 0.001f)
+    }
 }

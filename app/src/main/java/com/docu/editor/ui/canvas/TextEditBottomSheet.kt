@@ -119,7 +119,7 @@ fun TextEditBottomSheet(
         if (allDetectedItems.isEmpty()) null
         else {
             val serifCount = allDetectedItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.13f }
-            if (serifCount.toFloat() / allDetectedItems.size >= 0.30f) FontClassification.SERIF
+            if (serifCount.toFloat() / allDetectedItems.size >= 0.55f) FontClassification.SERIF
             else null
         }
     }
@@ -127,9 +127,17 @@ fun TextEditBottomSheet(
     val lineDominantFont = remember(sameLineItems) {
         if (sameLineItems.isEmpty()) null
         else {
-            val serifInLine = sameLineItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.12f }
-            if (serifInLine.toFloat() / sameLineItems.size >= 0.40f) FontClassification.SERIF
-            else null
+            if (sameLineItems.any { it.text.any { c -> c in '\u0900'..'\u097F' } }) {
+                FontClassification.DEVANAGARI
+            } else {
+                val serifInLine = sameLineItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.14f }
+                val serifRatio = serifInLine.toFloat() / sameLineItems.size
+                when {
+                    serifRatio >= 0.50f -> FontClassification.SERIF
+                    serifRatio <= 0.25f -> FontClassification.SANS_SERIF
+                    else -> FontClassification.SANS_SERIF
+                }
+            }
         }
     }
 
@@ -142,9 +150,23 @@ fun TextEditBottomSheet(
             lineDominantFont = lineDominantFont
         )
     }
-    val autoDetectedBold = remember(item.id) {
-        (item.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD)) &&
-        item.typography.strokeWidthRatio >= 0.15f
+
+    val lineIsBold = sameLineItems.isNotEmpty() && (
+        sameLineItems.count {
+            (it.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM)) ||
+            it.typography.strokeWidthRatio >= 0.10f ||
+            it.typography.glyphDensity >= 0.20f ||
+            it.typography.numericFontWeight >= 600
+        }.toFloat() / sameLineItems.size >= 0.40f
+    )
+
+    val itemIsBold = (item.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM)) ||
+        item.typography.strokeWidthRatio >= 0.10f ||
+        item.typography.glyphDensity >= 0.20f ||
+        item.typography.numericFontWeight >= 600
+
+    val autoDetectedBold = remember(item.id, sameLineItems) {
+        if (sameLineItems.isNotEmpty()) lineIsBold else itemIsBold
     }
 
     // Full text selection on open: typing instantly replaces the original word cleanly
@@ -178,8 +200,8 @@ fun TextEditBottomSheet(
     }
 
     // Pro Realism & Camera Photo Tuning States:
-    var cameraBlurSigma by remember(item.id) { mutableFloatStateOf(1.2f) }
-    var paperBlendStrength by remember(item.id) { mutableFloatStateOf(1.0f) }
+    var cameraBlurSigma by remember(item.id) { mutableFloatStateOf(0.0f) }
+    var paperBlendStrength by remember(item.id) { mutableFloatStateOf(0.0f) }
     var baselineNudgePx by remember(item.id) { mutableFloatStateOf(0f) }
     var inkToneDarkness by remember(item.id) { mutableFloatStateOf(1.0f) }
     var showProRealismControls by remember(item.id) { mutableStateOf(false) }

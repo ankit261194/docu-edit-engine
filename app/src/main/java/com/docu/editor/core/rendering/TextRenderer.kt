@@ -25,11 +25,12 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
         val alignment: Paint.Align = Paint.Align.LEFT,
         val availableWidth: Float? = null,
         // Pro Camera Photo & Realism Tuning:
-        val cameraBlurSigma: Float = 1.2f,
-        val paperBlendStrength: Float = 1.0f,
+        val cameraBlurSigma: Float = 0.0f,
+        val paperBlendStrength: Float = 0.0f,
         val baselineNudgePx: Float = 0f,
         val inkToneDarkness: Float = 1.0f,
-        val lockedBaselineY: Float? = null
+        val lockedBaselineY: Float? = null,
+        val lineReferenceHeightPx: Float? = null
     )
 
     data class TextRenderResult(
@@ -88,7 +89,8 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             sizeMultiplier = params.sizeMultiplier,
             availableWidth = params.availableWidth,
             baselineNudgePx = params.baselineNudgePx,
-            lockedBaselineY = params.lockedBaselineY
+            lockedBaselineY = params.lockedBaselineY,
+            lineReferenceHeightPx = params.lineReferenceHeightPx
         )
 
         val masterOutput = cleanedBackground.copy(Bitmap.Config.ARGB_8888, true)
@@ -253,15 +255,9 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             return sampledRgb
         }
 
-        val luma = (0.299f * r + 0.587f * g + 0.114f * b).toInt()
-        return when {
-            // Already authentic dark document ink (luminance 15 to 90): preserve authentic tone!
-            luma in 15..90 -> sampledRgb
-            // Artificial 0,0,0 pitch black: soften to natural laser printer dark charcoal #222428
-            luma < 15 -> Color.rgb(34, 36, 40)
-            // Faded or light gray document toner: keep sampled ink faithfully
-            else -> sampledRgb
-        }
+        // Grayscale / black ink: preserve sampled tone directly!
+        // On computer prints and laser documents, pure black (#000000) is razor authentic and must never be lightened to gray!
+        return sampledRgb
     }
 
     private fun isNumericOrCurrency(text: String): Boolean {

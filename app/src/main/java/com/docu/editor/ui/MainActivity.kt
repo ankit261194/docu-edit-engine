@@ -258,7 +258,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
 
                 LaunchedEffect(Unit) {
                     val info = updateManager.checkForUpdates(forceCheck = false)
-                    if (info.hasUpdate && !hasDismissedUpdateInSession) {
+                    if (info.hasUpdate && !hasDismissedUpdateInSession && updateManager.shouldShowAutomaticPrompt(info)) {
                         pendingUpdate = info
                     }
                 }
@@ -2197,9 +2197,12 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                 onDismiss = {
                                     pendingUpdate = null
                                     hasDismissedUpdateInSession = true
+                                    updateManager.snoozeUpdatePrompt(updateInfo.latestVersion)
                                 },
                                 onInstallLocalApk = { file ->
                                     pendingUpdate = null
+                                    hasDismissedUpdateInSession = true
+                                    updateManager.snoozeUpdatePrompt(updateInfo.latestVersion)
                                     apkInstaller.installApk(file)
                                 },
                                 onDownloadInApp = { url, name, onProg ->
