@@ -54,12 +54,27 @@ class BackgroundInpainter {
         }
 
         // 2. Pure ambient document paper sampling & micro-grain gradient synthesis
-        val sampledColors = samplePerimeterPaperColors(sourceBitmap, safeTarget, sampleMargin)
-        val paperLuma = getLuminance(sampledColors.topColor)
+        val prelimColors = samplePerimeterPaperColors(sourceBitmap, safeTarget, sampleMargin)
+        val paperLuma = getLuminance(prelimColors.topColor)
 
-        // Detect any crossing table grid lines or notebook ruled lines
-        val horizontalLines = detectHorizontalCrossingLines(sourceBitmap, safeTarget, paperLuma)
-        val verticalLines = detectVerticalCrossingLines(sourceBitmap, safeTarget, paperLuma)
+        // Detect any crossing table grid lines or notebook ruled lines, and surrounding cell borders
+        val gridResult = detectSurroundingAndCrossingLines(sourceBitmap, safeTarget, paperLuma)
+        val horizontalLines = gridResult.horizontalLines
+        val verticalLines = gridResult.verticalLines
+
+        // Sample perimeter paper colors clamped strictly within detected cell boundaries
+        val topLimitY = if (gridResult.topBorderY != null) gridResult.topBorderY + 2 else 0
+        val botLimitY = if (gridResult.botBorderY != null) gridResult.botBorderY - 2 else height - 1
+        val leftLimitX = if (gridResult.leftBorderX != null) gridResult.leftBorderX + 2 else 0
+        val rightLimitX = if (gridResult.rightBorderX != null) gridResult.rightBorderX - 2 else width - 1
+
+        val sampledColors = samplePerimeterPaperColors(
+            sourceBitmap, safeTarget, sampleMargin,
+            topLimitY = topLimitY,
+            botLimitY = botLimitY,
+            leftLimitX = leftLimitX,
+            rightLimitX = rightLimitX
+        )
 
         // Create clean output bitmap
         val outputBitmap = sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
@@ -68,11 +83,33 @@ class BackgroundInpainter {
         // Soft-feathered ambient paper patch (zero hard rectangular boundaries!)
         val extraPadX = (safeTarget.height() * 0.12f).toInt().coerceIn(3, 8)
         val extraPadY = (safeTarget.height() * 0.10f).toInt().coerceIn(3, 8)
+
+        // Clamp target and fill area strictly within surrounding cell boundaries so we never cut into table borders
+        val effectiveTarget = Rect(
+            if (gridResult.leftBorderX != null && safeTarget.left <= gridResult.leftBorderX) gridResult.leftBorderX + 1 else safeTarget.left,
+            if (gridResult.topBorderY != null && safeTarget.top <= gridResult.topBorderY) gridResult.topBorderY + 1 else safeTarget.top,
+            if (gridResult.rightBorderX != null && safeTarget.right >= gridResult.rightBorderX) gridResult.rightBorderX - 1 else safeTarget.right,
+            if (gridResult.botBorderY != null && safeTarget.bottom >= gridResult.botBorderY) gridResult.botBorderY - 1 else safeTarget.bottom
+        )
+        if (effectiveTarget.width() <= 0 || effectiveTarget.height() <= 0) {
+            effectiveTarget.set(safeTarget)
+        }
+
+        val rawLeft = max(0, effectiveTarget.left - extraPadX)
+        val rawTop = max(0, effectiveTarget.top - extraPadY)
+        val rawRight = min(width, effectiveTarget.right + extraPadX)
+        val rawBottom = min(height, effectiveTarget.bottom + extraPadY)
+
+        val fillLeft = if (gridResult.leftBorderX != null) max(rawLeft, gridResult.leftBorderX + 1) else rawLeft
+        val fillRight = if (gridResult.rightBorderX != null) min(rawRight, gridResult.rightBorderX - 1) else rawRight
+        val fillTop = if (gridResult.topBorderY != null) max(rawTop, gridResult.topBorderY + 1) else rawTop
+        val fillBottom = if (gridResult.botBorderY != null) min(rawBottom, gridResult.botBorderY - 1) else rawBottom
+
         val fillRect = Rect(
-            max(0, safeTarget.left - extraPadX),
-            max(0, safeTarget.top - extraPadY),
-            min(width, safeTarget.right + extraPadX),
-            min(height, safeTarget.bottom + extraPadY)
+            min(fillLeft, effectiveTarget.left),
+            min(fillTop, effectiveTarget.top),
+            max(fillRight, effectiveTarget.right),
+            max(fillBottom, effectiveTarget.bottom)
         )
         val patchW = fillRect.width()
         val patchH = fillRect.height()
@@ -109,25 +146,56 @@ class BackgroundInpainter {
                 }
             }
 
-            // Feather outer edges (smooth 4-6px alpha falloff into genuine paper)
-            val featherDist = minOf(6, patchW / 4, patchH / 4)
-            if (featherDist > 1) {
+            // Alpha mask feathering:
+            // 1. relTarget (effectiveTarget) is 100% SOLID OPAQUE (alpha = 255) to eliminate old text completely (zero ghosting).
+            // 2. Feathering strictly applies in the outer padding margins towards outer boundaries of fillRect.
+            val relTarget = Rect(
+                (effectiveTarget.left - fillRect.left).coerceIn(0, patchW),
+                (effectiveTarget.top - fillRect.top).coerceIn(0, patchH),
+                (effectiveTarget.right - fillRect.left).coerceIn(0, patchW),
+                (effectiveTarget.bottom - fillRect.top).coerceIn(0, patchH)
+            )
+
+            val padL = relTarget.left
+            val padT = relTarget.top
+            val padR = patchW - relTarget.right
+            val padB = patchH - relTarget.bottom
+
+            if (padL > 0 || padT > 0 || padR > 0 || padB > 0) {
                 val clearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
                 }
                 val alphaMask = Bitmap.createBitmap(patchW, patchH, Bitmap.Config.ARGB_8888)
-                val maskCanvas = Canvas(alphaMask)
-                maskCanvas.drawColor(Color.WHITE)
-                for (f in 0 until featherDist) {
-                    val alphaPercent = (f.toFloat() / featherDist)
-                    val borderPaint = Paint().apply {
-                        color = Color.argb(((1f - alphaPercent) * 255).toInt(), 0, 0, 0)
-                        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_OUT)
-                        style = Paint.Style.STROKE
-                        strokeWidth = 1f
+                val pixels = IntArray(patchW * patchH)
+
+                for (y in 0 until patchH) {
+                    val rowOffset = y * patchW
+                    val dy = when {
+                        y < relTarget.top -> relTarget.top - y
+                        y >= relTarget.bottom -> y - (relTarget.bottom - 1)
+                        else -> 0
                     }
-                    maskCanvas.drawRect(f.toFloat(), f.toFloat(), (patchW - 1 - f).toFloat(), (patchH - 1 - f).toFloat(), borderPaint)
+                    val maxDy = if (y < relTarget.top) padT else padB
+                    val fracY = if (maxDy > 0) (1f - (dy.toFloat() / maxDy)).coerceIn(0f, 1f) else 1f
+
+                    for (x in 0 until patchW) {
+                        val dx = when {
+                            x < relTarget.left -> relTarget.left - x
+                            x >= relTarget.right -> x - (relTarget.right - 1)
+                            else -> 0
+                        }
+                        val maxDx = if (x < relTarget.left) padL else padR
+                        val fracX = if (maxDx > 0) (1f - (dx.toFloat() / maxDx)).coerceIn(0f, 1f) else 1f
+
+                        val alpha = if (dx == 0 && dy == 0) {
+                            255
+                        } else {
+                            (min(fracX, fracY) * 255).toInt().coerceIn(0, 255)
+                        }
+                        pixels[rowOffset + x] = Color.argb(alpha, 255, 255, 255)
+                    }
                 }
+                alphaMask.setPixels(pixels, 0, patchW, 0, 0, patchW, patchH)
                 patchCanvas.drawBitmap(alphaMask, 0f, 0f, clearPaint)
                 alphaMask.recycle()
             }
@@ -136,7 +204,7 @@ class BackgroundInpainter {
             patchBmp.recycle()
         }
 
-        // Reconstruct crossing grid/notebook lines
+        // Reconstruct crossing grid/notebook lines across the entire fillRect span
         for (line in horizontalLines) {
             val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = line.color
@@ -144,8 +212,8 @@ class BackgroundInpainter {
                 style = Paint.Style.STROKE
             }
             canvas.drawLine(
-                safeTarget.left.toFloat() - 1f, line.coord.toFloat(),
-                safeTarget.right.toFloat() + 1f, line.coord.toFloat(),
+                fillRect.left.toFloat() - 1f, line.coord.toFloat(),
+                fillRect.right.toFloat() + 1f, line.coord.toFloat(),
                 linePaint
             )
         }
@@ -157,8 +225,8 @@ class BackgroundInpainter {
                 style = Paint.Style.STROKE
             }
             canvas.drawLine(
-                line.coord.toFloat(), safeTarget.top.toFloat() - 1f,
-                line.coord.toFloat(), safeTarget.bottom.toFloat() + 1f,
+                line.coord.toFloat(), fillRect.top.toFloat() - 2f,
+                line.coord.toFloat(), fillRect.bottom.toFloat() + 2f,
                 linePaint
             )
         }
@@ -304,29 +372,28 @@ class BackgroundInpainter {
             canvas.drawBitmap(outCropBitmap, cropLeft.toFloat(), cropTop.toFloat(), null)
 
             // Reconstruct crossing grid/notebook lines
-            val hLines = detectHorizontalCrossingLines(source, target, paperLuma.toInt())
-            val vLines = detectVerticalCrossingLines(source, target, paperLuma.toInt())
-            for (line in hLines) {
+            val gridResult = detectSurroundingAndCrossingLines(source, target, paperLuma.toInt())
+            for (line in gridResult.horizontalLines) {
                 val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = line.color
                     strokeWidth = line.thickness.toFloat().coerceAtLeast(1f)
                     style = Paint.Style.STROKE
                 }
                 canvas.drawLine(
-                    target.left.toFloat() - 1f, line.coord.toFloat(),
-                    target.right.toFloat() + 1f, line.coord.toFloat(),
+                    cropLeft.toFloat() - 1f, line.coord.toFloat(),
+                    cropRight.toFloat() + 1f, line.coord.toFloat(),
                     p
                 )
             }
-            for (line in vLines) {
+            for (line in gridResult.verticalLines) {
                 val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = line.color
                     strokeWidth = line.thickness.toFloat().coerceAtLeast(1f)
                     style = Paint.Style.STROKE
                 }
                 canvas.drawLine(
-                    line.coord.toFloat(), target.top.toFloat() - 1f,
-                    line.coord.toFloat(), target.bottom.toFloat() + 1f,
+                    line.coord.toFloat(), cropTop.toFloat() - 1f,
+                    line.coord.toFloat(), cropBottom.toFloat() + 1f,
                     p
                 )
             }
@@ -517,35 +584,41 @@ class BackgroundInpainter {
     private fun samplePerimeterPaperColors(
         source: Bitmap,
         target: Rect,
-        margin: Int
+        margin: Int = 10,
+        topLimitY: Int = 0,
+        botLimitY: Int = source.height - 1,
+        leftLimitX: Int = 0,
+        rightLimitX: Int = source.width - 1
     ): PaperSampleResult {
         val width = source.width
         val height = source.height
 
         // Determine if local region is light or dark document
         val localMargin = (target.height() * 1.5f).toInt().coerceIn(16, 60)
-        val lLeft = max(0, target.left - localMargin)
-        val lTop = max(0, target.top - localMargin)
-        val lRight = min(width, target.right + localMargin)
-        val lBottom = min(height, target.bottom + localMargin)
-        val localW = lRight - lLeft
-        val localH = lBottom - lTop
+        val lLeft = max(leftLimitX, target.left - localMargin)
+        val lTop = max(topLimitY, target.top - localMargin)
+        val lRight = min(rightLimitX, target.right + localMargin)
+        val lBottom = min(botLimitY, target.bottom + localMargin)
+        val localW = max(1, lRight - lLeft)
+        val localH = max(1, lBottom - lTop)
 
         var sumLocalLuma = 0.0
         var localPixelCount = 0
         val step = max(1, min(localW, localH) / 10)
         for (y in lTop until lBottom step step) {
             for (x in lLeft until lRight step step) {
-                val p = source.getPixel(x, y)
-                sumLocalLuma += getLuminance(p)
-                localPixelCount++
+                if (x in 0 until width && y in 0 until height) {
+                    val p = source.getPixel(x, y)
+                    sumLocalLuma += getLuminance(p)
+                    localPixelCount++
+                }
             }
         }
         val isDarkDoc = if (localPixelCount > 0) (sumLocalLuma / localPixelCount) < 128 else false
 
-        // 1. Sample clean paper strip ABOVE (between target.top - 16 and target.top - 2)
-        val topY1 = max(0, target.top - 16)
-        val topY2 = max(0, target.top - 2)
+        // 1. Sample clean paper strip ABOVE (within cell boundary topLimitY)
+        val topY1 = max(topLimitY, target.top - 16)
+        val topY2 = max(topLimitY, target.top - 2)
         val topSamples = mutableListOf<Int>()
         if (topY1 < topY2) {
             val stepX = max(1, target.width() / 25)
@@ -558,9 +631,9 @@ class BackgroundInpainter {
             }
         }
 
-        // 2. Sample clean paper strip BELOW (between target.bottom + 2 and target.bottom + 16)
-        val botY1 = min(height - 1, target.bottom + 2)
-        val botY2 = min(height - 1, target.bottom + 16)
+        // 2. Sample clean paper strip BELOW (within cell boundary botLimitY)
+        val botY1 = min(botLimitY, target.bottom + 2)
+        val botY2 = min(botLimitY, target.bottom + 16)
         val botSamples = mutableListOf<Int>()
         if (botY1 < botY2) {
             val stepX = max(1, target.width() / 25)
@@ -573,17 +646,25 @@ class BackgroundInpainter {
             }
         }
 
-        // 3. Sample left and right margins (only safe 2-8px margin)
+        // 3. Sample left and right margins (within cell boundaries)
         val sideSamples = mutableListOf<Int>()
-        val leftX1 = max(0, target.left - 8)
-        val leftX2 = max(0, target.left - 2)
-        val rightX1 = min(width - 1, target.right + 2)
-        val rightX2 = min(width - 1, target.right + 8)
+        val leftX1 = max(leftLimitX, target.left - 8)
+        val leftX2 = max(leftLimitX, target.left - 2)
+        val rightX1 = min(rightLimitX, target.right + 2)
+        val rightX2 = min(rightLimitX, target.right + 8)
         val stepY = max(1, target.height() / 10)
         for (y in target.top until target.bottom step stepY) {
             if (y in 0 until height) {
-                for (x in leftX1 until leftX2) sideSamples.add(source.getPixel(x, y))
-                for (x in rightX1 until rightX2) sideSamples.add(source.getPixel(x, y))
+                if (leftX1 < leftX2) {
+                    for (x in leftX1 until leftX2) {
+                        if (x in 0 until width) sideSamples.add(source.getPixel(x, y))
+                    }
+                }
+                if (rightX1 < rightX2) {
+                    for (x in rightX1 until rightX2) {
+                        if (x in 0 until width) sideSamples.add(source.getPixel(x, y))
+                    }
+                }
             }
         }
 
@@ -604,14 +685,15 @@ class BackgroundInpainter {
         val topLuma = getLuminance(topColor)
         val botLuma = getLuminance(bottomColor)
 
-        // For standard digital documents with bright paper (Luma >= 235), snap to pure clean white
-        val finalTop = if (!isDarkDoc && topLuma >= 235) Color.WHITE else topColor
-        val finalBot = if (!isDarkDoc && botLuma >= 235) Color.WHITE else bottomColor
+        // For standard digital documents with pure white paper (Luma >= 248), snap to clean white.
+        // Never snap to white if paper has authentic gray shading (Luma < 248).
+        val finalTop = if (!isDarkDoc && topLuma >= 248) Color.WHITE else topColor
+        val finalBot = if (!isDarkDoc && botLuma >= 248) Color.WHITE else bottomColor
 
         return PaperSampleResult(
             topColor = finalTop,
             bottomColor = finalBot,
-            hasNoise = !isDarkDoc && (topLuma in 130..234 || botLuma in 130..234)
+            hasNoise = !isDarkDoc && (topLuma in 130..247 || botLuma in 130..247)
         )
     }
 
@@ -663,113 +745,200 @@ class BackgroundInpainter {
 
     private data class CrossingLine(val coord: Int, val thickness: Int, val color: Int)
 
-    private fun detectHorizontalCrossingLines(
+    private data class GridLineDetectionResult(
+        val horizontalLines: List<CrossingLine>,
+        val verticalLines: List<CrossingLine>,
+        val topBorderY: Int?,
+        val botBorderY: Int?,
+        val leftBorderX: Int?,
+        val rightBorderX: Int?
+    )
+
+    private fun detectSurroundingAndCrossingLines(
         source: Bitmap,
         target: Rect,
         paperLuma: Int
-    ): List<CrossingLine> {
-        val width = source.width
-        val leftX = max(0, target.left - 4)
-        val rightX = min(width - 1, target.right + 4)
-        if (target.left <= 4 || target.right >= width - 5) return emptyList()
-
-        val lines = mutableListOf<CrossingLine>()
-        var inLine = false
-        var lineStartY = 0
-        val lineColors = mutableListOf<Int>()
-
-        for (y in target.top..target.bottom) {
-            val leftPix = source.getPixel(leftX, y)
-            val rightPix = source.getPixel(rightX, y)
-            val leftLuma = getLuminance(leftPix)
-            val rightLuma = getLuminance(rightPix)
-
-            val isLeftDark = (paperLuma - leftLuma) >= 28
-            val isRightDark = (paperLuma - rightLuma) >= 28
-            val lumaDiff = kotlin.math.abs(leftLuma - rightLuma)
-
-            if (isLeftDark && isRightDark && lumaDiff < 35) {
-                if (!inLine) {
-                    inLine = true
-                    lineStartY = y
-                    lineColors.clear()
-                }
-                lineColors.add(leftPix)
-                lineColors.add(rightPix)
-            } else {
-                if (inLine) {
-                    val thickness = y - lineStartY
-                    if (thickness in 1..8) {
-                        val avgColor = averageColor(lineColors)
-                        lines.add(CrossingLine(lineStartY + thickness / 2, thickness, avgColor))
-                    }
-                    inLine = false
-                }
-            }
-        }
-        if (inLine) {
-            val thickness = target.bottom + 1 - lineStartY
-            if (thickness in 1..8) {
-                val avgColor = averageColor(lineColors)
-                lines.add(CrossingLine(lineStartY + thickness / 2, thickness, avgColor))
-            }
-        }
-        return lines
-    }
-
-    private fun detectVerticalCrossingLines(
-        source: Bitmap,
-        target: Rect,
-        paperLuma: Int
-    ): List<CrossingLine> {
+    ): GridLineDetectionResult {
         val width = source.width
         val height = source.height
-        val topY = max(0, target.top - 4)
-        val botY = min(height - 1, target.bottom + 4)
-        if (target.top <= 4 || target.bottom >= height - 5) return emptyList()
 
-        val lines = mutableListOf<CrossingLine>()
-        var inLine = false
-        var lineStartX = 0
-        val lineColors = mutableListOf<Int>()
+        val scanMargin = 20
+        val scanLeft = max(0, target.left - scanMargin)
+        val scanRight = min(width - 1, target.right + scanMargin)
+        val scanTop = max(0, target.top - scanMargin)
+        val scanBottom = min(height - 1, target.bottom + scanMargin)
 
-        for (x in target.left..target.right) {
-            val topPix = source.getPixel(x, topY)
-            val botPix = source.getPixel(x, botY)
-            val topLuma = getLuminance(topPix)
-            val botLuma = getLuminance(botPix)
+        val vLines = mutableListOf<CrossingLine>()
+        var inVLine = false
+        var vLineStartX = 0
+        val vLineColors = mutableListOf<Int>()
 
-            val isTopDark = (paperLuma - topLuma) >= 28
-            val isBotDark = (paperLuma - botLuma) >= 28
-            val lumaDiff = kotlin.math.abs(topLuma - botLuma)
+        // Check vertical lines across scanLeft..scanRight
+        val checkTopY1 = max(0, target.top - 14)
+        val checkTopY2 = max(0, target.top - 2)
+        val checkBotY1 = min(height - 1, target.bottom + 2)
+        val checkBotY2 = min(height - 1, target.bottom + 14)
 
-            if (isTopDark && isBotDark && lumaDiff < 35) {
-                if (!inLine) {
-                    inLine = true
-                    lineStartX = x
-                    lineColors.clear()
+        for (x in scanLeft..scanRight) {
+            var topDark = false
+            var botDark = false
+            var colTopLuma = 255
+            var colBotLuma = 255
+            var topPix = 0
+            var botPix = 0
+
+            if (checkTopY1 < checkTopY2) {
+                var sum = 0
+                var cnt = 0
+                for (y in checkTopY1 until checkTopY2) {
+                    val p = source.getPixel(x, y)
+                    sum += getLuminance(p)
+                    cnt++
+                    topPix = p
                 }
-                lineColors.add(topPix)
-                lineColors.add(botPix)
+                if (cnt > 0) {
+                    colTopLuma = sum / cnt
+                    topDark = (paperLuma - colTopLuma) >= 24
+                }
+            }
+
+            if (checkBotY1 < checkBotY2) {
+                var sum = 0
+                var cnt = 0
+                for (y in checkBotY1 until checkBotY2) {
+                    val p = source.getPixel(x, y)
+                    sum += getLuminance(p)
+                    cnt++
+                    botPix = p
+                }
+                if (cnt > 0) {
+                    colBotLuma = sum / cnt
+                    botDark = (paperLuma - colBotLuma) >= 24
+                }
+            }
+
+            // A vertical grid line must be dark above AND below the target text box
+            val isGridCol = topDark && botDark && kotlin.math.abs(colTopLuma - colBotLuma) < 45
+
+            if (isGridCol) {
+                if (!inVLine) {
+                    inVLine = true
+                    vLineStartX = x
+                    vLineColors.clear()
+                }
+                vLineColors.add(topPix)
+                vLineColors.add(botPix)
             } else {
-                if (inLine) {
-                    val thickness = x - lineStartX
+                if (inVLine) {
+                    val thickness = x - vLineStartX
                     if (thickness in 1..8) {
-                        val avgColor = averageColor(lineColors)
-                        lines.add(CrossingLine(lineStartX + thickness / 2, thickness, avgColor))
+                        val avgColor = averageColor(vLineColors)
+                        vLines.add(CrossingLine(vLineStartX + thickness / 2, thickness, avgColor))
                     }
-                    inLine = false
+                    inVLine = false
                 }
             }
         }
-        if (inLine) {
-            val thickness = target.right + 1 - lineStartX
+        if (inVLine) {
+            val thickness = scanRight + 1 - vLineStartX
             if (thickness in 1..8) {
-                val avgColor = averageColor(lineColors)
-                lines.add(CrossingLine(lineStartX + thickness / 2, thickness, avgColor))
+                val avgColor = averageColor(vLineColors)
+                vLines.add(CrossingLine(vLineStartX + thickness / 2, thickness, avgColor))
             }
         }
-        return lines
+
+        // Horizontal lines across scanTop..scanBottom
+        val hLines = mutableListOf<CrossingLine>()
+        var inHLine = false
+        var hLineStartY = 0
+        val hLineColors = mutableListOf<Int>()
+
+        val checkLeftX1 = max(0, target.left - 24)
+        val checkLeftX2 = max(0, target.left - 4)
+        val checkRightX1 = min(width - 1, target.right + 4)
+        val checkRightX2 = min(width - 1, target.right + 24)
+
+        for (y in scanTop..scanBottom) {
+            var leftDark = false
+            var rightDark = false
+            var rowLeftLuma = 255
+            var rowRightLuma = 255
+            var leftPix = 0
+            var rightPix = 0
+
+            if (checkLeftX1 < checkLeftX2) {
+                var sum = 0
+                var cnt = 0
+                for (x in checkLeftX1 until checkLeftX2) {
+                    val p = source.getPixel(x, y)
+                    sum += getLuminance(p)
+                    cnt++
+                    leftPix = p
+                }
+                if (cnt > 0) {
+                    rowLeftLuma = sum / cnt
+                    leftDark = (paperLuma - rowLeftLuma) >= 24
+                }
+            }
+
+            if (checkRightX1 < checkRightX2) {
+                var sum = 0
+                var cnt = 0
+                for (x in checkRightX1 until checkRightX2) {
+                    val p = source.getPixel(x, y)
+                    sum += getLuminance(p)
+                    cnt++
+                    rightPix = p
+                }
+                if (cnt > 0) {
+                    rowRightLuma = sum / cnt
+                    rightDark = (paperLuma - rowRightLuma) >= 24
+                }
+            }
+
+            val isGridRow = leftDark && rightDark && kotlin.math.abs(rowLeftLuma - rowRightLuma) < 45
+
+            if (isGridRow) {
+                if (!inHLine) {
+                    inHLine = true
+                    hLineStartY = y
+                    hLineColors.clear()
+                }
+                hLineColors.add(leftPix)
+                hLineColors.add(rightPix)
+            } else {
+                if (inHLine) {
+                    val thickness = y - hLineStartY
+                    if (thickness in 1..8) {
+                        val avgColor = averageColor(hLineColors)
+                        hLines.add(CrossingLine(hLineStartY + thickness / 2, thickness, avgColor))
+                    }
+                    inHLine = false
+                }
+            }
+        }
+        if (inHLine) {
+            val thickness = scanBottom + 1 - hLineStartY
+            if (thickness in 1..8) {
+                val avgColor = averageColor(hLineColors)
+                hLines.add(CrossingLine(hLineStartY + thickness / 2, thickness, avgColor))
+            }
+        }
+
+        // Identify closest cell borders
+        val leftBorderX = vLines.filter { it.coord <= target.left + 2 }.maxByOrNull { it.coord }?.coord
+        val rightBorderX = vLines.filter { it.coord >= target.right - 2 }.minByOrNull { it.coord }?.coord
+        val topBorderY = hLines.filter { it.coord <= target.top + 2 }.maxByOrNull { it.coord }?.coord
+        val botBorderY = hLines.filter { it.coord >= target.bottom - 2 }.minByOrNull { it.coord }?.coord
+
+        return GridLineDetectionResult(
+            horizontalLines = hLines,
+            verticalLines = vLines,
+            topBorderY = topBorderY,
+            botBorderY = botBorderY,
+            leftBorderX = leftBorderX,
+            rightBorderX = rightBorderX
+        )
     }
 
     private fun averageColor(colors: List<Int>): Int {

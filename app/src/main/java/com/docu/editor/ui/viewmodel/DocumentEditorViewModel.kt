@@ -1465,11 +1465,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         if (item.id == targetItem.id) return@filter false
                         val vOverlap = minOf(item.boundingBox.bottom, targetItem.boundingBox.bottom) - maxOf(item.boundingBox.top, targetItem.boundingBox.top)
                         val minH = minOf(item.boundingBox.height(), targetItem.boundingBox.height()).toFloat()
-                        val hasVerticalOverlap = vOverlap > minH * 0.25f
+                        val hasVerticalOverlap = vOverlap > minH * 0.35f
                         val dx = item.boundingBox.exactCenterX() - targetCenterX
                         val dy = item.boundingBox.exactCenterY() - targetCenterY
                         val perpDist = kotlin.math.abs(-dx * sinA + dy * cosA)
-                        hasVerticalOverlap || (perpDist < maxOf(28f, lineH * 1.45f))
+                        hasVerticalOverlap && (perpDist < maxOf(18f, lineH * 0.75f))
                     }.sortedBy { item ->
                         val dx = item.boundingBox.exactCenterX() - targetCenterX
                         val dy = item.boundingBox.exactCenterY() - targetCenterY
@@ -1532,18 +1532,24 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             } else {
                                 val serifInLine = allSameLineItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.28f }
                                 val serifRatio = serifInLine.toFloat() / allSameLineItems.size
-                                if (serifRatio >= 0.60f) FontClassification.SERIF else FontClassification.SANS_SERIF
+                                if (serifRatio >= 0.50f) FontClassification.SERIF else FontClassification.SANS_SERIF
                             }
                         }
                     }
 
-                    val effectiveFont = fontClassification ?: FontMatcher.classifyFromMetrics(
-                        text = targetItem.text,
-                        metrics = targetItem.typography,
-                        bounds = targetItem.boundingBox,
-                        documentDominantFont = documentDominantFont,
-                        lineDominantFont = lineDominantFont
-                    )
+                    val effectiveFont = if (lineDominantFont != null) {
+                        lineDominantFont
+                    } else if (fontClassification != null && fontClassification != FontClassification.CALIBRI) {
+                        fontClassification
+                    } else {
+                        FontMatcher.classifyFromMetrics(
+                            text = targetItem.text,
+                            metrics = targetItem.typography,
+                            bounds = targetItem.boundingBox,
+                            documentDominantFont = documentDominantFont,
+                            lineDominantFont = lineDominantFont
+                        )
+                    }
 
                     // Measure unconstrained natural width of the new text at document line height
                     val targetHasCapOrAsc = targetItem.text.any { it.isUpperCase() || it in "bdfhklt1234567890$€₹£" }

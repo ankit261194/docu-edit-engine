@@ -180,6 +180,12 @@ class FontMatcher(private val context: Context) {
                 return FontClassification.OCR_B
             }
 
+            // 1. Line-Level Consensus: Immediate neighbors on the same line have absolute highest authority!
+            // If line neighbors are Sans-Serif ("For Archana"), the target word ("Kumar") MUST be Sans-Serif!
+            if (lineDominantFont != null) {
+                return lineDominantFont
+            }
+
             val avgCharWidth = if (bounds != null && bounds.width() > 0) {
                 bounds.width().toFloat() / max(1, text.length)
             } else {
@@ -188,16 +194,11 @@ class FontMatcher(private val context: Context) {
             val height = if (bounds != null && bounds.height() > 0) bounds.height().toFloat() else metrics.estimatedFontSizePx
             val charAspectRatio = avgCharWidth / max(1f, height)
 
-            // 2. Dot-Matrix / Receipt / Cash Bill numbers (fixed-pitch monospace numbers)
-            val isBillOrReceipt = text.contains("TOTAL", ignoreCase = true) ||
-                text.contains("TAX", ignoreCase = true) ||
-                text.contains("BILL", ignoreCase = true) ||
-                text.contains("INV-", ignoreCase = true) ||
-                text.contains("CHALLAN", ignoreCase = true) ||
-                (text.all { it.isDigit() || it in "₹$.,-/#: " } && text.length >= 4 && charAspectRatio > 0.54f)
-
-            if (isBillOrReceipt) {
-                return FontClassification.DOT_MATRIX
+            // 2. Document-Level Consensus: only if document is overwhelmingly Serif and metrics confirm
+            if (documentDominantFont == FontClassification.SERIF && (metrics.isSerif || metrics.terminalFlareRatio >= 1.25f)) {
+                return FontClassification.SERIF
+            } else if (documentDominantFont != null && metrics.isSerif) {
+                return documentDominantFont
             }
 
             // 2.5 Medical, ultrasound, lab, and formal legal document keywords (Universal Times New Roman)
@@ -226,40 +227,34 @@ class FontMatcher(private val context: Context) {
                 text.contains("STAMP PAPER", ignoreCase = true) ||
                 text.contains("VERIFICATION", ignoreCase = true)
 
-            if (isCourtOrAffidavit && !isBillOrReceipt) {
+            if (isCourtOrAffidavit) {
                 return FontClassification.TYPEWRITER
             }
 
-            if (isFormalOrMedicalDocument && !isBillOrReceipt) {
+            if (isFormalOrMedicalDocument) {
                 return FontClassification.SERIF
             }
 
-            // 1. Line-Level Consensus: Immediate neighbors on the same line have absolute highest authority!
-            // If line neighbors are Sans-Serif ("For Archana"), the target word ("Kumar") MUST be Sans-Serif!
-            if (lineDominantFont != null) {
-                return lineDominantFont
-            }
+            // 3. Dot-Matrix / Receipt / Cash Bill numbers (fixed-pitch monospace numbers)
+            val isBillOrReceipt = text.contains("TOTAL", ignoreCase = true) ||
+                text.contains("TAX", ignoreCase = true) ||
+                text.contains("BILL", ignoreCase = true) ||
+                text.contains("INV-", ignoreCase = true) ||
+                text.contains("CHALLAN", ignoreCase = true)
 
-            // 2. Document-Level Consensus: only if document is overwhelmingly Serif and metrics confirm
-            if (documentDominantFont == FontClassification.SERIF && (metrics.isSerif || metrics.terminalFlareRatio >= 1.25f)) {
-                return FontClassification.SERIF
-            } else if (documentDominantFont != null && metrics.isSerif) {
-                return documentDominantFont
+            if (isBillOrReceipt && (metrics.letterSpacingEm > 0.16f || charAspectRatio > 0.58f)) {
+                return FontClassification.DOT_MATRIX
             }
 
             return when {
-                // 3. Serif: Times New Roman / Formal documents, legal certificates, agreements
+                // 4. Serif: Times New Roman / Formal documents, legal certificates, agreements
                 metrics.isSerif || metrics.terminalFlareRatio >= 1.28f -> {
                     FontClassification.SERIF
                 }
-                // 4. Typewriter: fixed pitch typewriter numbers/code
+                // 5. Typewriter: fixed pitch typewriter numbers/code
                 (metrics.strokeWidthRatio < 0.10f && metrics.letterSpacingEm > 0.14f) ||
-                (text.all { it.isDigit() || it == '-' || it == '/' || it == '.' } && charAspectRatio > 0.58f) -> {
+                (text.all { it.isDigit() || it == '-' || it == '/' || it == '.' } && charAspectRatio > 0.60f) -> {
                     FontClassification.TYPEWRITER
-                }
-                // 5. Calibri: compact modern office font (narrower proportions)
-                charAspectRatio < 0.44f -> {
-                    FontClassification.CALIBRI
                 }
                 // 6. Sans-serif: standard Arial (default for business invoices, forms, and documents)
                 else -> {

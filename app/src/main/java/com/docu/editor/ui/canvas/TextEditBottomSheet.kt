@@ -110,11 +110,11 @@ fun TextEditBottomSheet(
             if (it.id == item.id) return@filter false
             val vOverlap = minOf(it.boundingBox.bottom, item.boundingBox.bottom) - maxOf(it.boundingBox.top, item.boundingBox.top)
             val minH = minOf(it.boundingBox.height(), item.boundingBox.height()).toFloat()
-            val hasVerticalOverlap = vOverlap > minH * 0.25f
+            val hasVerticalOverlap = vOverlap > minH * 0.35f
             val dx = it.boundingBox.exactCenterX() - targetCenterX
             val dy = it.boundingBox.exactCenterY() - targetCenterY
             val perpDist = kotlin.math.abs(-dx * sinA + dy * cosA)
-            hasVerticalOverlap || (perpDist < maxOf(28f, lineH * 1.45f))
+            hasVerticalOverlap && (perpDist < maxOf(18f, lineH * 0.75f))
         }
     }
 
@@ -135,7 +135,7 @@ fun TextEditBottomSheet(
             } else {
                 val serifInLine = sameLineItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.28f }
                 val serifRatio = serifInLine.toFloat() / sameLineItems.size
-                if (serifRatio >= 0.60f) FontClassification.SERIF else FontClassification.SANS_SERIF
+                if (serifRatio >= 0.50f) FontClassification.SERIF else FontClassification.SANS_SERIF
             }
         }
     }

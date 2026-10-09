@@ -1,12 +1,12 @@
 {
-  "versionCode": 55,
-  "versionName": "10.8.9",
+  "versionCode": 56,
+  "versionName": "10.9.0",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.8.9 (User-Controlled Interactive ID Card Studio)",
-  "changelog": "✨ User-Controlled Interactive ID Card Studio (Zero Blind Automation):\n• Interactive 4-Corner Loupe Crop: Draggable corner handles with 2.5x magnifying loupe immediately appear upon card photo capture or selection. Real-world printed bedsheets, textured fabrics, and wood grain desks are now 100% supported.\n• Instant Landscape ID-1 Snap: After setting corners, the card is instantly perspective-dewarped, auto-rotated to landscape, and snapped to standard ISO/IEC 7810 ID-1 proportions (85.60mm x 53.98mm).\n• Adjust Crop Anytime: Tap 'Adjust Crop' on any card thumbnail to re-open corner pins and fine-tune borders in seconds.\n• Lossless Filter Switching: Switch between Magic Color, Original, Sharp B&W, and Grayscale with instant lossless preview re-rendering.\n• 1-Tap Official A4 KYC PDF Export: Generate standard 2-sided KYC A4 sheet with 1:1 scale and center cutting guide directly saved to Downloads.",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.9/DocuEdit-v10.8.9-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.9/DocuEdit-v10.8.9-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.8.9/DocuEdit-v10.8.9-arm64.apk",
-  "apkFileName": "DocuEdit-v10.8.9-arm64.apk",
+  "releaseTitle": "DocuEdit Pro v10.9.0 (Cell-Aware Inpainting & Precise Font Matching)",
+  "changelog": "✨ Table Cell-Aware Inpainting & Font Consensus Fixes:\n• Boundary-Aware Table Inpainting: Inpainting now automatically detects table cell grid lines and notebook ruled borders, clamping background synthesis strictly inside cell borders so grid lines are never sliced or damaged.\n• Full Border Reconstruction: Any crossing or adjacent grid lines are cleanly reconstructed across the full bounding span, eliminating broken line artifacts and fake colon marks.\n• True Gray Table Cell Inpainting: Background sampling is constrained to the active table cell and will never cross horizontal borders into adjacent white rows, preserving authentic tinted/gray row backgrounds.\n• Zero-Ghosting Solid Text Eradication: Target word bounding box is 100% solidly masked with 255 alpha to ensure zero remnants or double text, while smooth alpha feathering applies only to the outer margin.\n• Exact Line-Dominant Font Matching: Replaced text strictly respects the dominant font of adjacent words on the same line, matching Arial double-story 'a' on invoice headers and preventing incorrect font fallbacks.",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.0/DocuEdit-v10.9.0-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.0/DocuEdit-v10.9.0-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.0/DocuEdit-v10.9.0-arm64.apk",
+  "apkFileName": "DocuEdit-v10.9.0-arm64.apk",
   "apkSizeMb": 105.4
 }
