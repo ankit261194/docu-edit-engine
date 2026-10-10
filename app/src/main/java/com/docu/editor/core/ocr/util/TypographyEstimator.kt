@@ -53,11 +53,15 @@ object TypographyEstimator {
         val strokeContrast = if (horizontalBarWidth > 0.5f) verticalStemWidth / horizontalBarWidth else 1.0f
 
         // Camera photos soften horizontal bars. Multi-signal serif detector with authentic thresholds:
-        val isSerif = (lineDominantSerif && flareRatio >= 1.18f) ||
-            (documentDominantSerif && strokeContrast >= 1.50f && flareRatio >= 1.15f) ||
-            (strokeContrast >= 1.65f && flareRatio >= 1.18f && charCount >= 2) ||
-            (flareRatio >= 1.28f && charCount >= 2) ||
-            (strokeContrast >= 2.10f && charCount >= 2)
+        // In typography, Serif fonts (Times New Roman, Georgia) have pronounced stroke modulation (strokeContrast >= 1.55f).
+        // Standard Sans-Serif (Arial, Calibri, Helvetica) is monolinear (strokeContrast < 1.40f) and NEVER Serif.
+        val hasSerifModulation = strokeContrast >= 1.55f
+        val isSerif = hasSerifModulation && (
+            (lineDominantSerif && flareRatio >= 1.25f) ||
+            (documentDominantSerif && flareRatio >= 1.25f) ||
+            (strokeContrast >= 1.85f && flareRatio >= 1.25f && charCount >= 3) ||
+            (strokeContrast >= 2.25f && charCount >= 3)
+        )
 
         val density = foregroundResult.foregroundRatio
         val weight = when {
@@ -132,14 +136,22 @@ object TypographyEstimator {
         val medianMid = midRuns[midRuns.size / 2].toFloat()
         if (medianMid < 1.0f) return 1.0f
 
-        val medianTop = if (topRuns.isNotEmpty()) {
-            topRuns.sort()
-            topRuns[topRuns.size / 2].toFloat()
+        // Distinguish serif terminal flare from full letter crossbars:
+        // A true serif foot or bracket widens by 1.1x - 1.8x the stem width.
+        // A crossbar (like in 'T', 'F', 'E', 'A', 'Z') is 3x to 10x the stem width.
+        // Ignore crossbars so letters like 'F' or 'A' in Sans-Serif are not misclassified.
+        val maxSerifRun = medianMid * 2.2f
+        val filteredTop = topRuns.filter { it.toFloat() <= maxSerifRun }
+        val filteredBot = botRuns.filter { it.toFloat() <= maxSerifRun }
+
+        val medianTop = if (filteredTop.isNotEmpty()) {
+            val sorted = filteredTop.sorted()
+            sorted[sorted.size / 2].toFloat()
         } else medianMid
 
-        val medianBot = if (botRuns.isNotEmpty()) {
-            botRuns.sort()
-            botRuns[botRuns.size / 2].toFloat()
+        val medianBot = if (filteredBot.isNotEmpty()) {
+            val sorted = filteredBot.sorted()
+            sorted[sorted.size / 2].toFloat()
         } else medianMid
 
         val topRatio = medianTop / medianMid

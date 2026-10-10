@@ -137,7 +137,7 @@ object AutoFitFontCondenser {
         val targetHeight = (lineReferenceHeightPx ?: max(8, targetBounds.height()).toFloat()) / effectiveLineCount
 
         // 1. Initial font size estimate based on EM box vs visual cap-height.
-        var fontSize = (targetHeight * 0.85f) * sizeMultiplier
+        var fontSize = (targetHeight * 0.82f) * sizeMultiplier
         paint.textSize = fontSize
         paint.letterSpacing = 0f
         paint.textScaleX = 1.0f
@@ -152,25 +152,31 @@ object AutoFitFontCondenser {
         val measuredCapH = refBounds.height().toFloat()
 
         if (measuredCapH > 2f) {
-            val desiredCapH = when {
-                !origHasCapOrAscender && !origHasDescenders -> {
-                    (targetHeight * 1.15f) * sizeMultiplier
-                }
-                !origHasCapOrAscender && origHasDescenders -> {
-                    // Lowercase with descenders (e.g. "my", "you", "go", "eye")
-                    (targetHeight * 0.98f) * sizeMultiplier
-                }
-                origHasDescenders -> {
-                    // Cap/Ascender + Descender (e.g. "Page", "Help", "Typing")
-                    targetHeight * 0.78f * sizeMultiplier
-                }
-                else -> {
-                    // Cap/Ascender without descenders (e.g. "Doctor", "Invoice", "Total", "VEER")
-                    targetHeight * 0.95f * sizeMultiplier
+            val desiredCapH = if (lineReferenceHeightPx != null) {
+                // When line neighbors exist, all words on that line MUST have identical Cap-Height:
+                // Cap-Height is 70% of standard line bounding box height.
+                (targetHeight * 0.70f) * sizeMultiplier
+            } else {
+                when {
+                    !origHasCapOrAscender && !origHasDescenders -> {
+                        (targetHeight * 0.85f) * sizeMultiplier
+                    }
+                    !origHasCapOrAscender && origHasDescenders -> {
+                        // Lowercase with descenders (e.g. "my", "you", "go", "eye")
+                        (targetHeight * 0.68f) * sizeMultiplier
+                    }
+                    origHasDescenders -> {
+                        // Cap/Ascender + Descender (e.g. "Page", "Help", "Typing")
+                        (targetHeight * 0.70f) * sizeMultiplier
+                    }
+                    else -> {
+                        // Cap/Ascender without descenders (e.g. "Doctor", "Invoice", "Total", "VEER")
+                        (targetHeight * 0.76f) * sizeMultiplier
+                    }
                 }
             }
             val calibrationRatio = desiredCapH / measuredCapH
-            fontSize = (fontSize * calibrationRatio).coerceIn(6f, targetHeight * 1.6f)
+            fontSize = (fontSize * calibrationRatio).coerceIn(6f, targetHeight * 1.5f)
             paint.textSize = fontSize
         }
 

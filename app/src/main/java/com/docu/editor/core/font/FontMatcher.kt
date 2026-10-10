@@ -195,7 +195,7 @@ class FontMatcher(private val context: Context) {
             val charAspectRatio = avgCharWidth / max(1f, height)
 
             // 2. Document-Level Consensus: only if document is overwhelmingly Serif and metrics confirm
-            if (documentDominantFont == FontClassification.SERIF && (metrics.isSerif || metrics.terminalFlareRatio >= 1.25f)) {
+            if (documentDominantFont == FontClassification.SERIF && metrics.isSerif) {
                 return FontClassification.SERIF
             } else if (documentDominantFont != null && metrics.isSerif) {
                 return documentDominantFont
@@ -235,6 +235,20 @@ class FontMatcher(private val context: Context) {
                 return FontClassification.SERIF
             }
 
+            // 2.6 Business Invoice Signature Blocks & Standard Forms (Universal Arial / Sans-Serif Bold)
+            val isSignatureOrInvoiceForm = text.startsWith("FOR ", ignoreCase = true) ||
+                text.contains("SIGNATORY", ignoreCase = true) ||
+                text.contains("AUTHORIZED", ignoreCase = true) ||
+                text.contains("AUTHORISED", ignoreCase = true) ||
+                text.contains("PROPRIETOR", ignoreCase = true) ||
+                text.contains("DIRECTOR", ignoreCase = true) ||
+                text.contains("PARTNER", ignoreCase = true) ||
+                text.contains("MANAGER", ignoreCase = true)
+
+            if (isSignatureOrInvoiceForm) {
+                return FontClassification.SANS_SERIF
+            }
+
             // 3. Dot-Matrix / Receipt / Cash Bill numbers (fixed-pitch monospace numbers)
             val isBillOrReceipt = text.contains("TOTAL", ignoreCase = true) ||
                 text.contains("TAX", ignoreCase = true) ||
@@ -248,7 +262,7 @@ class FontMatcher(private val context: Context) {
 
             return when {
                 // 4. Serif: Times New Roman / Formal documents, legal certificates, agreements
-                metrics.isSerif || metrics.terminalFlareRatio >= 1.28f -> {
+                metrics.isSerif || (metrics.terminalFlareRatio >= 1.28f && !isSignatureOrInvoiceForm) -> {
                     FontClassification.SERIF
                 }
                 // 5. Typewriter: fixed pitch typewriter numbers/code

@@ -64,7 +64,8 @@ class ApkDownloadInstaller(private val context: Context) {
         val totalMb = if (totalBytes > 0) totalBytes / (1024f * 1024f) else 0f
 
         var downloadedBytes = 0L
-        val buffer = ByteArray(16384)
+        val buffer = ByteArray(65536) // 64 KB high-speed socket buffer
+        var lastUpdateTime = 0L
 
         conn.inputStream.use { input ->
             FileOutputStream(destFile).use { output ->
@@ -72,14 +73,22 @@ class ApkDownloadInstaller(private val context: Context) {
                 while (input.read(buffer).also { read = it } != -1) {
                     output.write(buffer, 0, read)
                     downloadedBytes += read
-                    val downloadedMb = downloadedBytes / (1024f * 1024f)
-                    val progress = if (totalBytes > 0) (downloadedBytes / totalBytes).coerceIn(0f, 1f) else 0f
-                    withContext(Dispatchers.Main) {
-                        onProgress(progress, downloadedMb, totalMb)
+                    val now = System.currentTimeMillis()
+                    if (now - lastUpdateTime >= 150L || (totalBytes > 0 && downloadedBytes >= totalBytes)) {
+                        lastUpdateTime = now
+                        val downloadedMb = downloadedBytes / (1024f * 1024f)
+                        val progress = if (totalBytes > 0) (downloadedBytes / totalBytes).coerceIn(0f, 1f) else 0f
+                        withContext(Dispatchers.Main) {
+                            onProgress(progress, downloadedMb, totalMb)
+                        }
                     }
                 }
                 output.flush()
             }
+        }
+        withContext(Dispatchers.Main) {
+            val finalMb = downloadedBytes / (1024f * 1024f)
+            onProgress(1f, finalMb, finalMb)
         }
         destFile
     }

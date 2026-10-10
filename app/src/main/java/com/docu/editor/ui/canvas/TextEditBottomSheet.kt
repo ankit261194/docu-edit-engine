@@ -114,34 +114,52 @@ fun TextEditBottomSheet(
         val targetCenterY = item.boundingBox.exactCenterY()
         allDetectedItems.filter {
             if (it.id == item.id) return@filter false
-            val vOverlap = minOf(it.boundingBox.bottom, item.boundingBox.bottom) - maxOf(it.boundingBox.top, item.boundingBox.top)
-            val minH = minOf(it.boundingBox.height(), item.boundingBox.height()).toFloat()
-            val hasVerticalOverlap = vOverlap > minH * 0.35f
             val dx = it.boundingBox.exactCenterX() - targetCenterX
             val dy = it.boundingBox.exactCenterY() - targetCenterY
             val perpDist = kotlin.math.abs(-dx * sinA + dy * cosA)
-            hasVerticalOverlap && (perpDist < maxOf(18f, lineH * 0.75f))
+            val vOverlap = minOf(it.boundingBox.bottom, item.boundingBox.bottom) - maxOf(it.boundingBox.top, item.boundingBox.top)
+            val hasVerticalOverlapOrClose = vOverlap > 0 || perpDist < maxOf(20f, lineH * 0.65f)
+            hasVerticalOverlapOrClose && (perpDist < maxOf(28f, lineH * 0.95f))
         }
+    }
+
+    val isSignatureLine = remember(item.text, sameLineItems) {
+        val allWords = (listOf(item.text) + sameLineItems.map { it.text }).joinToString(" ")
+        allWords.contains("FOR ", ignoreCase = true) ||
+            allWords.contains("SIGNATORY", ignoreCase = true) ||
+            allWords.contains("AUTHORIZED", ignoreCase = true) ||
+            allWords.contains("AUTHORISED", ignoreCase = true) ||
+            allWords.contains("PROPRIETOR", ignoreCase = true) ||
+            allWords.contains("DIRECTOR", ignoreCase = true) ||
+            allWords.contains("PARTNER", ignoreCase = true)
     }
 
     val documentDominantFont = remember(allDetectedItems) {
         if (allDetectedItems.isEmpty()) null
         else {
-            val serifCount = allDetectedItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.28f }
-            if (serifCount.toFloat() / allDetectedItems.size >= 0.65f) FontClassification.SERIF
+            val confirmedSerifs = allDetectedItems.count { it.typography.isSerif }
+            if (confirmedSerifs.toFloat() / allDetectedItems.size >= 0.70f) FontClassification.SERIF
             else null
         }
     }
 
-    val lineDominantFont = remember(sameLineItems) {
-        if (sameLineItems.isEmpty()) null
-        else {
+    val lineDominantFont = remember(sameLineItems, isSignatureLine) {
+        if (isSignatureLine) {
+            FontClassification.SANS_SERIF
+        } else if (sameLineItems.isEmpty()) {
+            null
+        } else {
             if (sameLineItems.any { it.text.any { c -> c in '\u0900'..'\u097F' } }) {
                 FontClassification.DEVANAGARI
             } else {
-                val serifInLine = sameLineItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.28f }
-                val serifRatio = serifInLine.toFloat() / sameLineItems.size
-                if (serifRatio >= 0.50f) FontClassification.SERIF else FontClassification.SANS_SERIF
+                // If ANY neighbor on the line is clean Sans-Serif, the entire line is Sans-Serif.
+                // An authentic invoice line is never mixed font.
+                val confirmedSerifs = sameLineItems.count { it.typography.isSerif }
+                if (confirmedSerifs == sameLineItems.size && sameLineItems.isNotEmpty()) {
+                    FontClassification.SERIF
+                } else {
+                    FontClassification.SANS_SERIF
+                }
             }
         }
     }
@@ -156,21 +174,22 @@ fun TextEditBottomSheet(
         )
     }
 
-    val lineIsBold = sameLineItems.isNotEmpty() && (
+    val lineIsBold = isSignatureLine || (sameLineItems.isNotEmpty() && (
         sameLineItems.count {
             (it.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD)) ||
-            it.typography.strokeWidthRatio >= 0.18f ||
-            it.typography.glyphDensity >= 0.28f ||
-            it.typography.numericFontWeight >= 700
-        }.toFloat() / sameLineItems.size >= 0.50f
-    )
+            it.typography.strokeWidthRatio >= 0.14f ||
+            it.typography.glyphDensity >= 0.24f ||
+            it.typography.numericFontWeight >= 600
+        }.toFloat() / sameLineItems.size >= 0.40f
+    ))
 
-    val itemIsBold = (item.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD)) ||
-        item.typography.strokeWidthRatio >= 0.18f ||
-        item.typography.glyphDensity >= 0.28f ||
-        item.typography.numericFontWeight >= 700
+    val itemIsBold = isSignatureLine ||
+        (item.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD)) ||
+        item.typography.strokeWidthRatio >= 0.14f ||
+        item.typography.glyphDensity >= 0.24f ||
+        item.typography.numericFontWeight >= 600
 
-    val autoDetectedBold = remember(item.id, sameLineItems) {
+    val autoDetectedBold = remember(item.id, sameLineItems, isSignatureLine) {
         if (sameLineItems.isNotEmpty()) lineIsBold else itemIsBold
     }
 

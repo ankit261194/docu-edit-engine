@@ -1463,13 +1463,12 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     val lineH = maxOf(16f, targetItem.boundingBox.height().toFloat())
                     val allSameLineItems = _uiState.value.detectedItems.filter { item ->
                         if (item.id == targetItem.id) return@filter false
-                        val vOverlap = minOf(item.boundingBox.bottom, targetItem.boundingBox.bottom) - maxOf(item.boundingBox.top, targetItem.boundingBox.top)
-                        val minH = minOf(item.boundingBox.height(), targetItem.boundingBox.height()).toFloat()
-                        val hasVerticalOverlap = vOverlap > minH * 0.35f
                         val dx = item.boundingBox.exactCenterX() - targetCenterX
                         val dy = item.boundingBox.exactCenterY() - targetCenterY
                         val perpDist = kotlin.math.abs(-dx * sinA + dy * cosA)
-                        hasVerticalOverlap && (perpDist < maxOf(18f, lineH * 0.75f))
+                        val vOverlap = minOf(item.boundingBox.bottom, targetItem.boundingBox.bottom) - maxOf(item.boundingBox.top, targetItem.boundingBox.top)
+                        val hasVerticalOverlapOrClose = vOverlap > 0 || perpDist < maxOf(20f, lineH * 0.65f)
+                        hasVerticalOverlapOrClose && (perpDist < maxOf(28f, lineH * 0.95f))
                     }.sortedBy { item ->
                         val dx = item.boundingBox.exactCenterX() - targetCenterX
                         val dy = item.boundingBox.exactCenterY() - targetCenterY
@@ -1478,6 +1477,17 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
                     val sameLineItems = allSameLineItems.filter {
                         it.boundingBox.left >= targetItem.boundingBox.right - 4
+                    }
+
+                    val isSignatureLine = run {
+                        val allWords = (listOf(targetItem.text) + allSameLineItems.map { it.text }).joinToString(" ")
+                        allWords.contains("FOR ", ignoreCase = true) ||
+                            allWords.contains("SIGNATORY", ignoreCase = true) ||
+                            allWords.contains("AUTHORIZED", ignoreCase = true) ||
+                            allWords.contains("AUTHORISED", ignoreCase = true) ||
+                            allWords.contains("PROPRIETOR", ignoreCase = true) ||
+                            allWords.contains("DIRECTOR", ignoreCase = true) ||
+                            allWords.contains("PARTNER", ignoreCase = true)
                     }
 
                     if (colorOverrideRgb == null) {
@@ -1494,18 +1504,20 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     if (effectiveBold == null) {
                         val lineBoldCount = allSameLineItems.count {
                             (it.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD)) ||
-                            it.typography.strokeWidthRatio >= 0.18f ||
-                            it.typography.glyphDensity >= 0.28f ||
-                            it.typography.numericFontWeight >= 700
+                            it.typography.strokeWidthRatio >= 0.14f ||
+                            it.typography.glyphDensity >= 0.24f ||
+                            it.typography.numericFontWeight >= 600
                         }
                         val lineBoldRatio = if (allSameLineItems.isNotEmpty()) lineBoldCount.toFloat() / allSameLineItems.size else 0f
-                        effectiveBold = if (lineBoldRatio >= 0.50f) {
+                        effectiveBold = if (isSignatureLine) {
+                            true
+                        } else if (lineBoldRatio >= 0.40f) {
                             true
                         } else {
                             (targetItem.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD)) ||
-                                targetItem.typography.strokeWidthRatio >= 0.18f ||
-                                targetItem.typography.glyphDensity >= 0.28f ||
-                                targetItem.typography.numericFontWeight >= 700
+                                targetItem.typography.strokeWidthRatio >= 0.14f ||
+                                targetItem.typography.glyphDensity >= 0.24f ||
+                                targetItem.typography.numericFontWeight >= 600
                         }
                     }
 
@@ -1520,21 +1532,27 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         val items = _uiState.value.detectedItems
                         if (items.isEmpty()) null
                         else {
-                            val serifCount = items.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.28f }
-                            if (serifCount.toFloat() / items.size >= 0.65f) FontClassification.SERIF
+                            val confirmedSerifs = items.count { it.typography.isSerif }
+                            if (confirmedSerifs.toFloat() / items.size >= 0.70f) FontClassification.SERIF
                             else null
                         }
                     }
 
                     val lineDominantFont = run {
-                        if (allSameLineItems.isEmpty()) null
-                        else {
+                        if (isSignatureLine) {
+                            FontClassification.SANS_SERIF
+                        } else if (allSameLineItems.isEmpty()) {
+                            null
+                        } else {
                             if (allSameLineItems.any { it.text.any { c -> c in '\u0900'..'\u097F' } }) {
                                 FontClassification.DEVANAGARI
                             } else {
-                                val serifInLine = allSameLineItems.count { it.typography.isSerif || it.typography.terminalFlareRatio >= 1.28f }
-                                val serifRatio = serifInLine.toFloat() / allSameLineItems.size
-                                if (serifRatio >= 0.50f) FontClassification.SERIF else FontClassification.SANS_SERIF
+                                val confirmedSerifs = allSameLineItems.count { it.typography.isSerif }
+                                if (confirmedSerifs == allSameLineItems.size && allSameLineItems.isNotEmpty()) {
+                                    FontClassification.SERIF
+                                } else {
+                                    FontClassification.SANS_SERIF
+                                }
                             }
                         }
                     }
@@ -1556,9 +1574,11 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     // Measure unconstrained natural width of the new text at document line height
                     val targetHasCapOrAsc = targetItem.text.any { it.isUpperCase() || it in "bdfhklt1234567890$€₹£" }
                     val targetHasDesc = targetItem.text.any { it in "gjpqy" }
-                    val normalizedLineH = lineReferenceHeight.coerceAtLeast(
+                    val normalizedLineH = if (allSameLineItems.isNotEmpty()) {
+                        lineReferenceHeight
+                    } else {
                         if (!targetHasCapOrAsc && !targetHasDesc) singleLineH * 1.40f else singleLineH
-                    )
+                    }
                     val naturalFontSize = normalizedLineH * 0.82f * sizeMultiplier
                     val testPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                         typeface = fontMatcher.getDocumentTypeface(effectiveFont, effectiveBold ?: false)
