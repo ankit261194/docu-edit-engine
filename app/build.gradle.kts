@@ -12,8 +12,8 @@ android {
         applicationId = "com.docu.editor"
         minSdk = 26
         targetSdk = 34
-        versionCode = 63
-        versionName = "10.9.7"
+        versionCode = 64
+        versionName = "10.9.8"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

@@ -122,7 +122,7 @@ object AutoFitFontCondenser {
         val originalLines = if (originalText.isNotEmpty()) originalText.split("\n").size else 1
         val userWantsMultiLine = text.contains("\n") || originalLines > 1
 
-        val effectiveAllowedWidth = (availableWidth ?: (targetWidth * 1.5f)).coerceAtLeast(targetWidth)
+        val effectiveAllowedWidth = (availableWidth ?: (targetWidth * 1.5f)).coerceAtLeast(16f)
 
         val effectiveText = if (userWantsMultiLine) {
             autoWrapIfTooWide(text, effectiveAllowedWidth, paint)
@@ -208,11 +208,11 @@ object AutoFitFontCondenser {
                         paint.measureText(effectiveText)
                     }
                     if (remeasured > effectiveAllowedWidth) {
-                        fontSize *= (effectiveAllowedWidth / remeasured).coerceAtLeast(0.82f)
+                        fontSize *= (effectiveAllowedWidth / remeasured).coerceAtLeast(0.70f)
                     }
                 }
                 else -> {
-                    scaleX = 0.85f
+                    scaleX = (effectiveAllowedWidth / measuredWidth).coerceIn(0.70f, 0.85f)
                     trackingEm = -0.022f
                     paint.textScaleX = scaleX
                     paint.letterSpacing = trackingEm
@@ -222,7 +222,7 @@ object AutoFitFontCondenser {
                         paint.measureText(effectiveText)
                     }
                     if (remeasured > effectiveAllowedWidth) {
-                        fontSize *= (effectiveAllowedWidth / remeasured).coerceAtLeast(0.75f)
+                        fontSize *= (effectiveAllowedWidth / remeasured).coerceAtLeast(0.40f)
                     }
                 }
             }
@@ -237,6 +237,19 @@ object AutoFitFontCondenser {
         paint.textSize = fontSize
         paint.letterSpacing = trackingEm
         paint.textScaleX = scaleX
+
+        // Absolute Hard-Limit Safety Guarantee:
+        // Ensure text NEVER extends past effectiveAllowedWidth (preventing any overlap with adjacent words)
+        var finalMeasuredW = if (lineCount > 1) {
+            lines.maxOfOrNull { paint.measureText(it) } ?: paint.measureText(effectiveText)
+        } else {
+            paint.measureText(effectiveText)
+        }
+        if (finalMeasuredW > effectiveAllowedWidth && effectiveAllowedWidth > 16f) {
+            val fitRatio = (effectiveAllowedWidth / finalMeasuredW).coerceIn(0.35f, 1.0f)
+            scaleX *= fitRatio
+            paint.textScaleX = scaleX
+        }
 
         // 3. Pixel-perfect document baseline alignment (zero vertical drift)
         val fontMetrics = paint.fontMetrics

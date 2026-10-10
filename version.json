@@ -1,12 +1,13 @@
 {
-  "versionCode": 58,
-  "versionName": "10.9.2",
+  "versionCode": 64,
+  "versionName": "10.9.8",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.9.2 (Always-Visible Apply Actions & Keyboard Done Support)",
-  "changelog": "✨ Always-Visible Apply Controls & Mobile UX Overhaul:\n• Triple Apply Buttons: Added a prominent 'Apply ✓' button right in the top header, a full-width 'Apply Replacement Now ✓' button directly beneath the text input box, and sticky bottom action buttons.\n• Zero Button Cutoff: Middle controls wrapped in smooth vertical scrolling so buttons are never pushed off screen regardless of device size or screen aspect ratio.\n• Keyboard IME Insets & Done Key: Added imePadding and wired keyboard 'Done' checkmark key to immediately commit text replacement without manual scrolling.\n• Clean Vector Glyph Inpainting: Pure Paint.Style.FILL vector contours eliminate artificial ink-blob distortion.\n• Resilient OCR Word Merging & Leftover Letter Alerts: Merges split word fragments and detects leftover characters with 1-tap correction.",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.2/DocuEdit-v10.9.2-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.2/DocuEdit-v10.9.2-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.2/DocuEdit-v10.9.2-arm64.apk",
-  "apkFileName": "DocuEdit-v10.9.2-arm64.apk",
+  "releaseTitle": "DocuEdit Pro v10.9.8 (CamScanner Engine with Hard Boundary Clamping)",
+  "changelog": "✨ CamScanner Zero-Reflow Architecture & Hard Boundary Clamping:\n• Zero-Reflow Engine: Neighboring words are 100% untouched. Neighbor words are never cut, shifted, or erased.\n• Double-Sided Inpainting Boundary Lock: Erasing old words is strictly clamped between left & right neighbors (minSafeLeft & maxSafeRight) with zero bleed-through into adjacent letters.\n• Hard-Limit Auto-Condense: AutoFitFontCondenser guarantees new text never expands beyond available line space.\n• 1-Tap Font Override: 4 direct buttons [Arial (Sans)], [Times (Serif)], [Hindi], [Signature] right above the text box.\n• Live Typeface Text Field: Input field renders live in the selected font in real-time.",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.8/DocuEdit-v10.9.8-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.8/DocuEdit-v10.9.8-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.8/DocuEdit-v10.9.8-arm64.apk",
+  "apkFileName": "DocuEdit-v10.9.8-arm64.apk",
   "apkSizeMb": 105.4
 }
+
