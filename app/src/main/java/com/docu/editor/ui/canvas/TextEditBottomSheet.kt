@@ -628,6 +628,36 @@ fun TextEditBottomSheet(
                             fontWeight = FontWeight.SemiBold
                         )
                     }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(
+                            Pair(FontClassification.SANS_SERIF, "Arial (Sans)"),
+                            Pair(FontClassification.SERIF, "Times (Serif)"),
+                            Pair(FontClassification.DEVANAGARI, "Hindi"),
+                            Pair(FontClassification.DANCING_SCRIPT, "Signature")
+                        ).forEach { (font, label) ->
+                            val isSelected = selectedFontType == font
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) Color(0xFF2563EB) else chipUnselectedBg,
+                                border = BorderStroke(1.dp, if (isSelected) Color(0xFF1D4ED8) else surfaceBorder),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { selectedFontType = font }
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) Color.White else textPrimary,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                            }
+                        }
+                    }
                     Spacer(modifier = Modifier.height(6.dp))
                     Row(
                         modifier = Modifier

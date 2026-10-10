@@ -1613,65 +1613,24 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         }
                     }
 
+                    val isNewText = _uiState.value.isNewTextInsertion
                     val maxAvailableWidth = if (nextAdjacentItem != null) {
-                        (nextAdjacentItem.boundingBox.left - targetItem.boundingBox.left - 6).toFloat().coerceAtLeast(16f)
+                        (nextAdjacentItem.boundingBox.left - targetItem.boundingBox.left - 4).toFloat().coerceAtLeast(16f)
                     } else {
                         (currentBitmap.width - targetItem.boundingBox.left - 12).toFloat().coerceAtLeast(16f)
                     }
 
-                    val isNewText = _uiState.value.isNewTextInsertion
-                    val rawDeltaX = if (isNewText) 0 else (naturalNewWidth - targetItem.boundingBox.width()).toInt()
-                    val actualDeltaX: Int
-                    val canReflow: Boolean
-
-                    if (!isNewText && nextAdjacentItem != null && sameLineItems.isNotEmpty()) {
-                        if (rawDeltaX > 0) {
-                            // Word expanded (e.g. "Dr" -> "Doctor"): push subsequent words right
-                            val availableRightSpace = (currentBitmap.width - 16 - sameLineItems.last().boundingBox.right).coerceAtLeast(0)
-                            if (availableRightSpace >= rawDeltaX) {
-                                actualDeltaX = rawDeltaX
-                                canReflow = true
-                            } else if (availableRightSpace > 10) {
-                                actualDeltaX = availableRightSpace
-                                canReflow = true
-                            } else {
-                                actualDeltaX = 0
-                                canReflow = false
-                            }
-                        } else if (rawDeltaX < -4) {
-                            // Word contracted (e.g. "Department" -> "Dept"): pull subsequent words left
-                            val minGap = (singleLineH * 0.22f).toInt().coerceAtLeast(4)
-                            val maxAllowedPullLeft = (sameLineItems.first().boundingBox.left - (targetItem.boundingBox.left + naturalNewWidth.toInt() + minGap)).coerceAtLeast(0)
-                            actualDeltaX = -minOf(kotlin.math.abs(rawDeltaX), maxAllowedPullLeft)
-                            canReflow = actualDeltaX != 0
-                        } else {
-                            actualDeltaX = 0
-                            canReflow = false
-                        }
-                    } else {
-                        actualDeltaX = 0
-                        canReflow = false
-                    }
-
-                    var workingBitmap = currentBitmap
-
-                    // When inserting new text onto blank space, there is no existing OCR text to erase.
-                    // Running inpainting on a blank area risks clipping/erasing adjacent document letters.
+                    // CamScanner Architecture:
+                    // 1. If inserting new text on blank space: Zero inpainting! Document paper remains 100% untouched.
+                    // 2. If editing existing OCR word: Erase ONLY the target word slot, strictly clamped before neighbor words.
+                    // 3. ZERO BITMAP CUTTING/REFLOW: Neighboring words are NEVER cut, shifted, or erased!
                     val cleanedBackground = if (isNewText) {
-                        workingBitmap.copy(Bitmap.Config.ARGB_8888, true)
+                        currentBitmap.copy(Bitmap.Config.ARGB_8888, true)
                     } else {
-                        val firstShiftedNeighborLeft = if (canReflow && actualDeltaX < 0 && sameLineItems.isNotEmpty()) {
-                            sameLineItems.first().boundingBox.left + actualDeltaX
-                        } else if (nextAdjacentItem != null) {
-                            nextAdjacentItem.boundingBox.left
+                        val maxSafeEraseRight = if (nextAdjacentItem != null) {
+                            (nextAdjacentItem.boundingBox.left - 2).coerceAtLeast(targetItem.boundingBox.left + 1)
                         } else {
-                            null
-                        }
-
-                        val maxSafeEraseRight = if (firstShiftedNeighborLeft != null) {
-                            (firstShiftedNeighborLeft - 2).coerceAtLeast(targetItem.boundingBox.left + 1)
-                        } else {
-                            workingBitmap.width
+                            currentBitmap.width
                         }
 
                         val targetEraseRight = minOf(targetItem.boundingBox.right, maxSafeEraseRight)
@@ -1683,66 +1642,13 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         )
 
                         backgroundInpainter.inpaint(
-                            sourceBitmap = workingBitmap,
+                            sourceBitmap = currentBitmap,
                             targetBounds = effectiveTargetBounds
                         )
                     }
 
-                    // Reflow neighboring words on the same line if target word contracted or expanded:
-                    val (postReflowBitmap, shiftedItems) = if (!isNewText && canReflow && actualDeltaX != 0) {
-                        val reflowBmp = cleanedBackground.copy(Bitmap.Config.ARGB_8888, true)
-                        val c = Canvas(reflowBmp)
-
-                        // 1. Crop all neighbor words from source document before modifying canvas
-                        val croppedList = sameLineItems.mapNotNull { item ->
-                            val w = item.boundingBox.width()
-                            val h = item.boundingBox.height()
-                            if (w > 0 && h > 0 && item.boundingBox.right <= currentBitmap.width && item.boundingBox.bottom <= currentBitmap.height) {
-                                val cropped = Bitmap.createBitmap(currentBitmap, item.boundingBox.left, item.boundingBox.top, w, h)
-                                val newX = item.boundingBox.left + actualDeltaX
-                                Triple(item, cropped, newX)
-                            } else null
-                        }
-
-                        // 2. Erase the vacated space at the tail end of shifted words (clean paper synthesis)
-                        if (actualDeltaX < 0 && sameLineItems.isNotEmpty()) {
-                            for (item in sameLineItems) {
-                                val vacateLeft = (item.boundingBox.right + actualDeltaX - 2).coerceAtLeast(0)
-                                val vacateRight = item.boundingBox.right
-                                if (vacateRight > vacateLeft) {
-                                    val vacateBounds = Rect(vacateLeft, item.boundingBox.top, vacateRight, item.boundingBox.bottom)
-                                    val erased = backgroundInpainter.inpaint(reflowBmp, vacateBounds)
-                                    c.drawBitmap(erased, 0f, 0f, null)
-                                    erased.recycle()
-                                }
-                            }
-                        }
-
-                        // 3. Draw cropped words onto reflowBmp at their new shifted positions!
-                        for ((item, cropped, newX) in croppedList) {
-                            c.drawBitmap(cropped, newX.toFloat(), item.boundingBox.top.toFloat(), null)
-                            cropped.recycle()
-                        }
-
-                        cleanedBackground.recycle()
-
-                        val mappedShifted = sameLineItems.map { item ->
-                            item.copy(
-                                boundingBox = Rect(
-                                    item.boundingBox.left + actualDeltaX,
-                                    item.boundingBox.top,
-                                    item.boundingBox.right + actualDeltaX,
-                                    item.boundingBox.bottom
-                                )
-                            )
-                        }
-                        Pair(reflowBmp, mappedShifted)
-                    } else {
-                        Pair(cleanedBackground, emptyList())
-                    }
-
                     val renderResult = textRenderer.render(
-                        cleanedBackground = postReflowBitmap,
+                        cleanedBackground = cleanedBackground,
                         params = TextRenderer.TextRenderParams(
                             newText = newText,
                             originalText = targetItem.text,
@@ -1754,11 +1660,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                             isBold = effectiveBold,
                             sizeMultiplier = sizeMultiplier,
                             alignment = alignment,
-                            availableWidth = if (canReflow) {
-                                (targetItem.boundingBox.width() + actualDeltaX + 8).toFloat().coerceAtLeast(16f)
-                            } else {
-                                maxAvailableWidth
-                            },
+                            availableWidth = maxAvailableWidth,
                             cameraBlurSigma = cameraBlurSigma,
                             paperBlendStrength = paperBlendStrength,
                             baselineNudgePx = baselineNudgePx,
@@ -1768,8 +1670,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         )
                     )
 
-                    postReflowBitmap.recycle()
-                    Triple(renderResult.outputBitmap, renderResult.renderedBounds, shiftedItems)
+                    cleanedBackground.recycle()
+                    Triple(renderResult.outputBitmap, renderResult.renderedBounds, emptyList<DetectedTextItem>())
                 }
 
                 val shiftedMap = shiftedLineItems.associateBy { it.id }
@@ -3097,7 +2999,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
         val newItem = DetectedTextItem(
             id = "new_text_${System.currentTimeMillis()}",
-            text = "New Text",
+            text = "",
             boundingBox = box,
             cornerPoints = listOf(
                 Point(box.left, box.top),

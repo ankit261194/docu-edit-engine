@@ -985,12 +985,10 @@ fun DocumentInteractiveCanvas(
                                             } else {
                                                 if (currentSelectedLayerId != null) {
                                                     currentOnSelectLayer(null)
-                                                } else if (activeMode == EditorToolMode.ADD_TEXT) {
+                                                } else if (activeMode == EditorToolMode.TEXT_EDIT || activeMode == EditorToolMode.ADD_TEXT) {
                                                     if (docX in 0f..bitmap.width.toFloat() && docY in 0f..bitmap.height.toFloat()) {
                                                         currentOnInsertTextTouch(docX, docY)
                                                     }
-                                                } else if (activeMode == EditorToolMode.TEXT_EDIT) {
-                                                    currentOnTextItemTapped(null)
                                                 }
                                             }
                                         }
