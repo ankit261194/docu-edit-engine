@@ -1476,7 +1476,9 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     }
 
                     val sameLineItems = allSameLineItems.filter {
-                        it.boundingBox.left >= targetItem.boundingBox.right - 4
+                        val dx = it.boundingBox.exactCenterX() - targetCenterX
+                        val dy = it.boundingBox.exactCenterY() - targetCenterY
+                        (dx * cosA + dy * sinA) > 2f
                     }
 
                     val isSignatureLine = run {
@@ -1557,7 +1559,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         }
                     }
 
-                    val effectiveFont = if (fontClassification != null) {
+                    val effectiveFont = if (lineDominantFont == FontClassification.SANS_SERIF && fontClassification == FontClassification.SERIF) {
+                        // Line neighbors are clean Sans-Serif; enforce Sans-Serif
+                        FontClassification.SANS_SERIF
+                    } else if (fontClassification != null) {
                         fontClassification
                     } else if (lineDominantFont != null) {
                         lineDominantFont

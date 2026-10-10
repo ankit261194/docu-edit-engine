@@ -262,7 +262,7 @@ class FontMatcher(private val context: Context) {
 
             return when {
                 // 4. Serif: Times New Roman / Formal documents, legal certificates, agreements
-                metrics.isSerif || (metrics.terminalFlareRatio >= 1.28f && !isSignatureOrInvoiceForm) -> {
+                metrics.isSerif || (metrics.terminalFlareRatio >= 1.28f && (text.contains("Department", ignoreCase = true) || isFormalOrMedicalDocument)) -> {
                     FontClassification.SERIF
                 }
                 // 5. Typewriter: fixed pitch typewriter numbers/code
@@ -272,7 +272,7 @@ class FontMatcher(private val context: Context) {
                 }
                 // 6. Sans-serif: standard Arial (default for business invoices, forms, and documents)
                 else -> {
-                    documentDominantFont ?: FontClassification.SANS_SERIF
+                    FontClassification.SANS_SERIF
                 }
             }
         }
