@@ -1286,7 +1286,7 @@ class MainActivity : androidx.fragment.app.FragmentActivity() {
                                             modifier = Modifier.size(15.dp)
                                         )
                                         Text(
-                                            text = "Live Text: ${uiState.detectedItems.size} lines detected • Tap to edit",
+                                            text = "Text: Tap any word to edit • Tap blank space to insert",
                                             color = Color.White,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.SemiBold

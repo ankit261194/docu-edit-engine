@@ -593,25 +593,6 @@ fun DocumentInteractiveCanvas(
                             shapeDragCurrent = null
                         }
                     )
-                } else if (activeMode == EditorToolMode.ADD_TEXT) {
-                    detectTapGestures { tapScreenOffset ->
-                        if (currentContainerSize.width == 0 || currentContainerSize.height == 0) return@detectTapGestures
-                        val fitScale = min(
-                            currentContainerSize.width.toFloat() / bitmap.width,
-                            currentContainerSize.height.toFloat() / bitmap.height
-                        )
-                        val effectiveScale = fitScale * currentScale
-                        val drawWidth = bitmap.width * effectiveScale
-                        val drawHeight = bitmap.height * effectiveScale
-                        val baseLeft = (currentContainerSize.width - drawWidth) / 2f + currentOffset.x
-                        val baseTop = (currentContainerSize.height - drawHeight) / 2f + currentOffset.y
-
-                        val bitmapX = (tapScreenOffset.x - baseLeft) / effectiveScale
-                        val bitmapY = (tapScreenOffset.y - baseTop) / effectiveScale
-                        if (bitmapX in 0f..bitmap.width.toFloat() && bitmapY in 0f..bitmap.height.toFloat()) {
-                            currentOnInsertTextTouch(bitmapX, bitmapY)
-                        }
-                    }
                 } else if (activeMode == EditorToolMode.LASSO_SELECT) {
                     detectDragGestures(
                         onDragStart = { start ->
@@ -2205,25 +2186,6 @@ fun DocumentInteractiveCanvas(
             ) {
                 Text(
                     text = "📐 Shapes Active: Drag to draw ${selectedShapeType.displayName}",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-        }
-
-        // Add Text Mode Banner
-        if (activeMode == EditorToolMode.ADD_TEXT) {
-            Surface(
-                color = Color(0xFF2563EB).copy(alpha = 0.95f),
-                shape = RoundedCornerShape(20.dp),
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 16.dp)
-            ) {
-                Text(
-                    text = "✍️ Insert Text Mode: Tap any blank line or space to type",
                     color = Color.White,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,

@@ -600,17 +600,10 @@ fun DocumentBottomBar(
                     WorkflowCategory.PDF_EDIT -> {
                         ToolDockButton(
                             icon = Icons.Default.Edit,
-                            label = "Edit Text",
+                            label = "Text",
                             isSelected = activeMode == EditorToolMode.TEXT_EDIT,
-                            isPro = true,
-                            onClick = { onModeSelected(EditorToolMode.TEXT_EDIT) }
-                        )
-                        ToolDockButton(
-                            icon = Icons.Default.TextFields,
-                            label = "Add Text",
-                            isSelected = activeMode == EditorToolMode.ADD_TEXT,
                             isPro = false,
-                            onClick = { onModeSelected(EditorToolMode.ADD_TEXT) }
+                            onClick = { onModeSelected(EditorToolMode.TEXT_EDIT) }
                         )
                         ToolDockButton(
                             icon = Icons.Default.AutoAwesome,
@@ -1043,24 +1036,6 @@ private fun ToolDockButton(
                 )
             }
 
-            if (isPro) {
-                Surface(
-                    color = Color(0xFFF59E0B),
-                    shape = RoundedCornerShape(4.dp),
-                    shadowElevation = 2.dp,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 4.dp, y = (-2).dp)
-                ) {
-                    Text(
-                        text = "PRO",
-                        color = Color.White,
-                        fontSize = 8.sp,
-                        fontWeight = FontWeight.Black,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                    )
-                }
-            }
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(
