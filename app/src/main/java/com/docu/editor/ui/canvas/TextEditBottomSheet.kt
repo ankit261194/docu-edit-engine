@@ -7,6 +7,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,10 +16,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -250,33 +255,61 @@ fun TextEditBottomSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                .imePadding()
                 .padding(horizontal = 20.dp, vertical = 8.dp)
         ) {
-            // Header
+            // Header with Always-Visible Direct Apply Button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Edit Document Text",
                         color = textPrimary,
-                        fontSize = 19.sp,
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = "Auto-matched to original document typography",
                         color = textSecondary,
-                        fontSize = 12.sp
+                        fontSize = 11.sp
                     )
                 }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Top Header Apply Button: Guaranteed visible in all states
+                Button(
+                    onClick = {
+                        onApplyEdit(editedText.text, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, selectedAlignment, false, cameraBlurSigma, paperBlendStrength, baselineNudgePx, inkToneDarkness)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                    shape = RoundedCornerShape(10.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Default.Check, contentDescription = "Apply", tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Apply ✓", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+
+                Spacer(modifier = Modifier.width(4.dp))
+
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = textPrimary)
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
+
+            // Scrollable Body: Ensures all controls are fully accessible on any screen size
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+            ) {
 
             // 1-Tap Instant Quick Actions Strip
             Surface(
@@ -358,6 +391,10 @@ fun TextEditBottomSheet(
                 onValueChange = { editedText = it },
                 label = { Text("Replacement Text", color = Color(0xFF2563EB), fontWeight = FontWeight.SemiBold) },
                 placeholder = { Text("Type new word to replace '${item.text}'", color = textSecondary) },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    onApplyEdit(editedText.text, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, selectedAlignment, false, cameraBlurSigma, paperBlendStrength, baselineNudgePx, inkToneDarkness)
+                }),
                 trailingIcon = {
                     if (editedText.text.isNotEmpty()) {
                         IconButton(onClick = { editedText = TextFieldValue("") }) {
@@ -421,6 +458,24 @@ fun TextEditBottomSheet(
                         }
                     }
                 }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Dedicated Direct 1-Tap Apply Button right directly under the replacement text field
+            Button(
+                onClick = {
+                    onApplyEdit(editedText.text, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, selectedAlignment, false, cameraBlurSigma, paperBlendStrength, baselineNudgePx, inkToneDarkness)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+            ) {
+                Icon(Icons.Default.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Apply Replacement Now ✓", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             }
 
             Spacer(modifier = Modifier.height(6.dp))
@@ -986,9 +1041,12 @@ fun TextEditBottomSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            // End of Scrollable Body
+            }
 
-            // Action Buttons
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Sticky Bottom Action Bar: Always visible above keyboard and navigation bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1022,7 +1080,7 @@ fun TextEditBottomSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
