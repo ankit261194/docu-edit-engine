@@ -46,6 +46,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -285,13 +286,13 @@ fun TextEditBottomSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Edit Document Text",
+                        text = if (item.text.isEmpty()) "Insert New Text" else "Edit Document Text",
                         color = textPrimary,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = "Auto-matched to original document typography",
+                        text = if (item.text.isEmpty()) "1-Tap font buttons below to match style" else "Auto-matched to original document typography",
                         color = textSecondary,
                         fontSize = 11.sp
                     )
@@ -404,12 +405,52 @@ fun TextEditBottomSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
+            // 1-Tap Instant Font Quick Toggle (CamScanner style directly above text field)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf(
+                    Pair(FontClassification.SANS_SERIF, "Arial (Sans)"),
+                    Pair(FontClassification.SERIF, "Times (Serif)"),
+                    Pair(FontClassification.DEVANAGARI, "Hindi"),
+                    Pair(FontClassification.DANCING_SCRIPT, "Signature")
+                ).forEach { (font, label) ->
+                    val isSelected = selectedFontType == font
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = if (isSelected) Color(0xFF2563EB) else chipUnselectedBg,
+                        border = BorderStroke(1.dp, if (isSelected) Color(0xFF1D4ED8) else surfaceBorder),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { selectedFontType = font }
+                    ) {
+                        Text(
+                            text = label,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) Color.White else textPrimary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.padding(vertical = 7.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             // Text Input Field
             OutlinedTextField(
                 value = editedText,
                 onValueChange = { editedText = it },
-                label = { Text("Replacement Text", color = Color(0xFF2563EB), fontWeight = FontWeight.SemiBold) },
-                placeholder = { Text("Type new word to replace '${item.text}'", color = textSecondary) },
+                label = { Text(if (item.text.isEmpty()) "New Text" else "Replacement Text", color = Color(0xFF2563EB), fontWeight = FontWeight.SemiBold) },
+                placeholder = { Text(if (item.text.isEmpty()) "Type text to insert here..." else "Type new word to replace '${item.text}'", color = textSecondary) },
+                textStyle = LocalTextStyle.current.copy(
+                    fontFamily = previewFontFamily,
+                    fontSize = 16.sp,
+                    color = textPrimary,
+                    fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal
+                ),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = {
                     onApplyEdit(editedText.text, selectedFontType, isBold, sizeMultiplier, selectedColorRgb, selectedAlignment, false, cameraBlurSigma, paperBlendStrength, baselineNudgePx, inkToneDarkness)

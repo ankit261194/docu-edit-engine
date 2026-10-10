@@ -1501,7 +1501,24 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         effectiveInkColor = lineInk.dominantRgb
                     }
 
+                    val prevSameLineItems = allSameLineItems.filter {
+                        val dx = it.boundingBox.exactCenterX() - targetCenterX
+                        val dy = it.boundingBox.exactCenterY() - targetCenterY
+                        (dx * cosA + dy * sinA) < -2f
+                    }
+                    val prevAdjacentItem = prevSameLineItems.lastOrNull()
                     val nextAdjacentItem = sameLineItems.firstOrNull()
+
+                    val minSafeLeft = if (prevAdjacentItem != null) {
+                        (prevAdjacentItem.boundingBox.right + 2).coerceAtMost(targetItem.boundingBox.right - 1)
+                    } else null
+
+                    val maxSafeRight = if (nextAdjacentItem != null) {
+                        (nextAdjacentItem.boundingBox.left - 2).coerceAtLeast(targetItem.boundingBox.left + 1)
+                    } else null
+
+                    val targetEraseLeft = if (minSafeLeft != null) maxOf(targetItem.boundingBox.left, minSafeLeft) else targetItem.boundingBox.left
+                    val targetEraseRight = if (maxSafeRight != null) minOf(targetItem.boundingBox.right, maxSafeRight) else targetItem.boundingBox.right
 
                     if (effectiveBold == null) {
                         val lineBoldCount = allSameLineItems.count {
@@ -1559,10 +1576,8 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         }
                     }
 
-                    val effectiveFont = if (lineDominantFont == FontClassification.SANS_SERIF && fontClassification == FontClassification.SERIF) {
-                        // Line neighbors are clean Sans-Serif; enforce Sans-Serif
-                        FontClassification.SANS_SERIF
-                    } else if (fontClassification != null) {
+                    // User manual font selection is 100% authoritative: never override user's choice!
+                    val effectiveFont = if (fontClassification != null) {
                         fontClassification
                     } else if (lineDominantFont != null) {
                         lineDominantFont
@@ -1614,45 +1629,47 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     }
 
                     val isNewText = _uiState.value.isNewTextInsertion
-                    val maxAvailableWidth = if (nextAdjacentItem != null) {
-                        (nextAdjacentItem.boundingBox.left - targetItem.boundingBox.left - 4).toFloat().coerceAtLeast(16f)
+                    val maxAvailableWidth = if (maxSafeRight != null) {
+                        (maxSafeRight - targetEraseLeft - 2).toFloat().coerceAtLeast(16f)
                     } else {
-                        (currentBitmap.width - targetItem.boundingBox.left - 12).toFloat().coerceAtLeast(16f)
+                        (currentBitmap.width - targetEraseLeft - 12).toFloat().coerceAtLeast(16f)
                     }
 
                     // CamScanner Architecture:
                     // 1. If inserting new text on blank space: Zero inpainting! Document paper remains 100% untouched.
-                    // 2. If editing existing OCR word: Erase ONLY the target word slot, strictly clamped before neighbor words.
+                    // 2. If editing existing OCR word: Erase ONLY the target word slot, strictly clamped between left & right neighbors.
                     // 3. ZERO BITMAP CUTTING/REFLOW: Neighboring words are NEVER cut, shifted, or erased!
                     val cleanedBackground = if (isNewText) {
                         currentBitmap.copy(Bitmap.Config.ARGB_8888, true)
                     } else {
-                        val maxSafeEraseRight = if (nextAdjacentItem != null) {
-                            (nextAdjacentItem.boundingBox.left - 2).coerceAtLeast(targetItem.boundingBox.left + 1)
-                        } else {
-                            currentBitmap.width
-                        }
-
-                        val targetEraseRight = minOf(targetItem.boundingBox.right, maxSafeEraseRight)
                         val effectiveTargetBounds = Rect(
-                            targetItem.boundingBox.left,
+                            targetEraseLeft,
                             targetItem.boundingBox.top,
-                            targetEraseRight,
+                            targetEraseRight.coerceAtLeast(targetEraseLeft + 1),
                             targetItem.boundingBox.bottom
                         )
 
                         backgroundInpainter.inpaint(
                             sourceBitmap = currentBitmap,
-                            targetBounds = effectiveTargetBounds
+                            targetBounds = effectiveTargetBounds,
+                            minSafeLeft = minSafeLeft,
+                            maxSafeRight = maxSafeRight
                         )
                     }
+
+                    val effectiveRenderBounds = Rect(
+                        targetEraseLeft,
+                        targetItem.boundingBox.top,
+                        targetEraseRight.coerceAtLeast(targetEraseLeft + 1),
+                        targetItem.boundingBox.bottom
+                    )
 
                     val renderResult = textRenderer.render(
                         cleanedBackground = cleanedBackground,
                         params = TextRenderer.TextRenderParams(
                             newText = newText,
                             originalText = targetItem.text,
-                            targetBounds = targetItem.boundingBox,
+                            targetBounds = effectiveRenderBounds,
                             inkColorRgb = effectiveInkColor,
                             rotationAngle = targetItem.rotationAngle,
                             typographyMetrics = targetItem.typography,
@@ -1676,13 +1693,21 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
                 val shiftedMap = shiftedLineItems.associateBy { it.id }
                 val updatedItems = if (_uiState.value.isNewTextInsertion) {
-                    _uiState.value.detectedItems + targetItem.copy(text = newText, boundingBox = newBox)
+                    if (newText.trim().isNotEmpty()) {
+                        _uiState.value.detectedItems + targetItem.copy(text = newText, boundingBox = newBox)
+                    } else {
+                        _uiState.value.detectedItems
+                    }
                 } else {
-                    _uiState.value.detectedItems.map { item ->
-                        when {
-                            item.id == targetItem.id -> item.copy(text = newText, boundingBox = newBox)
-                            shiftedMap.containsKey(item.id) -> shiftedMap[item.id]!!
-                            else -> item
+                    if (newText.trim().isEmpty()) {
+                        _uiState.value.detectedItems.filter { it.id != targetItem.id }
+                    } else {
+                        _uiState.value.detectedItems.map { item ->
+                            when {
+                                item.id == targetItem.id -> item.copy(text = newText, boundingBox = newBox)
+                                shiftedMap.containsKey(item.id) -> shiftedMap[item.id]!!
+                                else -> item
+                            }
                         }
                     }
                 }

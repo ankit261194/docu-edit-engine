@@ -30,7 +30,9 @@ class BackgroundInpainter {
     suspend fun inpaint(
         sourceBitmap: Bitmap,
         targetBounds: Rect,
-        sampleMargin: Int = 10
+        sampleMargin: Int = 10,
+        minSafeLeft: Int? = null,
+        maxSafeRight: Int? = null
     ): Bitmap = withContext(Dispatchers.Default) {
         val width = sourceBitmap.width
         val height = sourceBitmap.height
@@ -95,20 +97,30 @@ class BackgroundInpainter {
             effectiveTarget.set(safeTarget)
         }
 
-        val rawLeft = max(0, effectiveTarget.left - extraPadX)
+        val rawLeft = if (minSafeLeft != null) {
+            max(minSafeLeft, effectiveTarget.left - extraPadX)
+        } else {
+            max(0, effectiveTarget.left - extraPadX)
+        }
         val rawTop = max(0, effectiveTarget.top - extraPadY)
-        val rawRight = min(width, effectiveTarget.right + extraPadX)
+        val rawRight = if (maxSafeRight != null) {
+            min(maxSafeRight, effectiveTarget.right + extraPadX)
+        } else {
+            min(width, effectiveTarget.right + extraPadX)
+        }
         val rawBottom = min(height, effectiveTarget.bottom + extraPadY)
 
         val fillLeft = if (gridResult.leftBorderX != null) max(rawLeft, gridResult.leftBorderX + 1) else rawLeft
+        val clampedFillLeft = if (minSafeLeft != null) max(fillLeft, minSafeLeft) else fillLeft
         val fillRight = if (gridResult.rightBorderX != null) min(rawRight, gridResult.rightBorderX - 1) else rawRight
+        val clampedFillRight = if (maxSafeRight != null) min(fillRight, maxSafeRight) else fillRight
         val fillTop = if (gridResult.topBorderY != null) max(rawTop, gridResult.topBorderY + 1) else rawTop
         val fillBottom = if (gridResult.botBorderY != null) min(rawBottom, gridResult.botBorderY - 1) else rawBottom
 
         val fillRect = Rect(
-            min(fillLeft, effectiveTarget.left),
+            min(clampedFillLeft, effectiveTarget.left).coerceAtLeast(minSafeLeft ?: 0),
             min(fillTop, effectiveTarget.top),
-            max(fillRight, effectiveTarget.right),
+            max(clampedFillRight, effectiveTarget.right).coerceAtMost(maxSafeRight ?: width),
             max(fillBottom, effectiveTarget.bottom)
         )
         val patchW = fillRect.width()
