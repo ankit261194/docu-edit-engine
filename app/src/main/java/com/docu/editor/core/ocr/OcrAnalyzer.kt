@@ -113,8 +113,51 @@ class OcrAnalyzer {
                 TextHierarchyLevel.ELEMENT -> {
                     for (block in visionText.textBlocks) {
                         for (line in block.lines) {
-                            for (element in line.elements) {
-                                val bounds = element.boundingBox ?: continue
+                            val rawElements = line.elements.mapNotNull { elem ->
+                                val b = elem.boundingBox ?: return@mapNotNull null
+                                val t = elem.text.trim()
+                                if (t.isEmpty()) return@mapNotNull null
+                                RawOcrElement(
+                                    text = t,
+                                    bounds = Rect(b),
+                                    angle = elem.angle,
+                                    confidence = elem.confidence ?: 1.0f,
+                                    cornerPoints = elem.cornerPoints?.toList() ?: emptyList()
+                                )
+                            }.sortedBy { it.bounds.left }.toMutableList()
+
+                            // Defend against fragmented words (e.g. 'V' + 'EER' = 'VEER'):
+                            // Merge adjacent elements when they form a word in the line text or have a sub-space gap
+                            if (rawElements.size > 1) {
+                                var i = 0
+                                val lineWords = line.text.split(Regex("\\s+")).filter { it.isNotEmpty() }
+                                while (i < rawElements.size - 1) {
+                                    val curr = rawElements[i]
+                                    val next = rawElements[i + 1]
+                                    val gap = next.bounds.left - curr.bounds.right
+                                    val avgH = (curr.bounds.height() + next.bounds.height()) / 2f
+                                    val combined = curr.text + next.text
+
+                                    val isExplicitWordMatch = lineWords.any { it.equals(combined, ignoreCase = true) || it.contains(combined, ignoreCase = true) }
+                                    val isTinyGapFragment = gap <= maxOf(6, (avgH * 0.35f).toInt()) && (curr.text.length <= 2 || next.text.length <= 2)
+
+                                    if (isExplicitWordMatch || isTinyGapFragment) {
+                                        curr.text = combined
+                                        curr.bounds = Rect(
+                                            minOf(curr.bounds.left, next.bounds.left),
+                                            minOf(curr.bounds.top, next.bounds.top),
+                                            maxOf(curr.bounds.right, next.bounds.right),
+                                            maxOf(curr.bounds.bottom, next.bounds.bottom)
+                                        )
+                                        rawElements.removeAt(i + 1)
+                                    } else {
+                                        i++
+                                    }
+                                }
+                            }
+
+                            for (element in rawElements) {
+                                val bounds = element.bounds
                                 val trimmed = element.text.trim()
                                 if (trimmed.isEmpty()) continue
 
@@ -139,7 +182,7 @@ class OcrAnalyzer {
                                                 bounds = wordBounds,
                                                 cornerPoints = emptyList(),
                                                 angle = element.angle,
-                                                confidence = element.confidence ?: 1.0f,
+                                                confidence = element.confidence,
                                                 level = TextHierarchyLevel.ELEMENT
                                             )
                                             results.add(item)
@@ -154,9 +197,9 @@ class OcrAnalyzer {
                                     bitmap = bitmap,
                                     rawText = trimmed,
                                     bounds = bounds,
-                                    cornerPoints = element.cornerPoints?.toList() ?: emptyList(),
+                                    cornerPoints = element.cornerPoints,
                                     angle = element.angle,
-                                    confidence = element.confidence ?: 1.0f,
+                                    confidence = element.confidence,
                                     level = TextHierarchyLevel.ELEMENT
                                 )
                                 results.add(item)
@@ -310,3 +353,11 @@ class OcrAnalyzer {
         latinRecognizer.close()
     }
 }
+
+private data class RawOcrElement(
+    var text: String,
+    var bounds: Rect,
+    val angle: Float,
+    val confidence: Float,
+    val cornerPoints: List<android.graphics.Point>
+)

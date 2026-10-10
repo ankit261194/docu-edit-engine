@@ -1491,20 +1491,22 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
 
                     val nextAdjacentItem = sameLineItems.firstOrNull()
 
-                    val lineBoldCount = allSameLineItems.count {
-                        (it.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM)) ||
-                        it.typography.strokeWidthRatio >= 0.12f ||
-                        it.typography.glyphDensity >= 0.22f ||
-                        it.typography.numericFontWeight >= 600
-                    }
-                    val lineBoldRatio = if (allSameLineItems.isNotEmpty()) lineBoldCount.toFloat() / allSameLineItems.size else 0f
-                    if (lineBoldRatio >= 0.35f) {
-                        effectiveBold = true
-                    } else if (effectiveBold == null) {
-                        effectiveBold = (targetItem.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM)) ||
-                            targetItem.typography.strokeWidthRatio >= 0.12f ||
-                            targetItem.typography.glyphDensity >= 0.22f ||
-                            targetItem.typography.numericFontWeight >= 600
+                    if (effectiveBold == null) {
+                        val lineBoldCount = allSameLineItems.count {
+                            (it.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD)) ||
+                            it.typography.strokeWidthRatio >= 0.18f ||
+                            it.typography.glyphDensity >= 0.28f ||
+                            it.typography.numericFontWeight >= 700
+                        }
+                        val lineBoldRatio = if (allSameLineItems.isNotEmpty()) lineBoldCount.toFloat() / allSameLineItems.size else 0f
+                        effectiveBold = if (lineBoldRatio >= 0.50f) {
+                            true
+                        } else {
+                            (targetItem.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD)) ||
+                                targetItem.typography.strokeWidthRatio >= 0.18f ||
+                                targetItem.typography.glyphDensity >= 0.28f ||
+                                targetItem.typography.numericFontWeight >= 700
+                        }
                     }
 
                     val lineReferenceHeight = if (allSameLineItems.isNotEmpty()) {
@@ -1537,10 +1539,10 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                         }
                     }
 
-                    val effectiveFont = if (lineDominantFont != null) {
-                        lineDominantFont
-                    } else if (fontClassification != null && fontClassification != FontClassification.CALIBRI) {
+                    val effectiveFont = if (fontClassification != null) {
                         fontClassification
+                    } else if (lineDominantFont != null) {
+                        lineDominantFont
                     } else {
                         FontMatcher.classifyFromMetrics(
                             text = targetItem.text,

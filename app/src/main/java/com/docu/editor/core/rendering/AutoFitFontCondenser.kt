@@ -152,9 +152,7 @@ object AutoFitFontCondenser {
         val measuredCapH = refBounds.height().toFloat()
 
         if (measuredCapH > 2f) {
-            val desiredCapH = if (lineReferenceHeightPx != null) {
-                (targetHeight * 0.72f) * sizeMultiplier
-            } else when {
+            val desiredCapH = when {
                 !origHasCapOrAscender && !origHasDescenders -> {
                     (targetHeight * 1.15f) * sizeMultiplier
                 }
@@ -167,7 +165,7 @@ object AutoFitFontCondenser {
                     targetHeight * 0.78f * sizeMultiplier
                 }
                 else -> {
-                    // Cap/Ascender without descenders (e.g. "Doctor", "Invoice", "Total")
+                    // Cap/Ascender without descenders (e.g. "Doctor", "Invoice", "Total", "VEER")
                     targetHeight * 0.95f * sizeMultiplier
                 }
             }

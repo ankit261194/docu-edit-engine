@@ -10,6 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -152,17 +153,17 @@ fun TextEditBottomSheet(
 
     val lineIsBold = sameLineItems.isNotEmpty() && (
         sameLineItems.count {
-            (it.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM)) ||
-            it.typography.strokeWidthRatio >= 0.10f ||
-            it.typography.glyphDensity >= 0.20f ||
-            it.typography.numericFontWeight >= 600
-        }.toFloat() / sameLineItems.size >= 0.40f
+            (it.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD)) ||
+            it.typography.strokeWidthRatio >= 0.18f ||
+            it.typography.glyphDensity >= 0.28f ||
+            it.typography.numericFontWeight >= 700
+        }.toFloat() / sameLineItems.size >= 0.50f
     )
 
-    val itemIsBold = (item.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD, FontWeightEstimate.MEDIUM)) ||
-        item.typography.strokeWidthRatio >= 0.10f ||
-        item.typography.glyphDensity >= 0.20f ||
-        item.typography.numericFontWeight >= 600
+    val itemIsBold = (item.typography.estimatedFontWeight in listOf(FontWeightEstimate.BOLD, FontWeightEstimate.EXTRA_BOLD)) ||
+        item.typography.strokeWidthRatio >= 0.18f ||
+        item.typography.glyphDensity >= 0.28f ||
+        item.typography.numericFontWeight >= 700
 
     val autoDetectedBold = remember(item.id, sameLineItems) {
         if (sameLineItems.isNotEmpty()) lineIsBold else itemIsBold
@@ -196,6 +197,21 @@ fun TextEditBottomSheet(
         isBold = autoDetectedBold
         selectedColorRgb = item.inkColorRgb
         sizeMultiplier = 1.0f
+    }
+
+    // Smart Leftover Character Detection: Detects accidental leftover letters (e.g. 'V' + 'Ankit' = 'VAnkit')
+    val potentialLeftoverChar = remember(editedText.text, item.text) {
+        val orig = item.text.trim()
+        val edited = editedText.text.trim()
+        if (orig.length >= 2 && edited.length >= 2 && edited != orig) {
+            val firstOrigChar = orig.first()
+            if (edited.startsWith(firstOrigChar, ignoreCase = true) && !orig.equals(edited, ignoreCase = true)) {
+                val stripped = edited.substring(1).trim()
+                if (stripped.isNotEmpty() && (stripped.first().isLetter() || stripped.first().isDigit())) {
+                    stripped
+                } else null
+            } else null
+        } else null
     }
 
     // Pro Realism & Camera Photo Tuning States:
@@ -362,6 +378,50 @@ fun TextEditBottomSheet(
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             )
+
+            // Smart Auto-Fix Alert if a leftover character from the original word is detected
+            if (potentialLeftoverChar != null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isDark) Color(0xFF78350F).copy(alpha = 0.5f) else Color(0xFFFEF3C7),
+                    border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Leftover '${item.text.first()}' from original word detected!",
+                                color = if (isDark) Color(0xFFFDE68A) else Color(0xFF92400E),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "Fix '${editedText.text}' -> '$potentialLeftoverChar'",
+                                color = if (isDark) Color(0xFFFDE68A).copy(alpha = 0.8f) else Color(0xFFB45309),
+                                fontSize = 11.sp
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                editedText = TextFieldValue(
+                                    text = potentialLeftoverChar,
+                                    selection = TextRange(potentialLeftoverChar.length)
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Fix to '$potentialLeftoverChar'", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(6.dp))
 

@@ -1,12 +1,12 @@
 {
-  "versionCode": 56,
-  "versionName": "10.9.0",
+  "versionCode": 57,
+  "versionName": "10.9.1",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.9.0 (Cell-Aware Inpainting & Precise Font Matching)",
-  "changelog": "✨ Table Cell-Aware Inpainting & Font Consensus Fixes:\n• Boundary-Aware Table Inpainting: Inpainting now automatically detects table cell grid lines and notebook ruled borders, clamping background synthesis strictly inside cell borders so grid lines are never sliced or damaged.\n• Full Border Reconstruction: Any crossing or adjacent grid lines are cleanly reconstructed across the full bounding span, eliminating broken line artifacts and fake colon marks.\n• True Gray Table Cell Inpainting: Background sampling is constrained to the active table cell and will never cross horizontal borders into adjacent white rows, preserving authentic tinted/gray row backgrounds.\n• Zero-Ghosting Solid Text Eradication: Target word bounding box is 100% solidly masked with 255 alpha to ensure zero remnants or double text, while smooth alpha feathering applies only to the outer margin.\n• Exact Line-Dominant Font Matching: Replaced text strictly respects the dominant font of adjacent words on the same line, matching Arial double-story 'a' on invoice headers and preventing incorrect font fallbacks.",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.0/DocuEdit-v10.9.0-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.0/DocuEdit-v10.9.0-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.0/DocuEdit-v10.9.0-arm64.apk",
-  "apkFileName": "DocuEdit-v10.9.0-arm64.apk",
+  "releaseTitle": "DocuEdit Pro v10.9.1 (Clean Glyph Rendering & Word Replacement Fix)",
+  "changelog": "✨ Clean Typography & Foolproof Word Replacement:\n• Zero Ink-Blob Text Rendering: Switched from FILL_AND_STROKE expansion to pure Paint.Style.FILL vector contours. Eliminates synthetic bold distortion and filled glyph counters in 'A', 'e', 'k', rendering razor-sharp original fonts.\n• Resilient Word Fragment Merging: OCR automatically merges adjacent fragmented elements (e.g. 'V' + 'EER' = 'VEER') on the same line so words are never split into isolated letters.\n• Smart Leftover Character Detection: Intelligent assistant chip alerts you if an accidental leading letter remains (e.g. 'VAnkit') and provides a 1-tap fix to clean text ('Ankit').\n• Strict User Bold Choice: Typography engine strictly honors user bold preferences and avoids forcing false bold on regular camera photo text.\n• Accurate Upper-Case Font Scaling: Calibrated cap-height scaling for clean, true-to-life text replacement without vertical drift or horizontal squishing.",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.1/DocuEdit-v10.9.1-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.1/DocuEdit-v10.9.1-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.1/DocuEdit-v10.9.1-arm64.apk",
+  "apkFileName": "DocuEdit-v10.9.1-arm64.apk",
   "apkSizeMb": 105.4
 }

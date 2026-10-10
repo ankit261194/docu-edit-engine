@@ -69,19 +69,15 @@ class TextRenderer(private val fontMatcher: FontMatcher) {
             matchedFont.typeface
         }
 
+        // Use clean FILL rendering. Never apply FILL_AND_STROKE to standard text,
+        // as stroke expansion distorts glyph counters (filling holes in 'A', 'e', 'o', 'k')
+        // and creates bloated ink-blob artifacts.
+        val needsSyntheticBold = matchedFont.isBold && !baseTypeface.isBold
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG).apply {
             color = solidInk
             typeface = baseTypeface
-            isFakeBoldText = matchedFont.isBold
-            if (matchedFont.isBold) {
-                style = Paint.Style.FILL_AND_STROKE
-                strokeWidth = maxOf(0.75f, ((targetWeight - 500) / 1000f) * 1.2f)
-            } else if (targetWeight >= 650) {
-                style = Paint.Style.FILL_AND_STROKE
-                strokeWidth = ((targetWeight - 500) / 1000f) * 0.8f
-            } else {
-                style = Paint.Style.FILL
-            }
+            isFakeBoldText = needsSyntheticBold
+            style = Paint.Style.FILL
         }
 
         val fitResult = AutoFitFontCondenser.condenseToFit(
