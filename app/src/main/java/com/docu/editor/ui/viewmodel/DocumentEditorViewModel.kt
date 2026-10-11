@@ -2975,6 +2975,31 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
             vDist < h * 1.30f || dy < h * 1.60f
         }
 
+        // CamScanner Smart Touch: If user tapped near an existing word on this line, select & autofetch it
+        if (nearbyLineItems.isNotEmpty()) {
+            val closestItem = nearbyLineItems.minByOrNull { item ->
+                val b = item.boundingBox
+                val ddx = when {
+                    bitmapX < b.left -> b.left - bitmapX
+                    bitmapX > b.right -> bitmapX - b.right
+                    else -> 0f
+                }
+                ddx
+            }
+            if (closestItem != null) {
+                val b = closestItem.boundingBox
+                val ddx = when {
+                    bitmapX < b.left -> b.left - bitmapX
+                    bitmapX > b.right -> bitmapX - b.right
+                    else -> 0f
+                }
+                if (ddx <= 140f) {
+                    selectTextItem(closestItem)
+                    return
+                }
+            }
+        }
+
         val snapTop: Int
         val snapBottom: Int
         val snapHeight: Int
@@ -4902,7 +4927,7 @@ class DocumentEditorViewModel(application: Application) : AndroidViewModel(appli
                     _uiState.update { it.copy(isScanning = true, processingMessage = "Detecting document text...") }
                     val detected = withContext(Dispatchers.Default) {
                         try {
-                            ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.LINE)
+                            ocrAnalyzer.detectTextBlocks(bmp, com.docu.editor.core.ocr.model.TextHierarchyLevel.ELEMENT)
                         } catch (_: Exception) {
                             emptyList()
                         }

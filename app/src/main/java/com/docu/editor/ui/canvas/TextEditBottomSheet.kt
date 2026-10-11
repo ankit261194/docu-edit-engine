@@ -194,12 +194,12 @@ fun TextEditBottomSheet(
         if (sameLineItems.isNotEmpty()) lineIsBold else itemIsBold
     }
 
-    // Full text selection on open: typing instantly replaces the original word cleanly
+    // Autofetched word with cursor placed at the end (preserves word visibility, avoids accidental clear)
     var editedText by remember(item.id) {
         mutableStateOf(
             TextFieldValue(
                 text = item.text,
-                selection = TextRange(0, item.text.length)
+                selection = TextRange(item.text.length)
             )
         )
     }
@@ -212,11 +212,11 @@ fun TextEditBottomSheet(
     var customHue by remember(item.id) { mutableFloatStateOf(0f) }
 
     // Guaranteed Autofetch Synchronization: Whenever the tapped item changes,
-    // immediately re-populate the text, font, weight, and ink color.
+    // immediately re-populate the text, font, weight, and ink color with cursor at the end.
     LaunchedEffect(item.id, item.text) {
         editedText = TextFieldValue(
             text = item.text,
-            selection = TextRange(0, item.text.length)
+            selection = TextRange(item.text.length)
         )
         selectedFontType = autoDetectedClassification
         isBold = autoDetectedBold

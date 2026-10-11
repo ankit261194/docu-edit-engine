@@ -924,18 +924,25 @@ fun DocumentInteractiveCanvas(
                                         }
 
                                         if (!handledBySearch) {
-                                            // 100% Guaranteed High-Precision Word Hit-Testing & Auto-Selection
+                                            // 100% Guaranteed High-Precision Word Hit-Testing & Auto-Selection (CamScanner Grade)
                                             var hitItem: DetectedTextItem? = null
                                             if (currentDetectedItems.isNotEmpty()) {
-                                                // 1. Direct containment: pick the one with the smallest bounding box (most specific word)
-                                                val containingItems = currentDetectedItems.filter { it.boundingBox.contains(docX.toInt(), docY.toInt()) }
+                                                val padX = (16.dp.toPx() / effectiveScale).toInt().coerceAtLeast(10)
+                                                val padY = (14.dp.toPx() / effectiveScale).toInt().coerceAtLeast(10)
+
+                                                // Tier 1: Direct containment with touch padding
+                                                val containingItems = currentDetectedItems.filter { item ->
+                                                    val b = item.boundingBox
+                                                    docX >= b.left - padX && docX <= b.right + padX &&
+                                                    docY >= b.top - padY && docY <= b.bottom + padY
+                                                }
                                                 if (containingItems.isNotEmpty()) {
                                                     hitItem = containingItems.minByOrNull { it.boundingBox.width() * it.boundingBox.height() }
                                                 }
 
-                                                // 2. Proximity snap: If not directly contained, find closest item within snap radius
+                                                // Tier 2: Proximity snap within generous touch radius (60dp)
                                                 if (hitItem == null) {
-                                                    val snapRadiusPx = 36.dp.toPx() / effectiveScale
+                                                    val snapRadiusPx = 60.dp.toPx() / effectiveScale
                                                     var closestDistance = Float.MAX_VALUE
                                                     for (item in currentDetectedItems) {
                                                         val b = item.boundingBox
@@ -949,9 +956,34 @@ fun DocumentInteractiveCanvas(
                                                             docY > b.bottom -> docY - b.bottom
                                                             else -> 0f
                                                         }
-                                                        val dist = kotlin.math.hypot(ddx.toDouble(), ddy.toDouble()).toFloat()
+                                                        // Prioritize horizontal alignment on same line over cross-line distance
+                                                        val dist = kotlin.math.hypot(ddx.toDouble(), (ddy * 1.6).toDouble()).toFloat()
                                                         if (dist <= snapRadiusPx && dist < closestDistance) {
                                                             closestDistance = dist
+                                                            hitItem = item
+                                                        }
+                                                    }
+                                                }
+
+                                                // Tier 3: In TEXT_EDIT mode, snap to closest text on line rather than opening blank box
+                                                if (hitItem == null && activeMode == EditorToolMode.TEXT_EDIT) {
+                                                    val maxFallthroughDist = 120.dp.toPx() / effectiveScale
+                                                    var nearestDist = Float.MAX_VALUE
+                                                    for (item in currentDetectedItems) {
+                                                        val b = item.boundingBox
+                                                        val ddx = when {
+                                                            docX < b.left -> b.left - docX
+                                                            docX > b.right -> docX - b.right
+                                                            else -> 0f
+                                                        }
+                                                        val ddy = when {
+                                                            docY < b.top -> b.top - docY
+                                                            docY > b.bottom -> docY - b.bottom
+                                                            else -> 0f
+                                                        }
+                                                        val dist = kotlin.math.hypot(ddx.toDouble(), (ddy * 1.8).toDouble()).toFloat()
+                                                        if (dist <= maxFallthroughDist && dist < nearestDist) {
+                                                            nearestDist = dist
                                                             hitItem = item
                                                         }
                                                     }
@@ -962,11 +994,12 @@ fun DocumentInteractiveCanvas(
                                                 if (currentSelectedLayerId != null) {
                                                     currentOnSelectLayer(null)
                                                 }
+                                                hapticFeedback.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                                 currentOnTextItemTapped(hitItem)
                                             } else {
                                                 if (currentSelectedLayerId != null) {
                                                     currentOnSelectLayer(null)
-                                                } else if (activeMode == EditorToolMode.TEXT_EDIT || activeMode == EditorToolMode.ADD_TEXT) {
+                                                } else if (activeMode == EditorToolMode.ADD_TEXT || (activeMode == EditorToolMode.TEXT_EDIT && currentDetectedItems.isEmpty())) {
                                                     if (docX in 0f..bitmap.width.toFloat() && docY in 0f..bitmap.height.toFloat()) {
                                                         currentOnInsertTextTouch(docX, docY)
                                                     }
