@@ -1,13 +1,13 @@
 {
-  "versionCode": 64,
-  "versionName": "10.9.8",
+  "versionCode": 65,
+  "versionName": "10.9.9",
   "minSupportedVersion": "1.0.0",
-  "releaseTitle": "DocuEdit Pro v10.9.8 (CamScanner Engine with Hard Boundary Clamping)",
-  "changelog": "✨ CamScanner Zero-Reflow Architecture & Hard Boundary Clamping:\n• Zero-Reflow Engine: Neighboring words are 100% untouched. Neighbor words are never cut, shifted, or erased.\n• Double-Sided Inpainting Boundary Lock: Erasing old words is strictly clamped between left & right neighbors (minSafeLeft & maxSafeRight) with zero bleed-through into adjacent letters.\n• Hard-Limit Auto-Condense: AutoFitFontCondenser guarantees new text never expands beyond available line space.\n• 1-Tap Font Override: 4 direct buttons [Arial (Sans)], [Times (Serif)], [Hindi], [Signature] right above the text box.\n• Live Typeface Text Field: Input field renders live in the selected font in real-time.",
-  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.8/DocuEdit-v10.9.8-arm64.apk",
-  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.8/DocuEdit-v10.9.8-universal.apk",
-  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.8/DocuEdit-v10.9.8-arm64.apk",
-  "apkFileName": "DocuEdit-v10.9.8-arm64.apk",
+  "releaseTitle": "DocuEdit Pro v10.9.9 (Unified Single Text Tool & Anti-Regression Architecture)",
+  "changelog": "✨ Unified CamScanner-Style Single Text Tool:\n• Single Text Tool: Unified Edit Text and Add Text into one seamless Text tool.\n• Tap Word -> Auto-Fetch: Touching any detected word instantly selects and autofetches it into the editor.\n• Tap Blank -> Insert: Touching any blank area instantly opens insertion cursor at that coordinate.\n• Zero Interception: Removed fragmented gesture handlers and overlapping banners.\n• Clean UI: Removed all confusing fake PRO badges.",
+  "apkArm64Url": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.9/DocuEdit-v10.9.9-arm64.apk",
+  "apkUniversalUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.9/DocuEdit-v10.9.9-universal.apk",
+  "apkUrl": "https://github.com/ankit261194/docu-edit-engine/releases/download/v10.9.9/DocuEdit-v10.9.9-arm64.apk",
+  "apkFileName": "DocuEdit-v10.9.9-arm64.apk",
   "apkSizeMb": 105.4
 }
 
